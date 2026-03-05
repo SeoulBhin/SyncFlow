@@ -1,0 +1,94 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+@theme {
+  /* Primary - Muted Blue */
+  --color-primary-50: #f0f4f8;
+  --color-primary-100: #d9e2ec;
+  --color-primary-200: #bcccdc;
+  --color-primary-300: #9fb3c8;
+  --color-primary-400: #829ab1;
+  --color-primary-500: #627d98;
+  --color-primary-600: #486581;
+  --color-primary-700: #334e68;
+  --color-primary-800: #243b53;
+  --color-primary-900: #102a43;
+
+  /* Neutral - Gray */
+  --color-neutral-50: #f7f7f8;
+  --color-neutral-100: #ebeced;
+  --color-neutral-200: #d3d5d9;
+  --color-neutral-300: #b0b4ba;
+  --color-neutral-400: #8b909a;
+  --color-neutral-500: #6b7280;
+  --color-neutral-600: #555b66;
+  --color-neutral-700: #3f4550;
+  --color-neutral-800: #2a2f38;
+  --color-neutral-900: #1a1d24;
+
+  /* Surface */
+  --color-surface: #ffffff;
+  --color-surface-secondary: #f7f7f8;
+  --color-surface-elevated: #ffffff;
+
+  /* Dark surfaces */
+  --color-surface-dark: #1a1d24;
+  --color-surface-dark-secondary: #2a2f38;
+  --color-surface-dark-elevated: #2a2f38;
+
+  /* Accent */
+  --color-accent: #627d98;
+  --color-accent-hover: #486581;
+
+  /* Semantic */
+  --color-success: #27ae60;
+  --color-warning: #f39c12;
+  --color-error: #e74c3c;
+  --color-info: #627d98;
+
+  /* Font Family */
+  --font-sans: 'Pretendard', 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Sidebar */
+  --sidebar-width: 260px;
+  --sidebar-collapsed-width: 60px;
+  --toolbar-height: 48px;
+}
+
+/* Base styles */
+html {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  background-color: var(--color-surface);
+  color: var(--color-neutral-800);
+}
+
+.dark body {
+  background-color: var(--color-surface-dark);
+  color: var(--color-neutral-100);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-300);
+  border-radius: 3px;
+}
+
+.dark ::-webkit-scrollbar-thumb {
+  background: var(--color-neutral-600);
+}
