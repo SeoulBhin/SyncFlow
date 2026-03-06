@@ -47,7 +47,7 @@ export function SocialLoginButtons() {
         <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
       </div>
 
-      {/* 소셜 버튼 */}
+      {/* Google 소셜 로그인 버튼 (준비 중 토스트 표시) */}
       <button
         type="button"
         onClick={handleSocial}
@@ -56,6 +56,7 @@ export function SocialLoginButtons() {
         <GoogleIcon />
         Google로 계속하기
       </button>
+      {/* GitHub 소셜 로그인 버튼 (준비 중 토스트 표시) */}
       <button
         type="button"
         onClick={handleSocial}

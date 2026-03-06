@@ -21,6 +21,7 @@ export function ThemeToggle() {
   const Icon = icons[theme]
 
   return (
+    /* 테마 순환 전환 버튼 (light → dark → system) */
     <button
       onClick={cycle}
       className="rounded-lg p-2 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"

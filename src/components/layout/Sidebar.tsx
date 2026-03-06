@@ -13,6 +13,7 @@ export function Sidebar() {
   if (isMobile) {
     return (
       <>
+        {/* 모바일 오버레이 배경 클릭 시 사이드바 닫기 */}
         {isOpen && (
           <div className="fixed inset-0 z-40 bg-black/40" onClick={() => setOpen(false)} />
         )}
@@ -26,6 +27,7 @@ export function Sidebar() {
             <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
               탐색
             </span>
+            {/* 모바일 사이드바 닫기 버튼 */}
             <button
               onClick={() => setOpen(false)}
               className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-700"
@@ -56,6 +58,7 @@ export function Sidebar() {
             탐색
           </span>
         )}
+        {/* 사이드바 접기/펼치기 토글 버튼 */}
         <button
           onClick={toggleCollapsed}
           className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-700"

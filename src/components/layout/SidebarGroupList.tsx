@@ -14,6 +14,7 @@ export function SidebarGroupList() {
         </p>
       )}
       {MOCK_GROUPS.map((group) => (
+        /* 그룹 선택/해제 토글 버튼 (선택 시 하위 프로젝트 목록 표시) */
         <button
           key={group.id}
           onClick={() => setActiveGroup(activeGroupId === group.id ? null : group.id)}

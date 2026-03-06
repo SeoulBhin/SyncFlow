@@ -41,8 +41,11 @@ export function BottomToolbar() {
   return (
     <div className="fixed right-0 bottom-0 left-0 z-30 flex h-12 items-center justify-between border-t border-neutral-200 bg-surface/90 px-4 backdrop-blur-md dark:border-neutral-700 dark:bg-surface-dark/90">
       <div className="flex items-center gap-1">
+        {/* 음성 채팅 시작 버튼 */}
         <ToolbarButton icon={Mic} label="음성 채팅" showLabel />
+        {/* 화면 공유 시작 버튼 */}
         <ToolbarButton icon={Monitor} label="화면 공유" showLabel />
+        {/* 다른 사용자가 내 화면을 따라오게 하는 Follow Me 버튼 */}
         <ToolbarButton icon={UserCheck} label="Follow Me" />
       </div>
 
@@ -67,6 +70,7 @@ export function BottomToolbar() {
       )}
 
       <div className="flex items-center gap-1">
+        {/* 채팅 패널 열기 버튼 (읽지 않은 메시지 뱃지 표시) */}
         <ToolbarButton icon={MessageSquare} label="채팅" badge={3} showLabel />
       </div>
     </div>

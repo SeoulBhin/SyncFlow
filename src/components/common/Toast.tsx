@@ -31,6 +31,7 @@ export function Toast({ toast }: { toast: ToastType }) {
     >
       <Icon size={20} className="mt-0.5 shrink-0" />
       <p className="flex-1 text-sm text-neutral-700 dark:text-neutral-200">{toast.message}</p>
+      {/* 토스트 알림 닫기 버튼 */}
       <button
         onClick={() => removeToast(toast.id)}
         className="shrink-0 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"

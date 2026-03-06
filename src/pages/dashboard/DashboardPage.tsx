@@ -37,9 +37,11 @@ export function DashboardPage() {
           토스트 테스트
         </h2>
         <div className="flex flex-wrap gap-2">
+          {/* 성공 토스트 알림 테스트 버튼 */}
           <Button size="sm" onClick={() => addToast('success', '작업이 완료되었습니다.')}>
             Success
           </Button>
+          {/* 에러 토스트 알림 테스트 버튼 */}
           <Button
             size="sm"
             variant="danger"
@@ -47,6 +49,7 @@ export function DashboardPage() {
           >
             Error
           </Button>
+          {/* 경고 토스트 알림 테스트 버튼 */}
           <Button
             size="sm"
             variant="secondary"
@@ -54,6 +57,7 @@ export function DashboardPage() {
           >
             Warning
           </Button>
+          {/* 정보 토스트 알림 테스트 버튼 */}
           <Button
             size="sm"
             variant="ghost"

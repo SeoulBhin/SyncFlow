@@ -13,6 +13,7 @@ export function CTASection() {
           팀원을 초대하고 실시간 협업의 새로운 경험을 만들어보세요.
         </p>
         <div className="mt-8">
+          {/* 회원가입 페이지로 이동 */}
           <Link to="/register">
             <Button size="lg">
               무료로 시작하기

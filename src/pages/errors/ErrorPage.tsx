@@ -13,9 +13,11 @@ export function ErrorPage() {
         잠시 후 다시 시도해주세요. 문제가 계속되면 관리자에게 문의하세요.
       </p>
       <div className="flex gap-3">
+        {/* 현재 페이지 새로고침 */}
         <Button variant="secondary" onClick={() => window.location.reload()}>
           새로고침
         </Button>
+        {/* 홈(랜딩) 페이지로 이동 */}
         <Link to="/">
           <Button>홈으로</Button>
         </Link>

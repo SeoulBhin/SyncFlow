@@ -14,6 +14,7 @@ export function SidebarPageTree() {
         페이지
       </p>
       {pages.map((page) => (
+        /* 페이지 선택 버튼 (문서 또는 코드 페이지 열기) */
         <button
           key={page.id}
           className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"

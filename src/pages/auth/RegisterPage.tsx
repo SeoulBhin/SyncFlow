@@ -79,8 +79,9 @@ export function RegisterPage() {
           </p>
         </div>
 
-        {/* 폼 */}
+        {/* 회원가입 폼 (이름/이메일/비밀번호 입력 후 제출) */}
         <form onSubmit={onSubmit} className="space-y-4">
+          {/* 이름 입력 필드 */}
           <Input
             label="이름"
             name="name"
@@ -92,6 +93,7 @@ export function RegisterPage() {
             onBlur={handleBlur}
             error={touched.name ? errors.name : undefined}
           />
+          {/* 이메일 입력 필드 */}
           <Input
             label="이메일"
             name="email"
@@ -103,6 +105,7 @@ export function RegisterPage() {
             onBlur={handleBlur}
             error={touched.email ? errors.email : undefined}
           />
+          {/* 비밀번호 입력 필드 */}
           <Input
             label="비밀번호"
             name="password"
@@ -114,6 +117,7 @@ export function RegisterPage() {
             onBlur={handleBlur}
             error={touched.password ? errors.password : undefined}
           />
+          {/* 비밀번호 확인 입력 필드 */}
           <Input
             label="비밀번호 확인"
             name="confirmPassword"
@@ -126,15 +130,16 @@ export function RegisterPage() {
             error={touched.confirmPassword ? errors.confirmPassword : undefined}
           />
 
+          {/* 회원가입 제출 버튼 */}
           <Button className="w-full" type="submit" disabled={loading}>
             {loading ? '가입 중...' : '회원가입'}
           </Button>
         </form>
 
-        {/* 소셜 로그인 */}
+        {/* 소셜 로그인 (Google, GitHub) */}
         <SocialLoginButtons />
 
-        {/* 로그인 링크 */}
+        {/* 로그인 페이지로 이동 */}
         <p className="text-center text-sm text-neutral-500 dark:text-neutral-400">
           이미 계정이 있으신가요?{' '}
           <Link to="/login" className="text-primary-600 hover:underline dark:text-primary-400">

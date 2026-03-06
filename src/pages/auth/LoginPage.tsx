@@ -69,8 +69,9 @@ export function LoginPage() {
           </p>
         </div>
 
-        {/* 폼 */}
+        {/* 로그인 폼 (이메일/비밀번호 입력 후 제출) */}
         <form onSubmit={onSubmit} className="space-y-4">
+          {/* 이메일 입력 필드 */}
           <Input
             label="이메일"
             name="email"
@@ -82,6 +83,7 @@ export function LoginPage() {
             onBlur={handleBlur}
             error={touched.email ? errors.email : undefined}
           />
+          {/* 비밀번호 입력 필드 */}
           <Input
             label="비밀번호"
             name="password"
@@ -95,6 +97,7 @@ export function LoginPage() {
           />
 
           <div className="flex justify-end">
+            {/* 비밀번호 찾기 (미구현) */}
             <button
               type="button"
               className="text-xs text-primary-600 hover:underline dark:text-primary-400"
@@ -103,15 +106,16 @@ export function LoginPage() {
             </button>
           </div>
 
+          {/* 로그인 제출 버튼 */}
           <Button className="w-full" type="submit" disabled={loading}>
             {loading ? '로그인 중...' : '로그인'}
           </Button>
         </form>
 
-        {/* 소셜 로그인 */}
+        {/* 소셜 로그인 (Google, GitHub) */}
         <SocialLoginButtons />
 
-        {/* 회원가입 링크 */}
+        {/* 회원가입 페이지로 이동 */}
         <p className="text-center text-sm text-neutral-500 dark:text-neutral-400">
           계정이 없으신가요?{' '}
           <Link to="/register" className="text-primary-600 hover:underline dark:text-primary-400">

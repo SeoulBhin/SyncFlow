@@ -15,6 +15,7 @@ export function AppLayout() {
       {/* Top bar */}
       <header className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 bg-surface px-4 dark:border-neutral-700 dark:bg-surface-dark">
         <div className="flex items-center gap-2">
+          {/* 모바일 사이드바 열기 (햄버거 메뉴) */}
           {isMobile && (
             <button
               onClick={toggleOpen}

@@ -15,6 +15,7 @@ export function SidebarProjectList() {
         프로젝트
       </p>
       {projects.map((project) => (
+        /* 프로젝트 선택/해제 토글 버튼 (선택 시 하위 페이지 목록 표시) */
         <button
           key={project.id}
           onClick={() =>

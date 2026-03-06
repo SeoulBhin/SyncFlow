@@ -10,6 +10,7 @@ export function NotFoundPage() {
       <p className="text-neutral-500 dark:text-neutral-400">
         요청하신 페이지를 찾을 수 없습니다.
       </p>
+      {/* 홈(랜딩) 페이지로 이동 */}
       <Link to="/">
         <Button variant="secondary">홈으로 돌아가기</Button>
       </Link>

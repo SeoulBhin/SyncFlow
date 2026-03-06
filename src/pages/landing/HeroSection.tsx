@@ -23,12 +23,14 @@ export function HeroSection() {
       </p>
 
       <div className="mt-10 flex flex-col gap-3 sm:flex-row">
+        {/* 회원가입 페이지로 이동 */}
         <Link to="/register">
           <Button size="lg">
             무료로 시작하기
             <ArrowRight size={18} />
           </Button>
         </Link>
+        {/* 로그인 페이지로 이동 */}
         <Link to="/login">
           <Button variant="secondary" size="lg">
             로그인
