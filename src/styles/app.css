@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "pretendard/dist/web/variable/pretendardvariable-dynamic-subset.css";
 
 @variant dark (&:where(.dark, .dark *));
 
@@ -48,7 +49,7 @@
   --color-info: #627d98;
 
   /* Font Family */
-  --font-sans: 'Pretendard', 'Inter', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+  --font-sans: 'Pretendard Variable', Pretendard, -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
 
   /* Sidebar */
@@ -91,4 +92,228 @@ body {
 
 .dark ::-webkit-scrollbar-thumb {
   background: var(--color-neutral-600);
+}
+
+/* ── TipTap Editor Styles ── */
+.tiptap {
+  outline: none;
+}
+
+.tiptap > * + * {
+  margin-top: 0.75em;
+}
+
+.tiptap h1 {
+  font-size: 1.875rem;
+  font-weight: 700;
+  line-height: 1.3;
+  color: var(--color-neutral-800);
+}
+
+.tiptap h2 {
+  font-size: 1.375rem;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--color-neutral-800);
+  margin-top: 1.5em;
+}
+
+.tiptap h3 {
+  font-size: 1.125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--color-neutral-700);
+  margin-top: 1.25em;
+}
+
+.dark .tiptap h1,
+.dark .tiptap h2 {
+  color: var(--color-neutral-100);
+}
+
+.dark .tiptap h3 {
+  color: var(--color-neutral-200);
+}
+
+.tiptap p {
+  line-height: 1.75;
+  color: var(--color-neutral-700);
+}
+
+.dark .tiptap p {
+  color: var(--color-neutral-300);
+}
+
+.tiptap ul,
+.tiptap ol {
+  padding-left: 1.5em;
+}
+
+.tiptap ul {
+  list-style: disc;
+}
+
+.tiptap ol {
+  list-style: decimal;
+}
+
+.tiptap li {
+  line-height: 1.75;
+  color: var(--color-neutral-700);
+}
+
+.dark .tiptap li {
+  color: var(--color-neutral-300);
+}
+
+.tiptap li > p {
+  margin-top: 0;
+}
+
+.tiptap strong {
+  font-weight: 600;
+}
+
+.tiptap blockquote {
+  border-left: 3px solid var(--color-primary-300);
+  padding-left: 1em;
+  margin-left: 0;
+  color: var(--color-neutral-500);
+  font-style: italic;
+}
+
+.dark .tiptap blockquote {
+  border-left-color: var(--color-primary-600);
+  color: var(--color-neutral-400);
+}
+
+.tiptap hr {
+  border: none;
+  border-top: 1px solid var(--color-neutral-200);
+  margin: 1.5em 0;
+}
+
+.dark .tiptap hr {
+  border-top-color: var(--color-neutral-700);
+}
+
+.tiptap pre {
+  background: var(--color-neutral-900);
+  color: #e5e7eb;
+  border-radius: 0.5rem;
+  padding: 1em 1.25em;
+  font-family: var(--font-mono);
+  font-size: 0.875rem;
+  line-height: 1.6;
+  overflow-x: auto;
+}
+
+.dark .tiptap pre {
+  background: #0f1117;
+}
+
+.tiptap pre code {
+  background: none;
+  padding: 0;
+  font-size: inherit;
+  color: inherit;
+}
+
+.tiptap code {
+  background: var(--color-neutral-100);
+  color: var(--color-primary-700);
+  padding: 0.15em 0.4em;
+  border-radius: 0.25rem;
+  font-family: var(--font-mono);
+  font-size: 0.875em;
+}
+
+.dark .tiptap code {
+  background: var(--color-neutral-800);
+  color: var(--color-primary-300);
+}
+
+.tiptap img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 0.5rem;
+  margin: 1em 0;
+}
+
+.tiptap table {
+  border-collapse: collapse;
+  width: 100%;
+  margin: 1em 0;
+}
+
+.tiptap th,
+.tiptap td {
+  border: 1px solid var(--color-neutral-200);
+  padding: 0.5em 0.75em;
+  text-align: left;
+  font-size: 0.875rem;
+}
+
+.dark .tiptap th,
+.dark .tiptap td {
+  border-color: var(--color-neutral-700);
+}
+
+.tiptap th {
+  background: var(--color-neutral-50);
+  font-weight: 600;
+  color: var(--color-neutral-700);
+}
+
+.dark .tiptap th {
+  background: var(--color-neutral-800);
+  color: var(--color-neutral-200);
+}
+
+.tiptap .is-empty::before {
+  content: attr(data-placeholder);
+  float: left;
+  color: var(--color-neutral-400);
+  pointer-events: none;
+  height: 0;
+}
+
+/* Code block syntax highlighting */
+.tiptap pre .hljs-keyword { color: #c678dd; }
+.tiptap pre .hljs-string { color: #98c379; }
+.tiptap pre .hljs-number { color: #d19a66; }
+.tiptap pre .hljs-comment { color: #5c6370; font-style: italic; }
+.tiptap pre .hljs-built_in { color: #e5c07b; }
+.tiptap pre .hljs-type { color: #e5c07b; }
+.tiptap pre .hljs-function { color: #61afef; }
+.tiptap pre .hljs-title { color: #61afef; }
+.tiptap pre .hljs-attr { color: #d19a66; }
+.tiptap pre .hljs-variable { color: #e06c75; }
+.tiptap pre .hljs-params { color: #abb2bf; }
+
+/* Table resize handle */
+.tiptap .column-resize-handle {
+  position: absolute;
+  right: -2px;
+  top: 0;
+  bottom: -2px;
+  width: 4px;
+  background-color: var(--color-primary-400);
+  pointer-events: none;
+}
+
+.tiptap .tableWrapper {
+  overflow-x: auto;
+}
+
+.tiptap .selectedCell::after {
+  z-index: 2;
+  position: absolute;
+  content: "";
+  left: 0;
+  right: 0;
+  top: 0;
+  bottom: 0;
+  background: rgba(98, 125, 152, 0.15);
+  pointer-events: none;
 }

@@ -23,6 +23,17 @@ function GoogleIcon() {
   )
 }
 
+function KakaoIcon() {
+  return (
+    <svg width="18" height="18" viewBox="0 0 24 24">
+      <path
+        d="M12 3C6.477 3 2 6.463 2 10.691c0 2.724 1.8 5.112 4.508 6.458-.199.742-.72 2.687-.825 3.104-.13.52.19.513.4.373.165-.11 2.627-1.786 3.693-2.51.714.1 1.453.153 2.224.153 5.523 0 10-3.463 10-7.578C22 6.463 17.523 3 12 3z"
+        fill="#191919"
+      />
+    </svg>
+  )
+}
+
 function GitHubIcon() {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" className="fill-current">
@@ -64,6 +75,15 @@ export function SocialLoginButtons() {
       >
         <GitHubIcon />
         GitHub로 계속하기
+      </button>
+      {/* 카카오 소셜 로그인 버튼 (준비 중 토스트 표시) */}
+      <button
+        type="button"
+        onClick={handleSocial}
+        className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-[#FEE500] px-4 py-2.5 text-sm font-medium text-[#191919] transition hover:bg-[#F5DC00]"
+      >
+        <KakaoIcon />
+        카카오로 계속하기
       </button>
     </div>
   )

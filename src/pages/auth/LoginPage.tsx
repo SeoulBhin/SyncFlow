@@ -1,5 +1,6 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
+
 import { LogIn, Mail, Lock } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { Input } from '@/components/auth/Input'
@@ -97,13 +98,13 @@ export function LoginPage() {
           />
 
           <div className="flex justify-end">
-            {/* 비밀번호 찾기 (미구현) */}
-            <button
-              type="button"
+            {/* 비밀번호 재설정 페이지로 이동 */}
+            <Link
+              to="/forgot-password"
               className="text-xs text-primary-600 hover:underline dark:text-primary-400"
             >
               비밀번호 찾기
-            </button>
+            </Link>
           </div>
 
           {/* 로그인 제출 버튼 */}

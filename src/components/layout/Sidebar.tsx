@@ -1,4 +1,5 @@
-import { PanelLeftClose, PanelLeftOpen, X } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, X, MessageSquare, ListTodo } from 'lucide-react'
+import { Link, useLocation } from 'react-router-dom'
 import { cn } from '@/utils/cn'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -9,6 +10,9 @@ import { SidebarPageTree } from './SidebarPageTree'
 export function Sidebar() {
   const { isOpen, isCollapsed, toggleCollapsed, setOpen } = useSidebarStore()
   const isMobile = useMediaQuery('(max-width: 639px)')
+  const location = useLocation()
+  const isMessengerActive = location.pathname === '/messenger'
+  const isTasksActive = location.pathname === '/tasks'
 
   if (isMobile) {
     return (
@@ -36,6 +40,33 @@ export function Sidebar() {
             </button>
           </div>
           <div className="overflow-y-auto p-3" style={{ height: 'calc(100% - 56px)' }}>
+            {/* 메신저 페이지로 이동 (풀사이즈 채팅) */}
+            <Link
+              to="/messenger"
+              onClick={() => setOpen(false)}
+              className={cn(
+                'mb-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                isMessengerActive
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700',
+              )}
+            >
+              <MessageSquare size={16} className="shrink-0" />
+              <span>메신저</span>
+            </Link>
+            <Link
+              to="/tasks"
+              onClick={() => setOpen(false)}
+              className={cn(
+                'mb-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+                isTasksActive
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700',
+              )}
+            >
+              <ListTodo size={16} className="shrink-0" />
+              <span>일정 / 할 일</span>
+            </Link>
             <SidebarGroupList />
             <SidebarProjectList />
             <SidebarPageTree />
@@ -68,6 +99,33 @@ export function Sidebar() {
         </button>
       </div>
       <div className="overflow-y-auto p-3" style={{ height: 'calc(100vh - 56px - 48px)' }}>
+        {/* 메신저 페이지로 이동 (풀사이즈 채팅) */}
+        <Link
+          to="/messenger"
+          className={cn(
+            'mb-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+            isMessengerActive
+              ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+              : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700',
+          )}
+          title="메신저"
+        >
+          <MessageSquare size={16} className="shrink-0" />
+          {!isCollapsed && <span>메신저</span>}
+        </Link>
+        <Link
+          to="/tasks"
+          className={cn(
+            'mb-3 flex w-full items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors',
+            isTasksActive
+              ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+              : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700',
+          )}
+          title="일정 / 할 일"
+        >
+          <ListTodo size={16} className="shrink-0" />
+          {!isCollapsed && <span>일정 / 할 일</span>}
+        </Link>
         <SidebarGroupList />
         {!isCollapsed && (
           <>
