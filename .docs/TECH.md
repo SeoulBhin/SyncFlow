@@ -66,7 +66,7 @@
 | Socket.IO Client | 실시간 통신 | WebSocket |
 | LiveKit Client SDK | 음성 채팅 + 화면 공유 | WebRTC |
 | TailwindCSS | 스타일링 | v4 |
-| Zustand | 상태 관리 | 5, 9개 store |
+| Zustand | 상태 관리 | 5, 11개 store |
 | React Router | 라우팅 | v7 |
 
 ### 백엔드
@@ -472,4 +472,4 @@ npm run dev
 
 ---
 
-*마지막 업데이트: 2026-03-11*
+*마지막 업데이트: 2026-03-18*

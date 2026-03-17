@@ -7,19 +7,21 @@
 
 ## 현재 상태
 
-### 프론트엔드 (완료)
+### 프론트엔드 (95% 완료)
 - React 19 + TypeScript + TailwindCSS v4 + Vite 7.3
-- Zustand 9개 store, React Router v7
-- 모든 UI 50개 항목 목업 데이터로 동작 확인 완료 (100%)
-- 그룹 컨텍스트 시스템: 하단 툴바에서 활성 그룹 선택 → 채팅/음성/화면공유 자동 전환
+- Zustand 11개 store, React Router v7
+- UI 57/60개 항목 목업 데이터로 동작 확인 완료 (95%)
+- Slack 스타일 UI 리팩토링 완료: 통합 사이드바, Cmd+K 검색, 하단 액션바
+- 칸반 커스텀 컬럼(최대 7개), 서브태스크 체크리스트, 액션아이템 리뷰 스크린 구현 완료
+- 미완료 3건: 스레딩 UI(placeholder), 고급 필터(기본만), 작업-소통 연동(미구현)
 
 ### 백엔드 (초기 설정 완료)
 - NestJS 11 프로젝트 (`backend/`)
 - 주요 라이브러리 설치 완료 (TypeORM, JWT, Passport, Socket.IO, LiveKit SDK, Gemini AI, Dockerode, ioredis 등)
-- Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine)
+- Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine) — 정상 구동 확인
 - Vite 프록시: `/api` → `localhost:3000`, `/socket.io` → ws
-- 14개 모듈 폴더 생성 완료
-- **API/기능 구현은 미착수**
+- 14개 모듈 폴더 생성 완료 (전부 비어있음)
+- **API/기능 구현은 미착수** — Hello World만 응답하는 상태
 
 ---
 
@@ -100,7 +102,7 @@
 
 ## Part 6. 코드 에디터 + Docker 실행
 
-> P0
+> ⏸️ **후순위** — 킬러 피처(AI 회의) 및 핵심 기능 구현 후 진행. 프론트 UI는 완료 상태
 
 **프론트 파일**: `CodeEditorPage.tsx`
 
@@ -281,4 +283,4 @@ async login(email: string, password: string) {
 
 ---
 
-*마지막 업데이트: 2026-03-11*
+*마지막 업데이트: 2026-03-18*

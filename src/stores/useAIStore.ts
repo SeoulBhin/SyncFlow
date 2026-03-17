@@ -90,7 +90,7 @@ const MOCK_PROJECTS: ProjectContext[] = [
   {
     id: 'proj1',
     name: 'SyncFlow',
-    groupName: '4학년의 무게',
+    groupName: '2학년의 무게',
     files: MOCK_PROJECT_FILES,
     indexedAt: Date.now() - 1800000,
     isIndexing: false,
@@ -98,7 +98,7 @@ const MOCK_PROJECTS: ProjectContext[] = [
   {
     id: 'proj2',
     name: '발표 자료',
-    groupName: '4학년의 무게',
+    groupName: '2학년의 무게',
     files: [
       { id: 'pf1', name: '발표 스크립트', path: 'docs/발표 스크립트', type: 'document', indexed: true, preview: '안녕하세요, 발표를 시작하겠습니다...' },
       { id: 'pf2', name: '슬라이드 노트', path: 'docs/슬라이드 노트', type: 'document', indexed: true, preview: '슬라이드 1: 프로젝트 소개...' },

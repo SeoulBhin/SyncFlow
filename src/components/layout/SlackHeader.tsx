@@ -1,7 +1,9 @@
+import { useState, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Menu, Sparkles, Search } from 'lucide-react'
 import { ThemeToggle } from '@/components/common/ThemeToggle'
 import { UserMenu } from '@/components/common/UserMenu'
+import { SearchModal } from '@/components/common/SearchModal'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
@@ -12,6 +14,18 @@ export function SlackHeader() {
   const { activePanel, togglePanel } = useDetailPanelStore()
   const isMobile = useMediaQuery('(max-width: 639px)')
   const isAIOpen = activePanel === 'ai'
+  const [isSearchOpen, setIsSearchOpen] = useState(false)
+
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setIsSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handleKeyDown)
+    return () => window.removeEventListener('keydown', handleKeyDown)
+  }, [])
 
   return (
     <header className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 bg-surface px-4 dark:border-neutral-700 dark:bg-surface-dark">
@@ -35,10 +49,13 @@ export function SlackHeader() {
 
       {/* 중앙 검색바 */}
       <div className="hidden max-w-md flex-1 px-8 sm:block">
-        <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-400 transition-colors hover:border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500">
+        <button
+          onClick={() => setIsSearchOpen(true)}
+          className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-400 transition-colors hover:border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500"
+        >
           <Search size={14} />
-          <span className="text-xs">검색... ⌘K</span>
-        </div>
+          <span className="flex-1 text-left text-xs">검색... ⌘K</span>
+        </button>
       </div>
 
       <div className="flex items-center gap-1.5">
@@ -57,6 +74,7 @@ export function SlackHeader() {
         <ThemeToggle />
         <UserMenu />
       </div>
+      <SearchModal isOpen={isSearchOpen} onClose={() => setIsSearchOpen(false)} />
     </header>
   )
 }
