@@ -1,12 +1,5 @@
-import { Users, Layers, Monitor } from 'lucide-react'
 import { Card } from '@/components/common/Card'
 import { FEATURES } from '@/constants'
-
-const iconMap = {
-  Users,
-  Layers,
-  Monitor,
-}
 
 export function FeatureCards() {
   return (
@@ -16,27 +9,24 @@ export function FeatureCards() {
           핵심 기능
         </h2>
         <p className="mt-3 text-neutral-500 dark:text-neutral-400">
-          SyncFlow 하나로 팀 협업의 모든 것을 해결하세요
+          SyncFlow 하나로 회의부터 협업까지 모든 것을 해결하세요
         </p>
       </div>
 
       <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-        {FEATURES.map((feature) => {
-          const Icon = iconMap[feature.icon]
-          return (
-            <Card key={feature.title} hoverable className="flex flex-col items-start gap-4">
-              <div className="rounded-lg bg-primary-50 p-3 dark:bg-primary-900/30">
-                <Icon size={24} className="text-primary-600 dark:text-primary-400" />
-              </div>
-              <h3 className="text-lg font-semibold text-neutral-800 dark:text-neutral-100">
-                {feature.title}
-              </h3>
-              <p className="text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
-                {feature.description}
-              </p>
-            </Card>
-          )
-        })}
+        {FEATURES.map((feature, i) => (
+          <Card key={feature.title} hoverable className="flex flex-col items-start gap-4">
+            <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-50 text-lg font-bold text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
+              {i + 1}
+            </div>
+            <h3 className="text-lg font-semibold text-neutral-800 dark:text-neutral-100">
+              {feature.title}
+            </h3>
+            <p className="text-sm leading-relaxed text-neutral-500 dark:text-neutral-400">
+              {feature.description}
+            </p>
+          </Card>
+        ))}
       </div>
     </section>
   )

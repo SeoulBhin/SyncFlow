@@ -11,17 +11,22 @@
 |--------|------|
 | users | 사용자 정보, 인증, 프로필 |
 | groups | 그룹(워크스페이스) |
-| group_members | 그룹-사용자 관계, 역할 |
+| group_members | 그룹-사용자 관계, 역할 (Owner/Admin/Member/Guest) |
 | invite_codes | 초대 코드 (그룹별) |
 | projects | 프로젝트 |
 | pages | 문서/코드 페이지 |
 | page_versions | 페이지 버전 히스토리 |
-| tasks | 할 일 (제목, 상태, 우선순위, 담당자, 마감일) |
+| tasks | 할 일 (커스텀 상태, 서브태스크, 회의 출처) |
 | schedules | 일정 (시작일, 종료일) |
 | channels | 채팅 채널 (그룹 전체, 프로젝트별, 1:1 DM) |
-| channel_members | 채널-사용자 관계 |
-| messages | 채팅 메시지 |
+| channel_members | 채널-사용자 관계, 권한 오버라이드 |
+| messages | 채팅 메시지 (스레드 지원) |
 | message_reactions | 메시지 이모지 반응 |
+| **meetings** | **회의 세션 (채널 연동, 상태 관리)** |
+| **meeting_participants** | **회의 참석자** |
+| **meeting_transcripts** | **STT 텍스트 (화자별, 타임스탬프)** |
+| **meeting_summaries** | **AI 회의록 (요약, 문서 페이지 연동)** |
+| **meeting_action_items** | **회의 액션 아이템 (확인 후 작업 등록)** |
 | ai_conversations | AI 대화 세션 |
 | ai_messages | AI 대화 메시지 (질문/답변) |
 | embeddings | 문서/코드 벡터 임베딩 (pgvector, 768차원) |
@@ -252,7 +257,7 @@ CREATE TABLE group_members (
   user_id   UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   group_id  UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
   role      VARCHAR(20) NOT NULL DEFAULT 'member'
-            CHECK (role IN ('admin', 'member')),
+            CHECK (role IN ('owner', 'admin', 'member', 'guest')),
   joined_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, group_id)
@@ -321,23 +326,27 @@ CREATE INDEX idx_pv_page ON page_versions(page_id);
 ### tasks
 ```sql
 CREATE TABLE tasks (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title       VARCHAR(300) NOT NULL,
-  description TEXT,
-  status      VARCHAR(20) NOT NULL DEFAULT 'todo'
-              CHECK (status IN ('todo', 'in_progress', 'done')),
-  priority    VARCHAR(10) NOT NULL DEFAULT 'medium'
-              CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
-  assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  due_date    DATE,
-  sort_order  INT NOT NULL DEFAULT 0,
-  created_by  UUID NOT NULL REFERENCES users(id),
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  parent_task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,  -- 서브태스크
+  meeting_id     UUID REFERENCES meetings(id) ON DELETE SET NULL,  -- 회의 출처 추적
+  title          VARCHAR(300) NOT NULL,
+  description    TEXT,
+  status         VARCHAR(30) NOT NULL DEFAULT 'todo',  -- 커스텀 상태 허용 (기본: todo/in_progress/done)
+  priority       VARCHAR(10) NOT NULL DEFAULT 'medium'
+                 CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  assignee_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  start_date     DATE,
+  due_date       DATE,
+  sort_order     INT NOT NULL DEFAULT 0,
+  created_by     UUID NOT NULL REFERENCES users(id),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_tasks_project ON tasks(project_id);
 CREATE INDEX idx_tasks_assignee ON tasks(assignee_id);
+CREATE INDEX idx_tasks_parent ON tasks(parent_task_id);
+CREATE INDEX idx_tasks_meeting ON tasks(meeting_id);
 ```
 
 ### schedules
@@ -372,11 +381,12 @@ CREATE INDEX idx_channels_group ON channels(group_id);
 ### channel_members
 ```sql
 CREATE TABLE channel_members (
-  id           SERIAL PRIMARY KEY,
-  channel_id   UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  last_read_at TIMESTAMPTZ,
-  joined_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id                  SERIAL PRIMARY KEY,
+  channel_id          UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_at        TIMESTAMPTZ,
+  permission_override JSONB,  -- 채널별 권한 오버라이드 (예: {"can_write": false})
+  joined_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (channel_id, user_id)
 );
 ```
@@ -409,6 +419,80 @@ CREATE TABLE message_reactions (
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (message_id, user_id, emoji)
 );
+```
+
+### meetings
+```sql
+CREATE TABLE meetings (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id   UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  title        VARCHAR(300) NOT NULL,
+  status       VARCHAR(20) NOT NULL DEFAULT 'scheduled'
+               CHECK (status IN ('scheduled', 'in_progress', 'ended')),
+  scheduled_at TIMESTAMPTZ,
+  started_at   TIMESTAMPTZ,
+  ended_at     TIMESTAMPTZ,
+  created_by   UUID NOT NULL REFERENCES users(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_meetings_channel ON meetings(channel_id);
+CREATE INDEX idx_meetings_status ON meetings(status);
+```
+
+### meeting_participants
+```sql
+CREATE TABLE meeting_participants (
+  id         SERIAL PRIMARY KEY,
+  meeting_id UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  left_at    TIMESTAMPTZ,
+  UNIQUE (meeting_id, user_id)
+);
+CREATE INDEX idx_mp_meeting ON meeting_participants(meeting_id);
+```
+
+### meeting_transcripts
+```sql
+CREATE TABLE meeting_transcripts (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id   UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  speaker_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+  text         TEXT NOT NULL,
+  timestamp_ms INT NOT NULL,  -- 회의 시작 기준 밀리초 오프셋
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_mt_meeting ON meeting_transcripts(meeting_id, timestamp_ms);
+```
+
+### meeting_summaries
+```sql
+CREATE TABLE meeting_summaries (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id UUID NOT NULL UNIQUE REFERENCES meetings(id) ON DELETE CASCADE,
+  summary    JSONB NOT NULL,  -- { topics: [], decisions: [], attendees: [] }
+  page_id    UUID REFERENCES pages(id) ON DELETE SET NULL,  -- 생성된 문서 페이지
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+### meeting_action_items
+```sql
+CREATE TABLE meeting_action_items (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id  UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  title       VARCHAR(300) NOT NULL,
+  description TEXT,
+  assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  due_date    DATE,
+  task_id     UUID REFERENCES tasks(id) ON DELETE SET NULL,  -- 확인 후 생성된 작업
+  confirmed   BOOLEAN NOT NULL DEFAULT FALSE,  -- 사용자 확인 여부
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_mai_meeting ON meeting_action_items(meeting_id);
 ```
 
 ### ai_conversations
@@ -547,17 +631,25 @@ CREATE INDEX idx_files_page ON file_uploads(page_id);
 | 관계 | 설명 |
 |------|------|
 | users 1:N group_members | 사용자는 여러 그룹에 소속 |
-| groups 1:N group_members | 그룹은 여러 멤버 보유 |
+| groups 1:N group_members | 그룹은 여러 멤버 보유 (Owner/Admin/Member/Guest) |
 | groups 1:N invite_codes | 그룹은 여러 초대 코드 발급 가능 |
 | groups 1:N projects | 그룹 안에 여러 프로젝트 |
 | projects 1:N pages | 프로젝트 안에 여러 페이지 |
 | pages 1:N page_versions | 페이지마다 버전 히스토리 |
 | pages 1:N embeddings | 페이지 내용을 청크별 벡터 저장 |
 | projects 1:N tasks | 프로젝트에 여러 할 일 |
+| tasks 1:N tasks | 서브태스크 (parent_task_id 자기 참조) |
+| meetings 1:N tasks | 회의에서 생성된 작업 (meeting_id) |
 | projects 1:N schedules | 프로젝트에 여러 일정 |
 | groups 1:N channels | 그룹에 여러 채팅 채널 |
 | channels 1:N messages | 채널에 여러 메시지 |
-| channels 1:N channel_members | 채널에 여러 멤버 |
+| messages 1:N messages | 스레드 (parent_id 자기 참조) |
+| channels 1:N channel_members | 채널에 여러 멤버 (권한 오버라이드 JSONB) |
+| channels 1:N meetings | 채널에 여러 회의 세션 |
+| meetings 1:N meeting_participants | 회의에 여러 참석자 |
+| meetings 1:N meeting_transcripts | 회의 STT 텍스트 (화자별) |
+| meetings 1:1 meeting_summaries | 회의당 하나의 AI 요약 |
+| meetings 1:N meeting_action_items | 회의에서 추출된 액션 아이템 |
 | users 1:N oauth_accounts | 사용자에 여러 소셜 계정 연동 |
 | users 1:N ai_conversations | 사용자별 AI 대화 세션 |
 | ai_conversations 1:N ai_messages | 대화에 여러 메시지 |
@@ -649,7 +741,7 @@ CREATE TABLE group_members (
   user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   group_id    UUID NOT NULL REFERENCES groups(id) ON DELETE CASCADE,
   role        VARCHAR(20) NOT NULL DEFAULT 'member'
-              CHECK (role IN ('admin', 'member')),
+              CHECK (role IN ('owner', 'admin', 'member', 'guest')),
   joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (user_id, group_id)
@@ -715,26 +807,30 @@ CREATE TABLE page_versions (
 CREATE INDEX idx_pv_page ON page_versions(page_id);
 
 -- ============================================================
--- 10. tasks
+-- 10. tasks (서브태스크 + 회의 출처 + 커스텀 상태)
 -- ============================================================
 CREATE TABLE tasks (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
-  title       VARCHAR(300) NOT NULL,
-  description TEXT,
-  status      VARCHAR(20) NOT NULL DEFAULT 'todo'
-              CHECK (status IN ('todo', 'in_progress', 'done')),
-  priority    VARCHAR(10) NOT NULL DEFAULT 'medium'
-              CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
-  assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
-  due_date    DATE,
-  sort_order  INT NOT NULL DEFAULT 0,
-  created_by  UUID NOT NULL REFERENCES users(id),
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id             UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  project_id     UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  parent_task_id UUID REFERENCES tasks(id) ON DELETE CASCADE,
+  meeting_id     UUID,  -- FK는 meetings 생성 후 ALTER로 추가
+  title          VARCHAR(300) NOT NULL,
+  description    TEXT,
+  status         VARCHAR(30) NOT NULL DEFAULT 'todo',
+  priority       VARCHAR(10) NOT NULL DEFAULT 'medium'
+                 CHECK (priority IN ('urgent', 'high', 'medium', 'low')),
+  assignee_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  start_date     DATE,
+  due_date       DATE,
+  sort_order     INT NOT NULL DEFAULT 0,
+  created_by     UUID NOT NULL REFERENCES users(id),
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX idx_tasks_project ON tasks(project_id);
 CREATE INDEX idx_tasks_assignee ON tasks(assignee_id);
+CREATE INDEX idx_tasks_parent ON tasks(parent_task_id);
+CREATE INDEX idx_tasks_meeting ON tasks(meeting_id);
 
 -- ============================================================
 -- 11. schedules
@@ -766,14 +862,15 @@ CREATE TABLE channels (
 CREATE INDEX idx_channels_group ON channels(group_id);
 
 -- ============================================================
--- 13. channel_members
+-- 13. channel_members (권한 오버라이드 포함)
 -- ============================================================
 CREATE TABLE channel_members (
-  id           SERIAL PRIMARY KEY,
-  channel_id   UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
-  user_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
-  last_read_at TIMESTAMPTZ,
-  joined_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  id                  SERIAL PRIMARY KEY,
+  channel_id          UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  user_id             UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  last_read_at        TIMESTAMPTZ,
+  permission_override JSONB,
+  joined_at           TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (channel_id, user_id)
 );
 
@@ -921,6 +1018,84 @@ CREATE TABLE file_uploads (
 CREATE INDEX idx_files_page ON file_uploads(page_id);
 
 -- ============================================================
+-- 23. meetings
+-- ============================================================
+CREATE TABLE meetings (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  channel_id   UUID NOT NULL REFERENCES channels(id) ON DELETE CASCADE,
+  title        VARCHAR(300) NOT NULL,
+  status       VARCHAR(20) NOT NULL DEFAULT 'scheduled'
+               CHECK (status IN ('scheduled', 'in_progress', 'ended')),
+  scheduled_at TIMESTAMPTZ,
+  started_at   TIMESTAMPTZ,
+  ended_at     TIMESTAMPTZ,
+  created_by   UUID NOT NULL REFERENCES users(id),
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_meetings_channel ON meetings(channel_id);
+CREATE INDEX idx_meetings_status ON meetings(status);
+
+-- tasks.meeting_id FK 추가
+ALTER TABLE tasks ADD CONSTRAINT fk_tasks_meeting
+  FOREIGN KEY (meeting_id) REFERENCES meetings(id) ON DELETE SET NULL;
+
+-- ============================================================
+-- 24. meeting_participants
+-- ============================================================
+CREATE TABLE meeting_participants (
+  id         SERIAL PRIMARY KEY,
+  meeting_id UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  user_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  joined_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  left_at    TIMESTAMPTZ,
+  UNIQUE (meeting_id, user_id)
+);
+CREATE INDEX idx_mp_meeting ON meeting_participants(meeting_id);
+
+-- ============================================================
+-- 25. meeting_transcripts
+-- ============================================================
+CREATE TABLE meeting_transcripts (
+  id           UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id   UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  speaker_id   UUID REFERENCES users(id) ON DELETE SET NULL,
+  text         TEXT NOT NULL,
+  timestamp_ms INT NOT NULL,
+  created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_mt_meeting ON meeting_transcripts(meeting_id, timestamp_ms);
+
+-- ============================================================
+-- 26. meeting_summaries
+-- ============================================================
+CREATE TABLE meeting_summaries (
+  id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id UUID NOT NULL UNIQUE REFERENCES meetings(id) ON DELETE CASCADE,
+  summary    JSONB NOT NULL,
+  page_id    UUID REFERENCES pages(id) ON DELETE SET NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- ============================================================
+-- 27. meeting_action_items
+-- ============================================================
+CREATE TABLE meeting_action_items (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  meeting_id  UUID NOT NULL REFERENCES meetings(id) ON DELETE CASCADE,
+  title       VARCHAR(300) NOT NULL,
+  description TEXT,
+  assignee_id UUID REFERENCES users(id) ON DELETE SET NULL,
+  due_date    DATE,
+  task_id     UUID REFERENCES tasks(id) ON DELETE SET NULL,
+  confirmed   BOOLEAN NOT NULL DEFAULT FALSE,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX idx_mai_meeting ON meeting_action_items(meeting_id);
+
+-- ============================================================
 -- 초기 데이터: 테스터 계정 (비밀번호: test1234 / bcrypt)
 -- ============================================================
 -- bcrypt hash for 'test1234' (salt rounds: 12)
@@ -940,7 +1115,7 @@ INSERT INTO user_settings (user_id)
   SELECT id FROM users WHERE role = 'tester';
 
 -- ============================================================
--- 완료! 22개 테이블 + 테스터 초기 데이터 생성됨
+-- 완료! 27개 테이블 + 테스터 초기 데이터 생성됨
 -- ============================================================
 ```
 
@@ -948,4 +1123,4 @@ INSERT INTO user_settings (user_id)
 
 ---
 
-*마지막 업데이트: 2026-03-06*
+*마지막 업데이트: 2026-03-11*

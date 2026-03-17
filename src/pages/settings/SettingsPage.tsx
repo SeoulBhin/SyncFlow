@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { Link } from 'react-router-dom'
 import {
-  Settings, Sun, Moon, Monitor, Bell, BellOff, Lock, Link2, Unlink,
+  Settings, Sun, Moon, Monitor, Bell, Lock, Link2, Unlink,
   Trash2, AlertTriangle, Eye, EyeOff, Save, X, Crown, ArrowRight,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
@@ -367,7 +367,7 @@ export function SettingsPage() {
               <p className="text-xs text-neutral-400">현재: <span className="font-medium text-violet-600 dark:text-violet-400">무료</span></p>
             </div>
           </div>
-          <Link to="/billing">
+          <Link to="/app/billing">
             <Button variant="ghost" size="sm">
               플랜 관리 <ArrowRight size={14} />
             </Button>

@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Shield, ShieldCheck, Crown, UserMinus, ChevronDown } from 'lucide-react'
+import { Shield, ShieldCheck, Crown, UserMinus, ChevronDown, Eye } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { type GroupRole, type MockGroupMember } from '@/constants'
 
@@ -13,6 +13,7 @@ const roleConfig: Record<GroupRole, { label: string; icon: typeof Crown; color: 
   owner: { label: '소유자', icon: Crown, color: 'text-yellow-500' },
   admin: { label: '관리자', icon: ShieldCheck, color: 'text-primary-500' },
   member: { label: '멤버', icon: Shield, color: 'text-neutral-400' },
+  guest: { label: '게스트', icon: Eye, color: 'text-orange-400' },
 }
 
 export function MemberPanel({ members, currentUserId = 'u1', currentUserRole = 'owner' }: Props) {
@@ -22,7 +23,7 @@ export function MemberPanel({ members, currentUserId = 'u1', currentUserRole = '
   const isAdmin = currentUserRole === 'owner' || currentUserRole === 'admin'
 
   const sorted = [...members].sort((a, b) => {
-    const order: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2 }
+    const order: Record<GroupRole, number> = { owner: 0, admin: 1, member: 2, guest: 3 }
     return order[a.role] - order[b.role]
   })
 

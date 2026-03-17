@@ -21,10 +21,10 @@ export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: P
 
   const handleSave = () => {
     if (!name.trim()) {
-      addToast('error', '그룹명을 입력해주세요.')
+      addToast('error', '채널명을 입력해주세요.')
       return
     }
-    addToast('success', '그룹 설정이 저장되었습니다. (목업)')
+    addToast('success', '채널 설정이 저장되었습니다. (목업)')
     onClose()
   }
 
@@ -42,7 +42,7 @@ export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: P
   }
 
   const handleDelete = () => {
-    addToast('success', '그룹이 삭제되었습니다. (목업)')
+    addToast('success', '채널이 삭제되었습니다. (목업)')
     setShowDeleteConfirm(false)
     onClose()
   }
@@ -52,16 +52,16 @@ export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: P
       <div className="fixed inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full max-w-md rounded-xl border border-neutral-200 bg-surface p-6 shadow-xl dark:border-neutral-700 dark:bg-surface-dark-elevated">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">그룹 설정</h2>
+          <h2 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">채널 설정</h2>
           <button onClick={onClose} className="rounded-lg p-1 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">
             <X size={18} />
           </button>
         </div>
 
         <div className="space-y-5">
-          {/* 그룹명 변경 */}
+          {/* 채널명 변경 */}
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">그룹명</label>
+            <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">채널명</label>
             <input
               type="text"
               value={name}
@@ -87,11 +87,11 @@ export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: P
             </div>
           </div>
 
-          {/* 그룹 삭제 */}
+          {/* 채널 삭제 */}
           <div className="rounded-lg border border-red-200 p-4 dark:border-red-800/50">
             <h3 className="mb-1 text-sm font-medium text-error">위험 구역</h3>
             <p className="mb-3 text-xs text-neutral-500 dark:text-neutral-400">
-              그룹을 삭제하면 모든 프로젝트와 페이지가 삭제됩니다.
+              채널을 삭제하면 모든 프로젝트와 페이지가 삭제됩니다.
             </p>
             {showDeleteConfirm ? (
               <div className="flex items-center gap-2">
@@ -105,7 +105,7 @@ export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: P
             ) : (
               <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)}>
                 <Trash2 size={14} />
-                그룹 삭제
+                채널 삭제
               </Button>
             )}
           </div>

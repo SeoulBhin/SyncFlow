@@ -34,14 +34,15 @@ interface VoiceChatState {
 }
 
 const MOCK_PARTICIPANTS_BY_GROUP: Record<string, VoiceParticipant[]> = {
-  g1: [
-    { id: 'u1', name: '김테스터', color: 'bg-primary-400', isMuted: false, isSpeaking: true },
-    { id: 'u2', name: '이테스터', color: 'bg-accent', isMuted: false, isSpeaking: false },
-    { id: 'u3', name: '박테스터', color: 'bg-success', isMuted: true, isSpeaking: false },
+  ch1: [
+    { id: 'u1', name: '김민수', color: 'bg-primary-400', isMuted: false, isSpeaking: true },
+    { id: 'u3', name: '이수현', color: 'bg-accent', isMuted: false, isSpeaking: false },
+    { id: 'u4', name: '김하늘', color: 'bg-success', isMuted: true, isSpeaking: false },
   ],
-  g2: [
-    { id: 'u1', name: '김테스터', color: 'bg-primary-400', isMuted: false, isSpeaking: false },
-    { id: 'u8', name: '장테스터', color: 'bg-orange-400', isMuted: false, isSpeaking: true },
+  ch2: [
+    { id: 'u1', name: '김민수', color: 'bg-primary-400', isMuted: false, isSpeaking: false },
+    { id: 'u2', name: '박서준', color: 'bg-accent', isMuted: false, isSpeaking: true },
+    { id: 'u5', name: '정우진', color: 'bg-orange-400', isMuted: false, isSpeaking: false },
   ],
 }
 

@@ -74,7 +74,7 @@ export function UserMenu() {
           <div className="py-1">
             {/* 프로필 관리 페이지로 이동 */}
             <Link
-              to="/profile"
+              to="/app/profile"
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 px-4 py-2 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
             >
@@ -83,7 +83,7 @@ export function UserMenu() {
             </Link>
             {/* 설정 페이지로 이동 */}
             <Link
-              to="/settings"
+              to="/app/settings"
               onClick={() => setOpen(false)}
               className="flex items-center gap-2 px-4 py-2 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
             >

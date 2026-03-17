@@ -57,7 +57,7 @@ function SubscriptionBadge() {
           </span>
         </div>
       </div>
-      <Link to="/billing">
+      <Link to="/app/billing">
         <Button variant="ghost" size="sm">
           플랜 변경
         </Button>
@@ -127,7 +127,7 @@ export function BillingHistoryPage() {
       {/* 헤더 */}
       <div className="mb-6 flex items-center gap-3">
         <Link
-          to="/billing"
+          to="/app/billing"
           className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800"
         >
           <ArrowLeft size={20} />

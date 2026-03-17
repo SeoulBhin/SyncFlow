@@ -352,7 +352,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   reindexProject: () => {
     const project = get().activeProject
     if (!project) return
-    set((s) => ({
+    set((_s) => ({
       activeProject: { ...project, isIndexing: true },
     }))
     // 목업 인덱싱 완료

@@ -9,6 +9,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import type { VoiceParticipant } from '@/stores/useVoiceChatStore'
 
 const MOCK_MICS = [
@@ -158,7 +159,6 @@ export function VoiceChatPanel() {
     speakerVolume,
     selectedMic,
     selectedSpeaker,
-    showPanel,
     connectedGroupName,
     toggleMute,
     disconnect,
@@ -166,8 +166,8 @@ export function VoiceChatPanel() {
     setSpeakerVolume,
     setSelectedMic,
     setSelectedSpeaker,
-    togglePanel,
   } = useVoiceChatStore()
+  const { closePanel } = useDetailPanelStore()
 
   const [showSettings, setShowSettings] = useState(false)
 
@@ -175,10 +175,14 @@ export function VoiceChatPanel() {
     toggleMute()
   }, [toggleMute])
 
-  if (status === 'disconnected' || !showPanel) return null
+  if (status === 'disconnected') return (
+    <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+      음성 채팅에 연결되지 않았습니다
+    </div>
+  )
 
   return (
-    <div className="fixed right-4 bottom-14 z-40 w-72 rounded-xl border border-neutral-200 bg-surface shadow-xl dark:border-neutral-700 dark:bg-surface-dark-elevated">
+    <div className="flex h-full w-full flex-col bg-surface dark:bg-surface-dark">
       {/* 헤더 */}
       <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-700">
         <div className="flex items-center gap-2">
@@ -194,7 +198,7 @@ export function VoiceChatPanel() {
           <span className="text-xs text-neutral-400">{participants.length}명</span>
         </div>
         <button
-          onClick={togglePanel}
+          onClick={closePanel}
           className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
         >
           <X size={14} />
@@ -202,7 +206,7 @@ export function VoiceChatPanel() {
       </div>
 
       {/* 참여자 목록 */}
-      <div className="max-h-48 overflow-y-auto px-2 py-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
         {participants.map((p) => (
           <ParticipantRow key={p.id} p={p} />
         ))}

@@ -6,6 +6,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAIStore } from '@/stores/useAIStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import type { AIMessage, AIConversation, ProjectFile } from '@/stores/useAIStore'
 
 function formatTime(ts: number) {
@@ -83,17 +84,6 @@ function renderInline(text: string) {
     }
     return part
   })
-}
-
-/* ─── 파일 참조 태그 ─── */
-
-function FileRefTag({ name }: { name: string }) {
-  return (
-    <span className="inline-flex items-center gap-0.5 rounded bg-violet-100 px-1.5 py-0.5 text-[11px] font-medium text-violet-700 dark:bg-violet-900/40 dark:text-violet-300">
-      <FileCode size={10} />
-      {name}
-    </span>
-  )
 }
 
 /* ─── 메시지 말풍선 ─── */
@@ -341,10 +331,11 @@ type Tab = 'chat' | 'history' | 'files'
 
 export function AISidePanel() {
   const {
-    isOpen, messages, conversations, activeConversationId, isLoading, usage, activeProject,
-    closePanel, sendMessage, selectConversation, newConversation,
+    messages, conversations, activeConversationId, isLoading, usage, activeProject,
+    sendMessage, selectConversation, newConversation,
     selectedFiles, toggleFileSelection,
   } = useAIStore()
+  const { closePanel } = useDetailPanelStore()
 
   const [input, setInput] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>('chat')
@@ -358,8 +349,8 @@ export function AISidePanel() {
   }, [messages])
 
   useEffect(() => {
-    if (isOpen) inputRef.current?.focus()
-  }, [isOpen])
+    inputRef.current?.focus()
+  }, [])
 
   const handleSend = () => {
     const trimmed = input.trim()
@@ -427,10 +418,8 @@ export function AISidePanel() {
     ]
   }, [activeProject])
 
-  if (!isOpen) return null
-
   return (
-    <div className="fixed top-14 right-0 bottom-12 z-40 flex w-[400px] max-w-full flex-col border-l border-neutral-200 bg-surface shadow-xl dark:border-neutral-700 dark:bg-surface-dark">
+    <div className="flex h-full w-full flex-col bg-surface dark:bg-surface-dark">
       {/* 헤더 */}
       <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-700">
         <div className="flex items-center gap-2">

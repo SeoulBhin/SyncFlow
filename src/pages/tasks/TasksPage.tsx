@@ -9,7 +9,6 @@ import { KanbanBoard } from '@/components/tasks/KanbanBoard'
 import { CalendarView } from '@/components/tasks/CalendarView'
 import { GanttChart } from '@/components/tasks/GanttChart'
 import { ListView } from '@/components/tasks/ListView'
-import { useToastStore } from '@/stores/useToastStore'
 import { MOCK_TASKS, MOCK_MILESTONES } from '@/constants'
 import type { MockTask, TaskStatus } from '@/constants'
 
@@ -23,7 +22,6 @@ const VIEW_TABS: { value: ViewTab; label: string; icon: typeof Columns3 }[] = [
 ]
 
 export function TasksPage() {
-  const addToast = useToastStore((s) => s.addToast)
   const [view, setView] = useState<ViewTab>('kanban')
   const [tasks, setTasks] = useState<MockTask[]>(MOCK_TASKS)
   const [modalOpen, setModalOpen] = useState(false)
@@ -68,9 +66,9 @@ export function TasksPage() {
     setTasks((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const handleStatusChange = useCallback((taskId: string, newStatus: TaskStatus) => {
+  const handleStatusChange = useCallback((taskId: string, newStatus: string) => {
     setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
+      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t)),
     )
   }, [])
 
