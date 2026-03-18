@@ -241,12 +241,16 @@ CREATE INDEX idx_oauth_user ON oauth_accounts(user_id);
 ### groups
 ```sql
 CREATE TABLE groups (
-  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name        VARCHAR(100) NOT NULL,
-  description TEXT,
-  created_by  UUID NOT NULL REFERENCES users(id),
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id                UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name              VARCHAR(100) NOT NULL,
+  description       TEXT,
+  visibility        VARCHAR(10) NOT NULL DEFAULT 'public'
+                    CHECK (visibility IN ('public', 'private')),
+  is_external       BOOLEAN NOT NULL DEFAULT FALSE,
+  connected_org_ids UUID[],           -- 외부 공유 채널: 연결된 조직 ID 배열
+  created_by        UUID NOT NULL REFERENCES users(id),
+  created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 ```
 
@@ -293,6 +297,23 @@ CREATE TABLE projects (
 );
 CREATE INDEX idx_projects_group ON projects(group_id);
 ```
+
+### project_members (프로젝트별 외부 뷰어 초대)
+```sql
+CREATE TABLE project_members (
+  id          SERIAL PRIMARY KEY,
+  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  role        VARCHAR(20) NOT NULL DEFAULT 'viewer'
+              CHECK (role IN ('admin', 'member', 'viewer')),
+  joined_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (project_id, user_id)
+);
+CREATE INDEX idx_pm_project ON project_members(project_id);
+CREATE INDEX idx_pm_user ON project_members(user_id);
+```
+
+> **용도**: 그룹에 참여하지 않은 사용자(예: CTO, PM, 외부 검토자)가 특정 프로젝트만 열람/참여할 수 있도록 한다. 그룹 멤버는 별도 추가 없이 자동 접근.
 
 ### pages
 ```sql
@@ -634,6 +655,7 @@ CREATE INDEX idx_files_page ON file_uploads(page_id);
 | groups 1:N group_members | 그룹은 여러 멤버 보유 (Owner/Admin/Member/Guest) |
 | groups 1:N invite_codes | 그룹은 여러 초대 코드 발급 가능 |
 | groups 1:N projects | 그룹 안에 여러 프로젝트 |
+| projects 1:N project_members | 프로젝트별 외부 뷰어/멤버 초대 (그룹 미참여자도 가능) |
 | projects 1:N pages | 프로젝트 안에 여러 페이지 |
 | pages 1:N page_versions | 페이지마다 버전 히스토리 |
 | pages 1:N embeddings | 페이지 내용을 청크별 벡터 저장 |

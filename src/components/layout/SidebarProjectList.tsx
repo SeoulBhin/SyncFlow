@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ChevronRight, Briefcase, FileText, Code, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
+import { ChevronRight, Briefcase, FileText, Code, Plus, Pencil, Trash2, Check, X, Settings } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useToastStore } from '@/stores/useToastStore'
@@ -15,6 +15,7 @@ export function SidebarProjectList() {
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deletingProjectId, setDeletingProjectId] = useState<string | null>(null)
 
   const projects = MOCK_PROJECTS.filter((p) => p.groupId === activeGroupId)
   if (projects.length === 0) return null
@@ -46,22 +47,61 @@ export function SidebarProjectList() {
           return (
             <div key={project.id}>
               {/* 프로젝트 행 */}
-              <button
-                onClick={() => setActiveProject(isExpanded ? null : project.id)}
-                className={cn(
-                  'flex w-full items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
-                  isExpanded
-                    ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                    : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                )}
-              >
-                <ChevronRight
-                  size={12}
-                  className={cn('shrink-0 transition-transform', isExpanded && 'rotate-90')}
-                />
-                <Briefcase size={14} className="shrink-0" />
-                <span className="flex-1 truncate text-left text-xs">{project.name}</span>
-              </button>
+              {deletingProjectId === project.id ? (
+                <div className="flex items-center gap-1 rounded-lg bg-red-50 px-3 py-1.5 dark:bg-red-900/20">
+                  <span className="flex-1 truncate text-xs text-error">"{project.name}" 삭제?</span>
+                  <button
+                    onClick={() => setDeletingProjectId(null)}
+                    className="rounded p-0.5 text-neutral-400 hover:text-neutral-600"
+                  >
+                    <X size={12} />
+                  </button>
+                  <button
+                    onClick={() => {
+                      addToast('success', `프로젝트 "${project.name}"이(가) 삭제되었습니다. (목업)`)
+                      setDeletingProjectId(null)
+                    }}
+                    className="rounded p-0.5 text-error hover:text-red-700"
+                  >
+                    <Check size={12} />
+                  </button>
+                </div>
+              ) : (
+              <div className="group/proj flex items-center">
+                <button
+                  onClick={() => setActiveProject(isExpanded ? null : project.id)}
+                  className={cn(
+                    'flex flex-1 items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                    isExpanded
+                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                      : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                  )}
+                >
+                  <ChevronRight
+                    size={12}
+                    className={cn('shrink-0 transition-transform', isExpanded && 'rotate-90')}
+                  />
+                  <Briefcase size={14} className="shrink-0" />
+                  <span className="flex-1 truncate text-left text-xs">{project.name}</span>
+                </button>
+                <span className="hidden items-center group-hover/proj:flex">
+                  <button
+                    onClick={() => navigate(`/app/group/${activeGroupId}`)}
+                    className="rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                    title="프로젝트 관리"
+                  >
+                    <Settings size={11} />
+                  </button>
+                  <button
+                    onClick={() => setDeletingProjectId(project.id)}
+                    className="rounded p-0.5 text-neutral-400 hover:text-error"
+                    title="프로젝트 삭제"
+                  >
+                    <Trash2 size={11} />
+                  </button>
+                </span>
+              </div>
+              )}
 
               {/* 펼쳐진 페이지 목록 */}
               {isExpanded && (

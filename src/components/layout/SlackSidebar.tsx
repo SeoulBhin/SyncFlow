@@ -4,7 +4,6 @@ import {
   MessageSquare,
   ListTodo,
   Video,
-  FileText,
   Settings,
   ChevronRight,
   ChevronDown,
@@ -123,7 +122,6 @@ const NAV_ITEMS = [
   { id: 'messages', to: '/app/channel/cc1', icon: MessageSquare, label: '메시지', matchPrefix: '/app/channel' },
   { id: 'tasks', to: '/app/tasks', icon: ListTodo, label: '작업', matchPrefix: '/app/tasks' },
   { id: 'meetings', to: '/app/meetings', icon: Video, label: '회의', matchPrefix: '/app/meetings' },
-  { id: 'pages', to: '/app/editor/pg1', icon: FileText, label: '페이지', matchPrefix: '/app/editor' },
 ]
 
 /* ── 메인 SlackSidebar ── */
