@@ -7,15 +7,23 @@ import {
   MessageCircle,
   X,
   Hash,
+  Reply,
+  CheckSquare,
+  Sparkles,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useChatStore } from '@/stores/useChatStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { useThreadStore } from '@/stores/useThreadStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
+import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
 import {
   MOCK_CHAT_CHANNELS,
   MOCK_DMS,
   MOCK_MESSAGES,
+  MOCK_CHANNELS,
+  MOCK_ORG_MEMBERS,
   EMOJI_LIST,
   MOCK_CHANNEL_MEMBERS,
   type MockMessage,
@@ -32,7 +40,9 @@ const EXTENDED_MOCK_MESSAGES: MockMessage[] = MOCK_MESSAGES.map((msg) => {
 
 export function ChannelView() {
   const { activeChannelId } = useChatStore()
-  const { activeGroupName } = useGroupContextStore()
+  const { activeGroupId, activeGroupName } = useGroupContextStore()
+  const { openThread } = useThreadStore()
+  const { openPanel } = useDetailPanelStore()
   const [message, setMessage] = useState('')
   const [messages, setMessages] = useState<MockMessage[]>(EXTENDED_MOCK_MESSAGES)
   const messagesEndRef = useRef<HTMLDivElement>(null)
@@ -49,6 +59,8 @@ export function ChannelView() {
   const [showTyping, setShowTyping] = useState(false)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
+  const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null)
+
   const groupChannels = MOCK_CHAT_CHANNELS.filter((ch) => ch.channelName === activeGroupName)
   const activeChannel =
     [...groupChannels, ...MOCK_DMS].find((c) => c.id === activeChannelId) ??
@@ -58,7 +70,12 @@ export function ChannelView() {
     (m) => m.channelId === activeChannelId && !m.parentMessageId,
   )
 
-  const filteredMembers = MOCK_CHANNEL_MEMBERS.filter((m) =>
+  const allMentionItems = [
+    { id: 'ai', name: 'AI', position: 'AI 어시스턴트', isAI: true },
+    ...MOCK_CHANNEL_MEMBERS.map((m) => ({ ...m, isAI: false })),
+  ]
+
+  const filteredMembers = allMentionItems.filter((m) =>
     m.name.toLowerCase().includes(mentionFilter),
   )
 
@@ -116,6 +133,26 @@ export function ChannelView() {
     setMessage('')
     setAttachedFiles([])
     simulateTypingIndicator()
+
+    // @AI 멘션 감지 시 mock AI 봇 응답 삽입
+    if (message.includes('@AI') || message.includes('@ai')) {
+      setTimeout(() => {
+        const aiResponse: MockMessage = {
+          id: `ai-${Date.now()}`,
+          channelId: activeChannelId,
+          userId: 'ai-bot',
+          userName: 'AI 어시스턴트',
+          content: '안녕하세요! 질문을 분석하고 있습니다. 프로젝트 문서를 기반으로 답변드리겠습니다. 현재 진행 중인 작업과 관련된 내용을 확인해볼게요.',
+          timestamp: new Date().toLocaleTimeString('ko-KR', {
+            hour: 'numeric',
+            minute: '2-digit',
+            hour12: true,
+          }),
+          isOwn: false,
+        }
+        setMessages((prev) => [...prev, aiResponse])
+      }, 1500)
+    }
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -164,6 +201,16 @@ export function ChannelView() {
   const removeFile = (index: number) => {
     setAttachedFiles((prev) => prev.filter((_, i) => i !== index))
   }
+
+  const handleOpenThread = useCallback((msgId: string) => {
+    openThread(msgId)
+    openPanel('thread')
+  }, [openThread, openPanel])
+
+  const handleCreateTaskFromMessage = useCallback((msg: MockMessage) => {
+    // 메시지 내용으로 작업 생성 알림 (실제 구현에서는 TaskModal 오픈)
+    alert(`작업으로 전환: "${msg.content}"`)
+  }, [])
 
   const { setActiveChannel } = useChatStore()
 
@@ -245,6 +292,9 @@ export function ChannelView() {
       <div className="flex flex-1 flex-col">
       <ChannelHeader />
 
+      {/* 외부 공유 채널 배너 */}
+      {activeGroupId && <ExternalChannelBanner channelId={activeGroupId} />}
+
       {/* 메시지 영역 */}
       <div className="flex-1 overflow-y-auto px-6 py-4">
         {channelMessages.length === 0 ? (
@@ -257,13 +307,62 @@ export function ChannelView() {
         ) : (
           <div className="space-y-3">
             {channelMessages.map((msg) => (
-              <div key={msg.id} className={`flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}>
+              <div
+                key={msg.id}
+                className={`group relative flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
+                onMouseEnter={() => setHoveredMsgId(msg.id)}
+                onMouseLeave={() => setHoveredMsgId(null)}
+              >
+                {/* hover 액션바 */}
+                {hoveredMsgId === msg.id && (
+                  <div
+                    className={cn(
+                      'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-sm dark:border-neutral-700 dark:bg-neutral-800',
+                      msg.isOwn ? 'right-0' : 'left-12',
+                    )}
+                  >
+                    <button
+                      onClick={() => handleOpenThread(msg.id)}
+                      className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-primary-500 dark:hover:bg-neutral-700"
+                      title="답글 달기"
+                    >
+                      <Reply size={14} />
+                    </button>
+                    <button
+                      onClick={() => handleCreateTaskFromMessage(msg)}
+                      className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-violet-500 dark:hover:bg-neutral-700"
+                      title="작업으로 전환"
+                    >
+                      <CheckSquare size={14} />
+                    </button>
+                    <button
+                      className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-amber-500 dark:hover:bg-neutral-700"
+                      title="이모지 반응"
+                    >
+                      <Smile size={14} />
+                    </button>
+                  </div>
+                )}
+
                 <div className={`max-w-[70%]`}>
-                  {!msg.isOwn && (
-                    <p className="mb-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                      {msg.userName}
-                    </p>
-                  )}
+                  {!msg.isOwn && (() => {
+                    const currentChannel = activeGroupId ? MOCK_CHANNELS.find((c) => c.id === activeGroupId) : null
+                    const isExternalChannel = currentChannel?.isExternal
+                    const memberData = isExternalChannel && activeGroupId
+                      ? MOCK_ORG_MEMBERS[activeGroupId]?.find((m: { id: string }) => m.id === msg.userId)
+                      : null
+                    const isExternalMember = memberData?.orgId && memberData.orgId !== 'org1'
+                    return (
+                      <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                        {msg.userName}
+                        {isExternalMember && memberData?.orgName && (
+                          <span className="inline-flex items-center gap-0.5 rounded bg-orange-100 px-1 py-px text-[9px] font-medium text-orange-600 dark:bg-orange-900/30 dark:text-orange-400">
+                            {memberData.orgName}
+                          </span>
+                        )}
+                      </p>
+                    )
+                  })()}
                   <div
                     className={`rounded-2xl px-4 py-2 text-sm ${
                       msg.isOwn
@@ -306,7 +405,10 @@ export function ChannelView() {
                     {msg.isOwn && msg.isRead && <CheckCheck size={10} className="text-primary-400" />}
                     <span>{msg.timestamp}</span>
                     {(msg as MockMessage & { replyCount?: number }).replyCount && (
-                      <button className="flex items-center gap-0.5 text-primary-500 hover:underline">
+                      <button
+                        onClick={() => handleOpenThread(msg.id)}
+                        className="flex items-center gap-0.5 text-primary-500 hover:underline"
+                      >
                         <MessageCircle size={10} />
                         {(msg as MockMessage & { replyCount?: number }).replyCount}개 답글
                       </button>
@@ -369,9 +471,15 @@ export function ChannelView() {
                 onClick={() => insertMention(member.name)}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
               >
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary-100 text-[10px] font-semibold text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">
-                  {member.name[0]}
-                </div>
+                {member.isAI ? (
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-violet-100 text-violet-600 dark:bg-violet-900/40 dark:text-violet-400">
+                    <Sparkles size={12} />
+                  </div>
+                ) : (
+                  <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary-100 text-[10px] font-semibold text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">
+                    {member.name[0]}
+                  </div>
+                )}
                 @{member.name}
               </button>
             ))}

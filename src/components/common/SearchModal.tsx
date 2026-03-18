@@ -12,8 +12,11 @@ import {
   MessageSquare,
   Video,
   ArrowRight,
+  Sparkles,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
+import { useAIStore } from '@/stores/useAIStore'
 import {
   MOCK_CHANNELS,
   MOCK_PROJECTS,
@@ -154,8 +157,19 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
   const navigate = useNavigate()
+  const { openPanel } = useDetailPanelStore()
+  const { openPanel: openAI, sendMessage } = useAIStore()
 
   const searchIndex = useMemo(() => buildSearchIndex(), [])
+
+  // AI 쿼리 감지: ?로 끝나거나 한국어 질문 패턴
+  const isAIQuery = useMemo(() => {
+    const q = query.trim()
+    if (!q) return false
+    if (q.endsWith('?')) return true
+    if (/[해줘알려줘찾아줘뭐야인가요일까요인지]$/.test(q)) return true
+    return false
+  }, [query])
 
   const results = useMemo(() => {
     let filtered = searchIndex
@@ -176,9 +190,11 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
     if (!query.trim()) return filtered.slice(0, 20)
 
     const q = query.toLowerCase()
-    return filtered
+    const matched = filtered
       .filter((r) => r.title.toLowerCase().includes(q) || r.subtitle?.toLowerCase().includes(q))
       .slice(0, 20)
+
+    return matched
   }, [query, category, searchIndex])
 
   const handleSelect = useCallback(
@@ -290,7 +306,33 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
 
         {/* 결과 목록 */}
         <div ref={listRef} className="max-h-[50vh] overflow-y-auto overscroll-contain py-1">
-          {results.length === 0 ? (
+          {/* AI 쿼리 항목 */}
+          {isAIQuery && query.trim() && (
+            <button
+              onClick={() => {
+                openPanel('ai')
+                openAI()
+                sendMessage(query.trim())
+                onClose()
+              }}
+              className="flex w-full items-center gap-3 border-b border-violet-100 bg-violet-50/50 px-4 py-3 text-left transition-colors hover:bg-violet-50 dark:border-violet-900 dark:bg-violet-900/10 dark:hover:bg-violet-900/20"
+            >
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-violet-100 dark:bg-violet-900/30">
+                <Sparkles size={16} className="text-violet-500" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-medium text-violet-700 dark:text-violet-300">
+                  AI에게 질문하기
+                </p>
+                <p className="truncate text-xs text-violet-500 dark:text-violet-400">
+                  &quot;{query}&quot;
+                </p>
+              </div>
+              <ArrowRight size={14} className="shrink-0 text-violet-400" />
+            </button>
+          )}
+
+          {results.length === 0 && !isAIQuery ? (
             <div className="flex flex-col items-center gap-2 py-12 text-neutral-400">
               <Search size={32} />
               <p className="text-sm">

@@ -3,6 +3,8 @@ import { X, Save, Trash2, AlertTriangle, CheckSquare, Square, Plus } from 'lucid
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
 import { useToastStore } from '@/stores/useToastStore'
+import { useCustomFieldStore } from '@/stores/useCustomFieldStore'
+import { CustomFieldEditor } from './CustomFieldEditor'
 import type { TaskPriority, TaskStatus, MockTask } from '@/constants'
 import { MOCK_CHANNEL_MEMBERS } from '@/constants'
 
@@ -61,6 +63,8 @@ interface TaskModalProps {
 export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModalProps) {
   const addToast = useToastStore((s) => s.addToast)
 
+  const { fields: customFields, getTaskFieldValues, setFieldValue } = useCustomFieldStore()
+
   /* ── 폼 상태 ── */
   const [form, setForm] = useState({
     title: '',
@@ -69,6 +73,8 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
     priority: 'normal' as TaskPriority,
     assigneeId: '',
     assigneeName: '',
+    assigneeIds: [] as string[],
+    assigneeNames: [] as string[],
     dueDate: '',
     startDate: '',
     projectName: 'SyncFlow v2',
@@ -92,6 +98,8 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
         priority: task.priority,
         assigneeId: task.assigneeId,
         assigneeName: task.assigneeName,
+        assigneeIds: task.assigneeIds ?? [],
+        assigneeNames: task.assigneeNames ?? [],
         dueDate: task.dueDate,
         startDate: task.startDate,
         projectName: task.projectName,
@@ -107,6 +115,8 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
         priority: 'normal',
         assigneeId: '',
         assigneeName: '',
+        assigneeIds: [],
+        assigneeNames: [],
         dueDate: '',
         startDate: '',
         projectName: 'SyncFlow v2',
@@ -332,6 +342,56 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
             </select>
           </div>
 
+          {/* 다중 담당자 */}
+          <div>
+            <label className="mb-1 block text-sm font-medium text-neutral-700 dark:text-neutral-300">추가 담당자</label>
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              {form.assigneeNames.map((name, i) => (
+                <span
+                  key={i}
+                  className="inline-flex items-center gap-1 rounded-full bg-primary-50 px-2.5 py-0.5 text-xs font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300"
+                >
+                  <span className="flex h-4 w-4 items-center justify-center rounded-full bg-primary-200 text-[8px] font-bold text-primary-700 dark:bg-primary-800 dark:text-primary-300">
+                    {name[0]}
+                  </span>
+                  {name}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setForm((s) => ({
+                        ...s,
+                        assigneeIds: s.assigneeIds.filter((_, idx) => idx !== i),
+                        assigneeNames: s.assigneeNames.filter((_, idx) => idx !== i),
+                      }))
+                    }}
+                    className="ml-0.5 text-primary-400 hover:text-primary-600"
+                  >
+                    <X size={10} />
+                  </button>
+                </span>
+              ))}
+            </div>
+            <select
+              value=""
+              onChange={(e) => {
+                const member = MOCK_CHANNEL_MEMBERS.find((m) => m.id === e.target.value)
+                if (member && !form.assigneeIds.includes(member.id)) {
+                  setForm((s) => ({
+                    ...s,
+                    assigneeIds: [...s.assigneeIds, member.id],
+                    assigneeNames: [...s.assigneeNames, member.name],
+                  }))
+                }
+              }}
+              className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-neutral-800 dark:focus:ring-primary-900"
+            >
+              <option value="">담당자 추가</option>
+              {MOCK_CHANNEL_MEMBERS.filter((m) => !form.assigneeIds.includes(m.id)).map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+
           {/* 날짜 선택 (시작일 / 마감일) */}
           <div className="grid grid-cols-2 gap-3">
             {/* 시작일 입력 */}
@@ -361,6 +421,31 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
               {errors.dueDate && <p className="mt-1 text-xs text-red-500">{errors.dueDate}</p>}
             </div>
           </div>
+
+          {/* ── 커스텀 필드 섹션 ── */}
+          {task && (
+            <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
+              <p className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">커스텀 필드</p>
+              <div className="space-y-3">
+                {customFields.map((cf) => {
+                  const taskValues = getTaskFieldValues(task.id)
+                  const fieldValue = taskValues.find((v) => v.fieldId === cf.id)
+                  return (
+                    <div key={cf.id}>
+                      <label className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                        {cf.name}
+                      </label>
+                      <CustomFieldEditor
+                        field={cf}
+                        value={fieldValue?.value ?? null}
+                        onChange={(val) => setFieldValue(task.id, cf.id, val)}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          )}
 
           {/* ── 서브태스크 섹션 ── */}
           <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">

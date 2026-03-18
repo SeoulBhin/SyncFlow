@@ -77,6 +77,10 @@ export function TasksPage() {
     setModalOpen(true)
   }, [])
 
+  const handleQuickUpdate = useCallback((taskId: string, updates: Partial<MockTask>) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)))
+  }, [])
+
   // 통계 (필터 적용)
   const totalTasks = filteredTasks.length
   const doneTasks = filteredTasks.filter((t) => t.status === 'done').length
@@ -155,38 +159,49 @@ export function TasksPage() {
         </div>
       </div>
 
-      {/* 뷰 컨텐츠 */}
-      {view === 'kanban' && (
-        <KanbanBoard
-          tasks={filteredTasks}
-          onTaskClick={openEdit}
-          onStatusChange={handleStatusChange}
-          onAddTask={openCreate}
-        />
-      )}
+      {/* 뷰 컨텐츠 — 전환 애니메이션 */}
+      <div
+        key={view}
+        className="animate-[viewFadeIn_300ms_ease-out]"
+        style={{
+          // @ts-expect-error -- inline keyframe fallback
+          '--tw-enter-opacity': '0',
+          '--tw-enter-translate-y': '8px',
+        }}
+      >
+        {view === 'kanban' && (
+          <KanbanBoard
+            tasks={filteredTasks}
+            onTaskClick={openEdit}
+            onStatusChange={handleStatusChange}
+            onAddTask={openCreate}
+            onQuickUpdate={handleQuickUpdate}
+          />
+        )}
 
-      {view === 'calendar' && (
-        <CalendarView
-          tasks={filteredTasks}
-          onTaskClick={openEdit}
-          onDateClick={handleDateClick}
-        />
-      )}
+        {view === 'calendar' && (
+          <CalendarView
+            tasks={filteredTasks}
+            onTaskClick={openEdit}
+            onDateClick={handleDateClick}
+          />
+        )}
 
-      {view === 'gantt' && (
-        <GanttChart
-          tasks={filteredTasks}
-          onTaskClick={openEdit}
-        />
-      )}
+        {view === 'gantt' && (
+          <GanttChart
+            tasks={filteredTasks}
+            onTaskClick={openEdit}
+          />
+        )}
 
-      {view === 'list' && (
-        <ListView
-          tasks={filteredTasks}
-          milestones={MOCK_MILESTONES}
-          onTaskClick={openEdit}
-        />
-      )}
+        {view === 'list' && (
+          <ListView
+            tasks={filteredTasks}
+            milestones={MOCK_MILESTONES}
+            onTaskClick={openEdit}
+          />
+        )}
+      </div>
 
       {/* 할 일 모달 */}
       <TaskModal

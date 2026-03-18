@@ -2,6 +2,7 @@ import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { AISidePanel } from '@/components/ai/AISidePanel'
 import { VoiceChatPanel } from '@/components/voice-chat/VoiceChatPanel'
 import { ScreenSharePanel } from '@/components/screen-share/ScreenSharePanel'
+import { ThreadPanel } from '@/components/thread/ThreadPanel'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 export function DetailPanel() {
@@ -25,11 +26,7 @@ export function DetailPanel() {
           </div>
         )
       case 'thread':
-        return (
-          <div className="flex h-full items-center justify-center text-sm text-neutral-400">
-            스레드 패널 (준비 중)
-          </div>
-        )
+        return <ThreadPanel />
       default:
         return null
     }

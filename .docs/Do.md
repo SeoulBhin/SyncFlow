@@ -7,13 +7,19 @@
 
 ## 현재 상태
 
-### 프론트엔드 (95% 완료)
+### 프론트엔드 (98% 완료)
 - React 19 + TypeScript + TailwindCSS v4 + Vite 7.3
-- Zustand 11개 store, React Router v7
-- UI 57/60개 항목 목업 데이터로 동작 확인 완료 (95%)
+- Zustand 13개 store (useThreadStore, useCustomFieldStore 추가), React Router v7
+- UI 83/84개 항목 목업 데이터로 동작 확인 완료 (99%)
 - Slack 스타일 UI 리팩토링 완료: 통합 사이드바, Cmd+K 검색, 하단 액션바
 - 칸반 커스텀 컬럼(최대 7개), 서브태스크 체크리스트, 액션아이템 리뷰 스크린 구현 완료
-- 미완료 3건: 스레딩 UI(placeholder), 고급 필터(기본만), 작업-소통 연동(미구현)
+- 칸반 퀵액션 (인라인 편집, 커버 컬러, 빈 보드 가이드) 완료
+- 커스텀 필드 (6종 타입, 리스트뷰 동적 컬럼, 모달 편집, 다중 담당자) 완료
+- 스레딩 UI (ThreadPanel, hover 액션바, 답글 달기) 완료
+- AI 통합 (Cmd+K AI 감지, @AI 봇 응답, 제안 칩, 컨텍스트 배너) 완료
+- 문서 블록 시스템 (슬래시 커맨드 13종, 콜아웃/토글 커스텀 노드) 완료
+- 외부 조직 공유 채널 (Slack Connect 방식: 초대 모달, 조직 배지, 멤버 그룹핑) 완료
+- 미완료 1건: 고급 필터(기본만)
 
 ### 백엔드 (초기 설정 완료)
 - NestJS 11 프로젝트 (`backend/`)
@@ -127,6 +133,8 @@
 - 회의 출처: tasks.meeting_id → "회의에서 생성" 배지
 - 칸반 드래그: `PUT /api/tasks/:id/status` + `PUT /api/tasks/:id/reorder`
 - 고급 필터: assignee, priority, date range, keyword 복합 쿼리
+- **커스텀 필드**: custom_field_definitions 테이블 (id, name, type, options JSONB) + custom_field_values 테이블 (task_id, field_id, value JSONB) 추가 필요
+- **다중 담당자**: task_assignees 조인 테이블 (task_id, user_id) 추가 필요
 
 ---
 
@@ -134,14 +142,20 @@
 
 > P0
 
-**프론트 파일**: `MessengerPage.tsx`, `ChatPopup.tsx`
+**프론트 파일**: `ChannelView.tsx`, `ThreadPanel.tsx`, `useThreadStore.ts`
+
+**프론트엔드 스레드 UI 완료 상태**:
+- ThreadPanel 컴포넌트: 부모 메시지 강조 + 답글 목록 + 답글 입력 (Enter 전송)
+- 메시지 hover 액션바: 답글 달기, 작업으로 전환, 이모지 반응
+- "N개 답글" 클릭 → DetailPanel 스레드 모드 오픈
+- @AI 멘션 시 mock AI 봇 응답 (1.5초 딜레이)
 
 **핵심 구현 사항**:
 - 스레드: messages.parent_message_id, `GET /api/messages/:id/thread`
 - 채널 목록: groupId 파라미터로 필터, DM은 그룹 무관
 - cursor 기반 페이지네이션 (messages.created_at 역순)
 - Socket.IO: `chat:message`, `chat:typing`, `chat:read`, `chat:reaction`
-- 작업 연동: #작업명 파싱 → 작업 카드 임베드, 메시지 우클릭 → 작업 생성
+- 작업 연동: #작업명 파싱 → 작업 카드 임베드, 메시지→작업 전환 API
 
 ---
 
@@ -190,7 +204,13 @@
 
 > P0
 
-**프론트 파일**: `AISidePanel.tsx`, `useAIStore.ts`
+**프론트 파일**: `AISidePanel.tsx`, `useAIStore.ts`, `AIContextBanner.tsx`, `SearchModal.tsx`
+
+**프론트엔드 인라인 AI 완료 상태**:
+- Cmd+K 검색에서 AI 질문 패턴 감지 → "AI에게 질문하기" 1순위 표시
+- @AI 채널 멘션 시 mock 봇 응답
+- AI 패널 제안 칩 ("이 문서 요약해줘" 등)
+- AIContextBanner: 회의 종료 시 "회의록 생성할까요?" 배너
 
 **핵심 구현 사항 (3 Phase)**:
 
@@ -198,6 +218,7 @@
 1. `POST /api/ai/chat` → Gemini API + SSE 스트리밍
 2. ai_conversations, ai_messages CRUD
 3. 사용자별 사용량 추적 (일일/월간)
+4. **인라인 AI 엔드포인트 추가**: `POST /api/ai/inline-query` — Cmd+K에서 직접 질문, @AI 채널 멘션 응답
 
 **Phase 2 — RAG**:
 4. 벡터 임베딩: 문서/코드 저장 시 청킹 → Embedding API → pgvector

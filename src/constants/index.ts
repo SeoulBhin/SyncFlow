@@ -41,6 +41,8 @@ export interface MockChannel {
   name: string
   description: string
   isExternal?: boolean
+  /** 외부 공유 채널: 연결된 조직 ID 목록 */
+  connectedOrgIds?: string[]
   memberCount: number
   lastActivity: string
 }
@@ -49,7 +51,7 @@ export const MOCK_CHANNELS: MockChannel[] = [
   { id: 'ch1', orgId: 'org1', name: '마케팅전략', description: '마케팅팀 채널', memberCount: 8, lastActivity: '10분 전' },
   { id: 'ch2', orgId: 'org1', name: '기술개발TF', description: '신규 제품 개발 태스크포스', memberCount: 12, lastActivity: '방금' },
   { id: 'ch3', orgId: 'org1', name: '경영기획', description: '경영 전략 및 기획', memberCount: 6, lastActivity: '1시간 전' },
-  { id: 'ch4', orgId: 'org1', name: '외부협력-블루웨이브', description: '블루웨이브 마케팅과의 협업 채널', isExternal: true, memberCount: 5, lastActivity: '3시간 전' },
+  { id: 'ch4', orgId: 'org1', name: '외부협력-블루웨이브', description: '블루웨이브 마케팅과의 협업 채널', isExternal: true, connectedOrgIds: ['org1', 'org2'], memberCount: 5, lastActivity: '3시간 전' },
   { id: 'ch5', orgId: 'org2', name: '크리에이티브', description: '콘텐츠 기획·제작', memberCount: 7, lastActivity: '30분 전' },
   { id: 'ch6', orgId: 'org2', name: '퍼포먼스', description: '퍼포먼스 마케팅 운영', memberCount: 5, lastActivity: '2시간 전' },
 ]
@@ -192,6 +194,47 @@ export const MOCK_MESSAGES: MockMessage[] = [
   { id: 'm14', channelId: 'dm1', userId: 'u2', userName: '박서준', content: '감사합니다!', timestamp: '오후 4:16', isOwn: false, reactions: [{ emoji: '❤️', users: ['u1'] }] },
 ]
 
+/* ── 스레드 답글 목업 데이터 ── */
+
+export const MOCK_THREAD_REPLIES: MockMessage[] = [
+  { id: 'tr1', channelId: 'cc1', userId: 'u1', userName: '김민수', content: '어떤 보고서인지 확인해볼게요.', timestamp: '오후 2:32', isOwn: true, parentMessageId: 'm1' },
+  { id: 'tr2', channelId: 'cc1', userId: 'u4', userName: '김하늘', content: '저도 크리에이티브 파트 확인 중이에요.', timestamp: '오후 2:35', isOwn: false, parentMessageId: 'm1' },
+  { id: 'tr3', channelId: 'cc1', userId: 'u3', userName: '이수현', content: '감사합니다! 오늘 중으로 반영해주시면 좋겠습니다.', timestamp: '오후 2:40', isOwn: false, parentMessageId: 'm1' },
+  { id: 'tr4', channelId: 'cc2', userId: 'u1', userName: '김민수', content: '결제 모듈 부분 코멘트 남겼습니다. 확인 부탁드려요.', timestamp: '오후 1:20', isOwn: true, parentMessageId: 'm7' },
+  { id: 'tr5', channelId: 'cc2', userId: 'u5', userName: '정우진', content: '테스트 커버리지 80% 넘었습니다!', timestamp: '오후 1:25', isOwn: false, parentMessageId: 'm7' },
+]
+
+/* ── 회의록 템플릿 ── */
+
+export const MEETING_NOTES_TEMPLATE = `<h1>회의록</h1>
+<p><strong>일시:</strong> 2026년 3월 18일</p>
+<p><strong>참석자:</strong> </p>
+<p><strong>장소:</strong> </p>
+
+<h2>안건</h2>
+<ul>
+  <li>안건 1</li>
+  <li>안건 2</li>
+</ul>
+
+<h2>논의 내용</h2>
+<p>회의에서 논의된 내용을 기록합니다.</p>
+
+<h2>결정 사항</h2>
+<ul>
+  <li>결정 1</li>
+</ul>
+
+<h2>액션 아이템</h2>
+<ul>
+  <li><strong>[담당자]</strong> — 내용 (마감: YYYY-MM-DD)</li>
+</ul>
+
+<h2>다음 회의</h2>
+<p>일시: </p>
+<p>안건: </p>
+`
+
 /* ── 조직 멤버 ── */
 
 export type OrgRole = 'owner' | 'admin' | 'member' | 'guest'
@@ -204,6 +247,10 @@ export interface MockOrgMember {
   role: OrgRole
   isOnline: boolean
   avatar?: string
+  /** 소속 조직 ID (외부 공유 채널에서 조직 구분용) */
+  orgId?: string
+  /** 소속 조직 이름 */
+  orgName?: string
 }
 
 export const MOCK_ORG_MEMBERS: Record<string, MockOrgMember[]> = {
@@ -221,9 +268,11 @@ export const MOCK_ORG_MEMBERS: Record<string, MockOrgMember[]> = {
     { id: 'u7', name: '윤서아', email: 'seoa.yoon@technova.co.kr', position: 'QA 엔지니어', role: 'member', isOnline: false },
   ],
   ch4: [
-    { id: 'u1', name: '김민수', email: 'minsu.kim@technova.co.kr', position: 'CTO', role: 'admin', isOnline: true },
-    { id: 'u8', name: '한지민', email: 'jimin.han@bluewave.kr', position: '디지털 마케팅 팀장', role: 'guest', isOnline: true },
-    { id: 'u9', name: '오승호', email: 'seungho.oh@bluewave.kr', position: '콘텐츠 디렉터', role: 'guest', isOnline: false },
+    { id: 'u1', name: '김민수', email: 'minsu.kim@technova.co.kr', position: 'CTO', role: 'admin', isOnline: true, orgId: 'org1', orgName: '테크노바' },
+    { id: 'u3', name: '이수현', email: 'suhyun.lee@technova.co.kr', position: '마케팅 매니저', role: 'member', isOnline: true, orgId: 'org1', orgName: '테크노바' },
+    { id: 'u8', name: '한지민', email: 'jimin.han@bluewave.kr', position: '디지털 마케팅 팀장', role: 'guest', isOnline: true, orgId: 'org2', orgName: '블루웨이브' },
+    { id: 'u9', name: '오승호', email: 'seungho.oh@bluewave.kr', position: '콘텐츠 디렉터', role: 'guest', isOnline: false, orgId: 'org2', orgName: '블루웨이브' },
+    { id: 'u10', name: '최서영', email: 'seoyoung.choi@bluewave.kr', position: '그래픽 디자이너', role: 'guest', isOnline: true, orgId: 'org2', orgName: '블루웨이브' },
   ],
 }
 
@@ -398,6 +447,74 @@ int main() {
 
 /* ── 할 일/일정 관리 확장 목업 데이터 ── */
 
+/* ── 커스텀 필드 타입 ── */
+
+export type CustomFieldType = 'text' | 'number' | 'select' | 'date' | 'person' | 'progress'
+
+export interface CustomFieldDefinition {
+  id: string
+  name: string
+  type: CustomFieldType
+  options?: { label: string; color: string }[]
+}
+
+export interface CustomFieldValue {
+  fieldId: string
+  value: string | number | string[] | null
+}
+
+export const MOCK_CUSTOM_FIELD_DEFINITIONS: CustomFieldDefinition[] = [
+  {
+    id: 'cf1',
+    name: '카테고리',
+    type: 'select',
+    options: [
+      { label: '프론트엔드', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+      { label: '백엔드', color: 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400' },
+      { label: '디자인', color: 'bg-pink-100 text-pink-700 dark:bg-pink-900/30 dark:text-pink-400' },
+      { label: '기획', color: 'bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400' },
+    ],
+  },
+  { id: 'cf2', name: '진행률', type: 'progress' },
+  { id: 'cf3', name: '스프린트', type: 'text' },
+  { id: 'cf4', name: '스토리 포인트', type: 'number' },
+]
+
+export const MOCK_CUSTOM_FIELD_VALUES: Record<string, CustomFieldValue[]> = {
+  t1: [
+    { fieldId: 'cf1', value: '프론트엔드' },
+    { fieldId: 'cf2', value: 65 },
+    { fieldId: 'cf3', value: 'Sprint 3' },
+    { fieldId: 'cf4', value: 5 },
+  ],
+  t2: [
+    { fieldId: 'cf1', value: '기획' },
+    { fieldId: 'cf2', value: 20 },
+    { fieldId: 'cf3', value: 'Sprint 3' },
+    { fieldId: 'cf4', value: 3 },
+  ],
+  t3: [
+    { fieldId: 'cf1', value: '백엔드' },
+    { fieldId: 'cf2', value: 0 },
+    { fieldId: 'cf3', value: 'Sprint 4' },
+    { fieldId: 'cf4', value: 8 },
+  ],
+  t5: [
+    { fieldId: 'cf1', value: '디자인' },
+    { fieldId: 'cf2', value: 40 },
+  ],
+  t6: [
+    { fieldId: 'cf1', value: '백엔드' },
+    { fieldId: 'cf2', value: 80 },
+    { fieldId: 'cf4', value: 3 },
+  ],
+  t8: [
+    { fieldId: 'cf1', value: '프론트엔드' },
+    { fieldId: 'cf2', value: 0 },
+    { fieldId: 'cf4', value: 5 },
+  ],
+}
+
 export interface MockTask {
   id: string
   title: string
@@ -406,20 +523,24 @@ export interface MockTask {
   priority: TaskPriority
   assigneeId: string
   assigneeName: string
+  assigneeIds?: string[]
+  assigneeNames?: string[]
   dueDate: string
   startDate: string
   projectName: string
   groupName: string
   fromMeeting?: string
+  coverColor?: string
+  customFields?: CustomFieldValue[]
 }
 
 export const MOCK_TASKS: MockTask[] = [
-  { id: 't1', title: '결제 API 연동', description: 'Stripe 결제 모듈을 프론트에 연결합니다.', status: 'in-progress', priority: 'high', assigneeId: 'u2', assigneeName: '박서준', dueDate: '2026-03-12', startDate: '2026-03-08', projectName: 'SyncFlow v2', groupName: '기술개발TF' },
-  { id: 't2', title: '마케팅 보고서 작성', description: 'Q1 마케팅 성과 보고서를 작성합니다.', status: 'todo', priority: 'urgent', assigneeId: 'u3', assigneeName: '이수현', dueDate: '2026-03-11', startDate: '2026-03-09', projectName: '2026 마케팅 전략', groupName: '마케팅전략' },
+  { id: 't1', title: '결제 API 연동', description: 'Stripe 결제 모듈을 프론트에 연결합니다.', status: 'in-progress', priority: 'high', assigneeId: 'u2', assigneeName: '박서준', assigneeIds: ['u2', 'u5'], assigneeNames: ['박서준', '정우진'], dueDate: '2026-03-12', startDate: '2026-03-08', projectName: 'SyncFlow v2', groupName: '기술개발TF', coverColor: '#3B82F6' },
+  { id: 't2', title: '마케팅 보고서 작성', description: 'Q1 마케팅 성과 보고서를 작성합니다.', status: 'todo', priority: 'urgent', assigneeId: 'u3', assigneeName: '이수현', assigneeIds: ['u3', 'u4'], assigneeNames: ['이수현', '김하늘'], dueDate: '2026-03-11', startDate: '2026-03-09', projectName: '2026 마케팅 전략', groupName: '마케팅전략', coverColor: '#EF4444' },
   { id: 't3', title: 'GraphQL 스키마 설계', description: 'API v2 스키마를 설계합니다.', status: 'todo', priority: 'normal', assigneeId: 'u2', assigneeName: '박서준', dueDate: '2026-03-14', startDate: '2026-03-10', projectName: 'API 리팩토링', groupName: '기술개발TF' },
   { id: 't4', title: 'CI/CD 파이프라인 구축', description: 'GitHub Actions 기반 CI/CD를 구성합니다.', status: 'done', priority: 'low', assigneeId: 'u5', assigneeName: '정우진', dueDate: '2026-03-08', startDate: '2026-03-04', projectName: 'SyncFlow v2', groupName: '기술개발TF' },
   { id: 't5', title: 'Q1 캠페인 소재 검토', description: '배너 및 랜딩 페이지 소재를 검토합니다.', status: 'todo', priority: 'high', assigneeId: 'u4', assigneeName: '김하늘', dueDate: '2026-03-13', startDate: '2026-03-10', projectName: 'Q1 캠페인', groupName: '마케팅전략' },
-  { id: 't6', title: 'DB 인덱스 최적화', description: '느린 쿼리에 대한 인덱스를 추가합니다.', status: 'in-progress', priority: 'urgent', assigneeId: 'u6', assigneeName: '강도윤', dueDate: '2026-03-11', startDate: '2026-03-08', projectName: 'SyncFlow v2', groupName: '기술개발TF' },
+  { id: 't6', title: 'DB 인덱스 최적화', description: '느린 쿼리에 대한 인덱스를 추가합니다.', status: 'in-progress', priority: 'urgent', assigneeId: 'u6', assigneeName: '강도윤', assigneeIds: ['u6', 'u2'], assigneeNames: ['강도윤', '박서준'], dueDate: '2026-03-11', startDate: '2026-03-08', projectName: 'SyncFlow v2', groupName: '기술개발TF', coverColor: '#F59E0B' },
   { id: 't7', title: '브랜드 가이드라인 정리', description: '브랜드 컬러, 폰트, 로고 사용 가이드를 정리합니다.', status: 'done', priority: 'normal', assigneeId: 'u4', assigneeName: '김하늘', dueDate: '2026-03-07', startDate: '2026-03-03', projectName: 'Q1 캠페인', groupName: '마케팅전략' },
   { id: 't8', title: 'WebSocket 연동', description: '실시간 알림을 위한 WebSocket을 연결합니다.', status: 'todo', priority: 'high', assigneeId: 'u5', assigneeName: '정우진', dueDate: '2026-03-15', startDate: '2026-03-12', projectName: 'SyncFlow v2', groupName: '기술개발TF' },
   { id: 't9', title: '고객 인터뷰 일정 조율', description: 'Case Study용 고객 인터뷰 일정을 잡습니다.', status: 'in-progress', priority: 'low', assigneeId: 'u3', assigneeName: '이수현', dueDate: '2026-03-18', startDate: '2026-03-10', projectName: '2026 마케팅 전략', groupName: '마케팅전략' },

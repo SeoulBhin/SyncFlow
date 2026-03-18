@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -30,6 +30,10 @@ import { ExportMenu } from '@/components/editor/ExportMenu'
 import { VersionHistoryPanel } from '@/components/editor/VersionHistoryPanel'
 import { TOCPanel } from '@/components/editor/TOCPanel'
 import { ImageUploadModal } from '@/components/editor/ImageUploadModal'
+import { SlashCommandMenu } from '@/components/editor/SlashCommandMenu'
+import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
+import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
+import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
 import { useToastStore } from '@/stores/useToastStore'
 import { MOCK_PAGES, MOCK_PROJECTS, MOCK_DOC_CONTENT, MOCK_ATTACHMENTS } from '@/constants'
 
@@ -54,6 +58,19 @@ export function DocumentEditorPage() {
     { id: 'u4', name: '최테스터', color: 'bg-green-500' },
   ])
 
+  // 슬래시 커맨드 상태
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false)
+  const [slashQuery, setSlashQuery] = useState('')
+  const [slashRange, setSlashRange] = useState({ from: 0, to: 0 })
+  const slashCallbackRef = useRef({
+    onSlashCommand: (props: { query: string; range: { from: number; to: number } }) => {
+      setSlashQuery(props.query)
+      setSlashRange(props.range)
+      setSlashMenuOpen(true)
+    },
+    onSlashDismiss: () => setSlashMenuOpen(false),
+  })
+
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
@@ -66,7 +83,14 @@ export function DocumentEditorPage() {
       TableHeader,
       TipTapImage.configure({ inline: false, allowBase64: true }),
       CodeBlockLowlight.configure({ lowlight }),
-      Placeholder.configure({ placeholder: '내용을 입력하세요...' }),
+      Placeholder.configure({ placeholder: '"/"를 입력하여 블록을 추가하세요...' }),
+      CalloutBlock,
+      ToggleBlock,
+      SlashCommandExtension.configure({
+        onSlashCommand: (props: { query: string; range: { from: number; to: number } }) =>
+          slashCallbackRef.current.onSlashCommand(props),
+        onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
+      }),
     ],
     content: MOCK_DOC_CONTENT,
     editorProps: {
@@ -74,8 +98,20 @@ export function DocumentEditorPage() {
         class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[500px] px-12 py-8',
       },
     },
-    onUpdate: () => {
+    onUpdate: ({ editor: ed }) => {
       setSaveStatus('unsaved')
+      // 슬래시 커맨드 쿼리 업데이트
+      if (slashMenuOpen && ed) {
+        const { $from } = ed.state.selection
+        const text = $from.parent.textContent.slice(0, $from.parentOffset)
+        const slashMatch = text.match(/\/([^\s]*)$/)
+        if (slashMatch) {
+          setSlashQuery(slashMatch[1])
+          setSlashRange({ from: $from.pos - slashMatch[0].length, to: $from.pos })
+        } else {
+          setSlashMenuOpen(false)
+        }
+      }
     },
   })
 
@@ -267,6 +303,17 @@ export function DocumentEditorPage() {
         onClose={() => setShowImageModal(false)}
         onInsert={handleImageInsert}
       />
+
+      {/* 슬래시 커맨드 메뉴 */}
+      {editor && (
+        <SlashCommandMenu
+          editor={editor}
+          isOpen={slashMenuOpen}
+          onClose={() => setSlashMenuOpen(false)}
+          query={slashQuery}
+          range={slashRange}
+        />
+      )}
     </div>
   )
 }

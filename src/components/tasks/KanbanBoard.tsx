@@ -13,6 +13,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import type { MockTask, TaskPriority } from '@/constants'
+import { KanbanCardOverlay } from './KanbanCardOverlay'
+import { EmptyBoardGuide } from './EmptyBoardGuide'
 
 /* ── 컬럼 타입 정의 ── */
 
@@ -132,9 +134,10 @@ interface KanbanBoardProps {
   onTaskClick: (task: MockTask) => void
   onStatusChange: (taskId: string, newStatus: string) => void
   onAddTask: () => void
+  onQuickUpdate?: (taskId: string, updates: Partial<MockTask>) => void
 }
 
-export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQuickUpdate }: KanbanBoardProps) {
   /* ── 상태 관리 ── */
   const [columns, setColumns] = useState<KanbanColumn[]>(COLUMN_PRESETS.default)
   const [activePreset, setActivePreset] = useState<string>('default')
@@ -160,6 +163,15 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask }: K
   // 삭제 확인 상태
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
+  // 카드 hover 오버레이 상태
+  const [hoveredCardId, setHoveredCardId] = useState<string | null>(null)
+  const [overlayCardId, setOverlayCardId] = useState<string | null>(null)
+
+  // 카드 인라인 제목 편집 상태
+  const [editingCardId, setEditingCardId] = useState<string | null>(null)
+  const [editingCardTitle, setEditingCardTitle] = useState('')
+  const cardEditRef = useRef<HTMLInputElement>(null)
+
   /* ── 외부 클릭 시 드롭다운/메뉴 닫기 ── */
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
@@ -183,6 +195,14 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask }: K
       editInputRef.current.select()
     }
   }, [editingColumnId])
+
+  /* ── 카드 인라인 편집 시 input 포커스 ── */
+  useEffect(() => {
+    if (editingCardId && cardEditRef.current) {
+      cardEditRef.current.focus()
+      cardEditRef.current.select()
+    }
+  }, [editingCardId])
 
   /* ── 프리셋 변경 핸들러 ── */
   const handlePresetChange = useCallback((presetKey: string) => {
@@ -278,6 +298,11 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask }: K
       default: return 'md:grid-cols-3'
     }
   })()
+
+  // 전체 작업이 0개이면 EmptyBoardGuide 표시
+  if (tasks.length === 0) {
+    return <EmptyBoardGuide onAddTask={onAddTask} />
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -526,6 +551,7 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask }: K
                 {columnTasks.map((task) => {
                   const p = priorityConfig[task.priority]
                   const isLastCol = col.id === columns[columns.length - 1].id
+                  const assignees = task.assigneeNames ?? [task.assigneeName]
 
                   return (
                     /* 작업 카드 (드래그 가능) */
@@ -534,61 +560,145 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask }: K
                       draggable
                       onDragStart={() => handleDragStart(task.id)}
                       onDragEnd={handleDragEnd}
-                      onClick={() => onTaskClick(task)}
+                      onClick={() => {
+                        if (editingCardId !== task.id && overlayCardId !== task.id) {
+                          onTaskClick(task)
+                        }
+                      }}
+                      onMouseEnter={() => setHoveredCardId(task.id)}
+                      onMouseLeave={() => {
+                        if (overlayCardId !== task.id) setHoveredCardId(null)
+                      }}
                       className={cn(
-                        'cursor-pointer rounded-lg border border-neutral-200 bg-white p-3 shadow-sm transition-all hover:shadow-md dark:border-neutral-700 dark:bg-neutral-800',
+                        'relative cursor-pointer rounded-lg border border-neutral-200 bg-white shadow-sm transition-all hover:shadow-md dark:border-neutral-700 dark:bg-neutral-800',
                         draggedId === task.id && 'opacity-40',
                       )}
                     >
-                      <div className="mb-2 flex items-start justify-between gap-2">
-                        {/* 작업 제목 */}
-                        <p
-                          className={cn(
-                            'text-sm font-medium',
-                            isLastCol
-                              ? 'text-neutral-400 line-through dark:text-neutral-500'
-                              : 'text-neutral-800 dark:text-neutral-100',
-                          )}
-                        >
-                          {task.title}
-                        </p>
-                        {/* 드래그 핸들 아이콘 */}
-                        <GripVertical
-                          size={14}
-                          className="mt-0.5 shrink-0 cursor-grab text-neutral-300 dark:text-neutral-600"
-                        />
-                      </div>
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center gap-1.5">
-                          {/* 우선순위 배지 */}
-                          <span
-                            className={cn(
-                              'rounded px-1.5 py-0.5 text-[10px] font-medium',
-                              p.color,
-                            )}
-                          >
-                            {p.label}
-                          </span>
-
-                          {/* 회의에서 생성된 작업 배지 */}
-                          {task.fromMeeting && (
-                            <span className="flex items-center gap-0.5 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
-                              <Video size={9} />
-                              회의
-                            </span>
-                          )}
-
-                          {/* 마감일 표시 */}
-                          <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                            {task.dueDate.slice(5)}
-                          </span>
-                        </div>
-                        {/* 담당자 아바타 */}
+                      {/* 커버 컬러 바 */}
+                      {task.coverColor && (
                         <div
-                          className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-100 text-[9px] font-bold text-primary-600 dark:bg-primary-900/30 dark:text-primary-400"
-                          title={task.assigneeName}
+                          className="h-1.5 rounded-t-lg"
+                          style={{ backgroundColor: task.coverColor }}
+                        />
+                      )}
+
+                      {/* hover 시 퀵액션 오버레이 */}
+                      {overlayCardId === task.id && onQuickUpdate && (
+                        <KanbanCardOverlay
+                          task={task}
+                          onUpdate={onQuickUpdate}
+                          onStartEdit={() => {
+                            setEditingCardId(task.id)
+                            setEditingCardTitle(task.title)
+                            setOverlayCardId(null)
+                          }}
+                          onClose={() => {
+                            setOverlayCardId(null)
+                            setHoveredCardId(null)
+                          }}
+                        />
+                      )}
+
+                      {/* hover 시 오버레이 오픈 버튼 */}
+                      {hoveredCardId === task.id && overlayCardId !== task.id && (
+                        <button
+                          onClick={(e) => {
+                            e.stopPropagation()
+                            setOverlayCardId(task.id)
+                          }}
+                          className="absolute right-1 top-1 z-10 rounded bg-white/90 p-0.5 text-neutral-400 shadow transition-colors hover:text-neutral-600 dark:bg-neutral-700/90 dark:hover:text-neutral-200"
+                          title="퀵 액션"
                         >
-                          {task.assigneeName[0]}
+                          <Pencil size={12} />
+                        </button>
+                      )}
+
+                      <div className="p-3">
+                        <div className="mb-2 flex items-start justify-between gap-2">
+                          {/* 인라인 제목 편집 */}
+                          {editingCardId === task.id ? (
+                            <input
+                              ref={cardEditRef}
+                              value={editingCardTitle}
+                              onChange={(e) => setEditingCardTitle(e.target.value)}
+                              onBlur={() => {
+                                if (editingCardTitle.trim() && onQuickUpdate) {
+                                  onQuickUpdate(task.id, { title: editingCardTitle.trim() })
+                                }
+                                setEditingCardId(null)
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter') {
+                                  if (editingCardTitle.trim() && onQuickUpdate) {
+                                    onQuickUpdate(task.id, { title: editingCardTitle.trim() })
+                                  }
+                                  setEditingCardId(null)
+                                }
+                                if (e.key === 'Escape') setEditingCardId(null)
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                              className="w-full rounded border border-primary-300 bg-white px-1 py-0.5 text-sm font-medium text-neutral-700 outline-none dark:border-primary-600 dark:bg-neutral-800 dark:text-neutral-200"
+                            />
+                          ) : (
+                            <p
+                              className={cn(
+                                'text-sm font-medium',
+                                isLastCol
+                                  ? 'text-neutral-400 line-through dark:text-neutral-500'
+                                  : 'text-neutral-800 dark:text-neutral-100',
+                              )}
+                            >
+                              {task.title}
+                            </p>
+                          )}
+                          {/* 드래그 핸들 아이콘 */}
+                          <GripVertical
+                            size={14}
+                            className="mt-0.5 shrink-0 cursor-grab text-neutral-300 dark:text-neutral-600"
+                          />
+                        </div>
+                        <div className="flex items-center justify-between">
+                          <div className="flex items-center gap-1.5">
+                            {/* 우선순위 배지 */}
+                            <span
+                              className={cn(
+                                'rounded px-1.5 py-0.5 text-[10px] font-medium',
+                                p.color,
+                              )}
+                            >
+                              {p.label}
+                            </span>
+
+                            {/* 회의에서 생성된 작업 배지 */}
+                            {task.fromMeeting && (
+                              <span className="flex items-center gap-0.5 rounded bg-purple-100 px-1.5 py-0.5 text-[10px] font-medium text-purple-700 dark:bg-purple-900/30 dark:text-purple-400">
+                                <Video size={9} />
+                                회의
+                              </span>
+                            )}
+
+                            {/* 마감일 표시 */}
+                            <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                              {task.dueDate.slice(5)}
+                            </span>
+                          </div>
+                          {/* 다중 담당자 스택 아바타 */}
+                          <div className="flex -space-x-1">
+                            {assignees.slice(0, 3).map((name, i) => (
+                              <div
+                                key={i}
+                                className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-100 text-[9px] font-bold text-primary-600 ring-1 ring-white dark:bg-primary-900/30 dark:text-primary-400 dark:ring-neutral-800"
+                                title={name}
+                              >
+                                {name[0]}
+                              </div>
+                            ))}
+                            {assignees.length > 3 && (
+                              <div className="flex h-5 w-5 items-center justify-center rounded-full bg-neutral-200 text-[8px] font-bold text-neutral-500 ring-1 ring-white dark:bg-neutral-700 dark:text-neutral-400 dark:ring-neutral-800">
+                                +{assignees.length - 3}
+                              </div>
+                            )}
+                          </div>
                         </div>
                       </div>
                     </div>

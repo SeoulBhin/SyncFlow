@@ -5,6 +5,7 @@ import {
   Filter,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { useCustomFieldStore } from '@/stores/useCustomFieldStore'
 import type { MockTask, TaskPriority, TaskStatus, MockMilestone } from '@/constants'
 
 const priorityConfig: Record<TaskPriority, { label: string; color: string; order: number }> = {
@@ -30,6 +31,7 @@ interface ListViewProps {
 }
 
 export function ListView({ tasks, milestones, onTaskClick }: ListViewProps) {
+  const { fields: customFields, values: customFieldValues } = useCustomFieldStore()
   const [sortKey, setSortKey] = useState<SortKey>('dueDate')
   const [sortDir, setSortDir] = useState<SortDir>('asc')
   const [filterStatus, setFilterStatus] = useState<TaskStatus | 'all'>('all')
@@ -147,6 +149,14 @@ export function ListView({ tasks, milestones, onTaskClick }: ListViewProps) {
                   </div>
                 </th>
               ))}
+              {customFields.map((cf) => (
+                <th
+                  key={cf.id}
+                  className="px-4 py-2.5 text-left text-xs font-semibold text-neutral-600 dark:text-neutral-400"
+                >
+                  {cf.name}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -195,12 +205,54 @@ export function ListView({ tasks, milestones, onTaskClick }: ListViewProps) {
                   <td className="px-4 py-3">
                     <span className="text-xs text-neutral-500 dark:text-neutral-400">{task.dueDate}</span>
                   </td>
+                  {customFields.map((cf) => {
+                    const taskVals = customFieldValues[task.id] ?? []
+                    const fv = taskVals.find((v) => v.fieldId === cf.id)
+                    const val = fv?.value
+                    return (
+                      <td key={cf.id} className="px-4 py-3">
+                        {cf.type === 'select' && val && (
+                          <span className={cn(
+                            'rounded px-1.5 py-0.5 text-[11px] font-medium',
+                            cf.options?.find((o) => o.label === val)?.color ?? 'bg-neutral-100 text-neutral-600',
+                          )}>
+                            {val as string}
+                          </span>
+                        )}
+                        {cf.type === 'progress' && typeof val === 'number' && (
+                          <div className="flex items-center gap-2">
+                            <div className="h-1.5 w-16 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+                              <div
+                                className="h-full rounded-full bg-primary-500 transition-all"
+                                style={{ width: `${val}%` }}
+                              />
+                            </div>
+                            <span className="text-[10px] text-neutral-500">{val}%</span>
+                          </div>
+                        )}
+                        {cf.type === 'person' && val && (
+                          <div className="flex items-center gap-1">
+                            <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-100 text-[9px] font-bold text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
+                              {String(val)[0]}
+                            </div>
+                            <span className="text-xs text-neutral-600 dark:text-neutral-400">{String(val)}</span>
+                          </div>
+                        )}
+                        {(cf.type === 'text' || cf.type === 'number' || cf.type === 'date') && val != null && (
+                          <span className="text-xs text-neutral-600 dark:text-neutral-400">{String(val)}</span>
+                        )}
+                        {val == null && (
+                          <span className="text-xs text-neutral-300 dark:text-neutral-600">—</span>
+                        )}
+                      </td>
+                    )
+                  })}
                 </tr>
               )
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={5} className="py-12 text-center text-sm text-neutral-400">
+                <td colSpan={5 + customFields.length} className="py-12 text-center text-sm text-neutral-400">
                   조건에 맞는 할 일이 없습니다.
                 </td>
               </tr>

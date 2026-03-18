@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   X, Send, Plus, Bot, User, History, Sparkles,
   FolderOpen, FileCode, FileText, RefreshCw, ChevronDown,
-  CheckCircle2, AtSign, Database,
+  CheckCircle2, AtSign, Database, Lightbulb,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAIStore } from '@/stores/useAIStore'
@@ -537,6 +537,25 @@ export function AISidePanel() {
 
           {/* 선택된 파일 태그 */}
           <SelectedFileTags />
+
+          {/* 제안 칩 */}
+          {messages.length > 0 && (
+            <div className="flex gap-1.5 overflow-x-auto px-4 pb-1">
+              <Lightbulb size={12} className="mt-0.5 shrink-0 text-amber-400" />
+              {['이 문서 요약해줘', '마감 임박 작업 정리해줘', '코드 리뷰해줘'].map((suggestion) => (
+                <button
+                  key={suggestion}
+                  onClick={() => {
+                    setInput(suggestion)
+                    inputRef.current?.focus()
+                  }}
+                  className="shrink-0 rounded-full border border-violet-200 bg-violet-50 px-2.5 py-0.5 text-[10px] font-medium text-violet-600 transition-colors hover:bg-violet-100 dark:border-violet-700 dark:bg-violet-900/20 dark:text-violet-400 dark:hover:bg-violet-900/40"
+                >
+                  {suggestion}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* 입력 영역 */}
           <div className="relative border-t border-neutral-200 px-4 py-3 dark:border-neutral-700">

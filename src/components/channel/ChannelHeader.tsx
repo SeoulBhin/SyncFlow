@@ -1,3 +1,4 @@
+import { useState } from 'react'
 import {
   Hash,
   Users,
@@ -8,6 +9,9 @@ import {
   MonitorOff,
   Sparkles,
   PhoneOff,
+  Globe,
+  Building2,
+  UserPlus,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -16,7 +20,8 @@ import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
 import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
-import { MOCK_CHANNELS, MOCK_MEETINGS } from '@/constants'
+import { MOCK_CHANNELS, MOCK_MEETINGS, MOCK_ORGANIZATIONS } from '@/constants'
+import { SharedChannelInviteModal } from './SharedChannelInviteModal'
 
 export function ChannelHeader() {
   const navigate = useNavigate()
@@ -29,6 +34,12 @@ export function ChannelHeader() {
   const channel = MOCK_CHANNELS.find((c) => c.id === activeGroupId)
   const isVoiceConnected = voiceChat.status !== 'disconnected'
   const isMuted = voiceChat.status === 'muted'
+  const isExternal = channel?.isExternal ?? false
+  const connectedOrgs = channel?.connectedOrgIds
+    ?.map((id) => MOCK_ORGANIZATIONS.find((o) => o.id === id))
+    .filter(Boolean) ?? []
+
+  const [showInviteModal, setShowInviteModal] = useState(false)
 
   const handleVoiceClick = () => {
     if (voiceChat.status === 'disconnected') {
@@ -70,11 +81,28 @@ export function ChannelHeader() {
   return (
     <div className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
       <div className="flex items-center gap-2">
-        <Hash size={16} className="text-neutral-400" />
+        {isExternal ? (
+          <Globe size={16} className="text-orange-500" />
+        ) : (
+          <Hash size={16} className="text-neutral-400" />
+        )}
         <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
           {activeGroupName ?? '채널'}
         </span>
-        {channel && (
+        {isExternal && connectedOrgs.length > 0 && (
+          <div className="hidden items-center gap-1 sm:flex">
+            {connectedOrgs.map((org) => (
+              <span
+                key={org!.id}
+                className="inline-flex items-center gap-0.5 rounded-full bg-orange-100 px-1.5 py-0.5 text-[9px] font-medium text-orange-600 dark:bg-orange-900/30 dark:text-orange-400"
+              >
+                <Building2 size={8} />
+                {org!.name}
+              </span>
+            ))}
+          </div>
+        )}
+        {channel && !isExternal && (
           <span className="hidden text-xs text-neutral-400 sm:inline">
             {channel.description}
           </span>
@@ -180,7 +208,29 @@ export function ChannelHeader() {
         >
           <Sparkles size={16} />
         </button>
+
+        {/* 외부 조직 초대 (공유 채널일 때만) */}
+        {isExternal && (
+          <>
+            <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+            <button
+              onClick={() => setShowInviteModal(true)}
+              className="flex items-center gap-1 rounded-lg px-2 py-1 text-xs font-medium text-orange-500 transition-colors hover:bg-orange-50 dark:hover:bg-orange-900/20"
+              title="외부 조직 초대"
+            >
+              <UserPlus size={14} />
+              <span className="hidden sm:inline">초대</span>
+            </button>
+          </>
+        )}
       </div>
+
+      {/* 외부 조직 초대 모달 */}
+      <SharedChannelInviteModal
+        isOpen={showInviteModal}
+        onClose={() => setShowInviteModal(false)}
+        channelName={activeGroupName ?? undefined}
+      />
     </div>
   )
 }

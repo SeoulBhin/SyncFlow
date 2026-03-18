@@ -17,6 +17,8 @@ import {
   Undo,
   Redo,
   Paperclip,
+  AlertCircle,
+  ChevronRight,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
@@ -125,6 +127,22 @@ export function EditorToolbar({ editor, onInsertTable, onInsertImage, onAttachFi
 
       <Divider />
 
+      {/* Block elements - Callout & Toggle */}
+      <ToolbarButton
+        onClick={() => (editor.commands as Record<string, CallableFunction>).setCallout?.('info')}
+        title="콜아웃 삽입"
+      >
+        <AlertCircle size={16} />
+      </ToolbarButton>
+      <ToolbarButton
+        onClick={() => (editor.commands as Record<string, CallableFunction>).setToggleBlock?.()}
+        title="토글 블록 삽입"
+      >
+        <ChevronRight size={16} />
+      </ToolbarButton>
+
+      <Divider />
+
       {/* Insert */}
       <ToolbarButton onClick={onInsertTable} title="표 삽입">
         <Table size={16} />
@@ -135,6 +153,11 @@ export function EditorToolbar({ editor, onInsertTable, onInsertImage, onAttachFi
       <ToolbarButton onClick={onAttachFile} title="파일 첨부">
         <Paperclip size={16} />
       </ToolbarButton>
+
+      {/* 슬래시 커맨드 힌트 */}
+      <span className="ml-2 text-[10px] text-neutral-400">
+        &quot;/&quot;로 블록 삽입
+      </span>
     </div>
   )
 }
