@@ -1,4 +1,4 @@
-\# SyncFlow
+# DB Migration
 
 db경로 설정은 .env.example참고
 
