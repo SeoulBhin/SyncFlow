@@ -1,10 +1,10 @@
 # DB Migration
 
-db경로 설정은 .env.example참고
+DB경로 설정은 .env.example참고
 
 본인의 로컬 PostgreSQL 정보에 맞게 수정
 
-- .env 추가-
+- .env 추가 -
 DATABASE_URL="postgresql://postgres:yourpassword@localhost:5432/syncflow?schema=public"
 
 기존 postgresql에서 pgvector확장필요
