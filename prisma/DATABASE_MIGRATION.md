@@ -1,4 +1,4 @@
-#SyncFlow
+\#SyncFlow
 
 db경로 설정은 .env.example참고
 본인의 로컬 PostgreSQL 정보에 맞게 수정
