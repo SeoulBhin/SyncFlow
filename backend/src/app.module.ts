@@ -3,6 +3,10 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { LiveKitModule } from './livekit/livekit.module';
+import { AuthModule } from './auth/auth.module';
+import { ChannelsModule } from './channels/channels.module';
+import { MessagesModule } from './messages/messages.module';
 
 @Module({
   imports: [
@@ -24,10 +28,15 @@ import { AppService } from './app.service';
         password: config.get('DATABASE_PASSWORD', 'syncflow1234'),
         database: config.get('DATABASE_NAME', 'syncflow'),
         autoLoadEntities: true,
-        synchronize: config.get('NODE_ENV') === 'development', // dev only
+        synchronize: config.get('NODE_ENV') === 'development',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
+
+    LiveKitModule,
+    AuthModule,
+    ChannelsModule,
+    MessagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],
