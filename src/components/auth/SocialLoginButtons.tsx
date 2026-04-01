@@ -1,4 +1,3 @@
-import { useToastStore } from '@/stores/useToastStore'
 
 function GoogleIcon() {
   return (
@@ -42,13 +41,9 @@ function GitHubIcon() {
   )
 }
 
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+
 export function SocialLoginButtons() {
-  const addToast = useToastStore((s) => s.addToast)
-
-  const handleSocial = () => {
-    addToast('info', '소셜 로그인은 준비 중입니다.')
-  }
-
   return (
     <div className="space-y-4">
       {/* 구분선 */}
@@ -58,33 +53,30 @@ export function SocialLoginButtons() {
         <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
       </div>
 
-      {/* Google 소셜 로그인 버튼 (준비 중 토스트 표시) */}
-      <button
-        type="button"
-        onClick={handleSocial}
+      {/* Google 소셜 로그인 버튼 */}
+      <a
+        href={`${API_BASE}/api/auth/oauth/google`}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-neutral-200 bg-surface px-4 py-2.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-surface-dark dark:text-neutral-200 dark:hover:bg-neutral-800"
       >
         <GoogleIcon />
         Google로 계속하기
-      </button>
-      {/* GitHub 소셜 로그인 버튼 (준비 중 토스트 표시) */}
-      <button
-        type="button"
-        onClick={handleSocial}
+      </a>
+      {/* GitHub 소셜 로그인 버튼 */}
+      <a
+        href={`${API_BASE}/api/auth/oauth/github`}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-neutral-200 bg-surface px-4 py-2.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-surface-dark dark:text-neutral-200 dark:hover:bg-neutral-800"
       >
         <GitHubIcon />
         GitHub로 계속하기
-      </button>
-      {/* 카카오 소셜 로그인 버튼 (준비 중 토스트 표시) */}
-      <button
-        type="button"
-        onClick={handleSocial}
+      </a>
+      {/* 카카오 소셜 로그인 버튼 */}
+      <a
+        href={`${API_BASE}/api/auth/oauth/kakao`}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-[#FEE500] px-4 py-2.5 text-sm font-medium text-[#191919] transition hover:bg-[#F5DC00]"
       >
         <KakaoIcon />
         카카오로 계속하기
-      </button>
+      </a>
     </div>
   )
 }
