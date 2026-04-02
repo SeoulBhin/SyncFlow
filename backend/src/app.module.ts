@@ -3,6 +3,7 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import { DocumentModule } from './document/document.module'  // ← 추가
 
 @Module({
   imports: [
@@ -28,6 +29,7 @@ import { AppService } from './app.service';
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
+    DocumentModule,   // ← 추가
   ],
   controllers: [AppController],
   providers: [AppService],
