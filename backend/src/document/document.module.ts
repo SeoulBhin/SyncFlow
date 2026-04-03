@@ -5,6 +5,7 @@ import { TypeOrmModule } from '@nestjs/typeorm'
 import { JwtModule } from '@nestjs/jwt'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { DocumentService } from './document.service'
+import { DocumentController } from './document.controller'
 import { Page } from './entities/page.entity'
 import { PageVersion } from './entities/page-version.entity'
 
@@ -19,6 +20,7 @@ import { PageVersion } from './entities/page-version.entity'
       }),
     }),
   ],
+  controllers: [DocumentController],
   providers: [DocumentService],
 })
 export class DocumentModule {}

@@ -25,13 +25,33 @@ export class DocumentService implements OnModuleInit {
 
   async uploadToGCS(file: Express.Multer.File): Promise<string> {
   const storage = new Storage()
-  const bucket = storage.bucket(process.env.GCS_BUCKET_NAME)
+  const bucket = storage.bucket(process.env.GCS_BUCKET_NAME!)
   const fileName = `documents/${Date.now()}-${file.originalname}`
   const blob = bucket.file(fileName)
 
   await blob.save(file.buffer, { contentType: file.mimetype })
 
   return `https://storage.googleapis.com/${process.env.GCS_BUCKET_NAME}/${fileName}`
+  }
+
+  async exportToPdf(htmlContent: string): Promise<Buffer> {
+    const puppeteer = await import('puppeteer')
+    const browser = await puppeteer.default.launch({ args: ['--no-sandbox'] })
+    const page = await browser.newPage()
+    await page.setContent(htmlContent, { waitUntil: 'networkidle0' })
+    const pdf = await page.pdf({ format: 'A4' })
+    await browser.close()
+    return Buffer.from(pdf)
+  }
+
+  async exportToDocx(textContent: string): Promise<Buffer> {
+    const { Document, Packer, Paragraph } = await import('docx')
+    const doc = new Document({
+      sections: [{
+        children: textContent.split('\n').map(line => new Paragraph(line))
+      }]
+    })
+    return await Packer.toBuffer(doc)
   }
 }
 

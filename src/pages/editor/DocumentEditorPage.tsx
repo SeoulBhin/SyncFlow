@@ -35,7 +35,10 @@ import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
 import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
 import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
 import { useToastStore } from '@/stores/useToastStore'
-import { MOCK_PAGES, MOCK_PROJECTS, MOCK_DOC_CONTENT, MOCK_ATTACHMENTS } from '@/constants'
+import { MOCK_PAGES, MOCK_PROJECTS, MOCK_ATTACHMENTS } from '@/constants'
+import * as Y from 'yjs'
+import { HocuspocusProvider } from '@hocuspocus/provider'
+import Collaboration from '@tiptap/extension-collaboration'
 
 const lowlight = createLowlight(common)
 
@@ -46,8 +49,24 @@ export function DocumentEditorPage() {
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
 
-  const page = MOCK_PAGES.find((p) => p.id === pageId) ?? { id: pageId ?? 'unknown', name: '새 문서', type: 'doc' as const, projectId: 'p1' }
+  const page = MOCK_PAGES.find((p) => p.id === pageId) ?? {
+    id: pageId ?? 'unknown',
+    name: '새 문서',
+    type: 'doc' as const,
+    projectId: 'p1',
+  }
   const project = MOCK_PROJECTS.find((p) => p.id === page.projectId)
+
+  const ydocRef = useRef(new Y.Doc())
+  const providerRef = useRef(
+    new HocuspocusProvider({
+      url: 'ws://localhost:1234',
+      name: 'dev-page-001', // 나중에 실제 pageId로 교체
+      token: 'dev-token',   // 나중에 실제 JWT로 교체
+      document: ydocRef.current,
+    }),
+  )
+  void providerRef // 연결 유지용
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [showVersionHistory, setShowVersionHistory] = useState(false)
@@ -75,6 +94,7 @@ export function DocumentEditorPage() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
+        history: false, // Collaboration이 히스토리를 대신 관리
       }),
       Underline,
       TipTapTable.configure({ resizable: true }),
@@ -91,11 +111,12 @@ export function DocumentEditorPage() {
           slashCallbackRef.current.onSlashCommand(props),
         onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
       }),
+      Collaboration.configure({ document: ydocRef.current }),
     ],
-    content: MOCK_DOC_CONTENT,
     editorProps: {
       attributes: {
-        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[500px] px-12 py-8',
+        class:
+          'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[500px] px-12 py-8',
       },
     },
     onUpdate: ({ editor: ed }) => {
@@ -133,9 +154,12 @@ export function DocumentEditorPage() {
     setShowImageModal(true)
   }, [])
 
-  const handleImageInsert = useCallback((url: string, alt: string) => {
-    editor?.chain().focus().setImage({ src: url, alt }).run()
-  }, [editor])
+  const handleImageInsert = useCallback(
+    (url: string, alt: string) => {
+      editor?.chain().focus().setImage({ src: url, alt }).run()
+    },
+    [editor],
+  )
 
   const handleAttachFile = useCallback(() => {
     addToast('info', '파일 첨부 기능은 백엔드 연동 후 사용 가능합니다. (목업)')
@@ -162,7 +186,9 @@ export function DocumentEditorPage() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{page.name}</h1>
+            <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+              {page.name}
+            </h1>
             {project && (
               <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{project.name}</p>
             )}
@@ -227,7 +253,10 @@ export function DocumentEditorPage() {
 
           {/* 목차 */}
           <button
-            onClick={() => { setShowTOC(!showTOC); if (!showTOC) setShowVersionHistory(false) }}
+            onClick={() => {
+              setShowTOC(!showTOC)
+              if (!showTOC) setShowVersionHistory(false)
+            }}
             className={`rounded p-1.5 transition-colors ${showTOC ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'}`}
             title="목차"
           >
@@ -236,7 +265,10 @@ export function DocumentEditorPage() {
 
           {/* 버전 히스토리 */}
           <button
-            onClick={() => { setShowVersionHistory(!showVersionHistory); if (!showVersionHistory) setShowTOC(false) }}
+            onClick={() => {
+              setShowVersionHistory(!showVersionHistory)
+              if (!showVersionHistory) setShowTOC(false)
+            }}
             className={`rounded p-1.5 transition-colors ${showVersionHistory ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'}`}
             title="버전 히스토리"
           >
@@ -272,7 +304,9 @@ export function DocumentEditorPage() {
           <div className="mx-auto max-w-4xl border-t border-neutral-100 px-12 py-4 dark:border-neutral-800">
             <div className="flex items-center gap-2 mb-2">
               <Paperclip size={14} className="text-neutral-400" />
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">첨부 파일</span>
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                첨부 파일
+              </span>
             </div>
             <div className="flex flex-wrap gap-2">
               {MOCK_ATTACHMENTS.map((file) => (
@@ -293,7 +327,10 @@ export function DocumentEditorPage() {
         </div>
 
         {/* 사이드 패널 */}
-        <VersionHistoryPanel isOpen={showVersionHistory} onClose={() => setShowVersionHistory(false)} />
+        <VersionHistoryPanel
+          isOpen={showVersionHistory}
+          onClose={() => setShowVersionHistory(false)}
+        />
         <TOCPanel isOpen={showTOC} onClose={() => setShowTOC(false)} editor={editor} />
       </div>
 
