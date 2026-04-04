@@ -10,6 +10,40 @@ import { TableHeader } from '@tiptap/extension-table-header'
 import { Image as TipTapImage } from '@tiptap/extension-image'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
+import { Extension } from '@tiptap/core'
+
+const TextAlignClass = Extension.create({
+  name: 'textAlignClass',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph', 'heading'],
+      attributes: {
+        textAlign: {
+          default: null,
+          parseHTML: (el) => el.getAttribute('data-align'),
+          renderHTML: (attrs) => {
+            if (!attrs.textAlign) return {}
+            return { 'data-align': attrs.textAlign, class: `align-${attrs.textAlign}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setTextAlign: (alignment: string) => ({ commands }: any) => {
+        return ['paragraph', 'heading'].map((type) =>
+          commands.updateAttributes(type, { textAlign: alignment })
+        ).some(Boolean)
+      },
+      unsetTextAlign: () => ({ commands }: any) => {
+        return ['paragraph', 'heading'].map((type) =>
+          commands.resetAttributes(type, 'textAlign')
+        ).some(Boolean)
+      },
+    } as any
+  },
+})
 import { common, createLowlight } from 'lowlight'
 import {
   ArrowLeft,
@@ -31,6 +65,7 @@ import { VersionHistoryPanel } from '@/components/editor/VersionHistoryPanel'
 import { TOCPanel } from '@/components/editor/TOCPanel'
 import { ImageUploadModal } from '@/components/editor/ImageUploadModal'
 import { SlashCommandMenu } from '@/components/editor/SlashCommandMenu'
+import { TableToolbar } from '@/components/editor/TableToolbar'
 import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
 import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
 import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
@@ -104,6 +139,7 @@ export function DocumentEditorPage() {
       TipTapImage.configure({ inline: false, allowBase64: true }),
       CodeBlockLowlight.configure({ lowlight }),
       Placeholder.configure({ placeholder: '"/"를 입력하여 블록을 추가하세요...' }),
+      TextAlignClass,
       CalloutBlock,
       ToggleBlock,
       SlashCommandExtension.configure({
@@ -146,8 +182,8 @@ export function DocumentEditorPage() {
     return () => clearTimeout(timer)
   }, [saveStatus])
 
-  const handleInsertTable = useCallback(() => {
-    editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+  const handleInsertTable = useCallback((rows: number, cols: number) => {
+    editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
   }, [editor])
 
   const handleInsertImage = useCallback(() => {
@@ -276,7 +312,7 @@ export function DocumentEditorPage() {
           </button>
 
           {/* 내보내기 */}
-          <ExportMenu />
+          <ExportMenu editor={editor} pageId={pageId ?? 'unknown'} />
         </div>
       </div>
 
@@ -287,6 +323,14 @@ export function DocumentEditorPage() {
         onInsertImage={handleInsertImage}
         onAttachFile={handleAttachFile}
       />
+
+      {/* 표 편집 툴바 — 표 안에 커서가 있을 때만 표시 */}
+      {editor && editor.isActive('table') && (
+        <div className="flex items-center gap-1 border-b border-neutral-200 bg-neutral-50 px-3 py-1 dark:border-neutral-700 dark:bg-neutral-800/50">
+          <span className="mr-1 text-xs text-neutral-400">표 편집:</span>
+          <TableToolbar editor={editor} />
+        </div>
+      )}
 
       {/* 메인 영역 (에디터 + 사이드 패널) */}
       <div className="flex flex-1 overflow-hidden">
@@ -330,6 +374,8 @@ export function DocumentEditorPage() {
         <VersionHistoryPanel
           isOpen={showVersionHistory}
           onClose={() => setShowVersionHistory(false)}
+          pageId={pageId ?? 'unknown'}
+          editor={editor}
         />
         <TOCPanel isOpen={showTOC} onClose={() => setShowTOC(false)} editor={editor} />
       </div>

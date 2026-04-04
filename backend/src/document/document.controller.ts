@@ -1,5 +1,5 @@
 // backend/src/document/document.controller.ts
-import { Controller, Post, UploadedFile, UseInterceptors, Body, Res } from '@nestjs/common'
+import { Controller, Post, Get, Param, UploadedFile, UseInterceptors, Body, Res } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { DocumentService } from './document.service'
 import type { Response } from 'express'
@@ -29,6 +29,11 @@ export class DocumentController {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     res.setHeader('Content-Disposition', 'attachment; filename=document.docx')
     res.send(docxBuffer)
+  }
+
+  @Get(':pageId/versions')
+  async getVersions(@Param('pageId') pageId: string) {
+    return this.documentService.getVersions(pageId)
   }
 
 }

@@ -53,5 +53,13 @@ export class DocumentService implements OnModuleInit {
     })
     return await Packer.toBuffer(doc)
   }
+
+  async getVersions(pageId: string) {
+    return this.pageVersionRepository.find({
+      where: { page: { id: pageId } },
+      order: { createdAt: 'DESC' },
+      take: 20,
+    })
+  }
 }
 
