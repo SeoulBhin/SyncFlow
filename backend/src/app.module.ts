@@ -3,9 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { DocumentModule } from './document/document.module'; // ← 추가
-import { AuthModule } from './auth/auth.module';
-import { SettingsModule } from './settings/settings.module';
+import { DocumentModule } from './document/document.module'
+import { AuthModule } from './auth/auth.module'
+import { SettingsModule } from './settings/settings.module'
+import { DashboardModule } from './dashboard/dashboard.module'
+import { MeetingsModule } from './meetings/meetings.module'
 
 @Module({
   imports: [
@@ -31,10 +33,11 @@ import { SettingsModule } from './settings/settings.module';
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
-    DocumentModule, // ← 추가
-
+    DocumentModule,
     AuthModule,
     SettingsModule,
+    DashboardModule,
+    MeetingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],

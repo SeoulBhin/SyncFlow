@@ -22,16 +22,14 @@ export function createHocuspocusServer(
     },
 
     async onAuthenticate(data) {
-      // TODO: Part 2 완료 후 아래 주석 해제, dev 코드 제거
-      // const token = data.token
-      // if (!token) throw new Error('토큰이 없습니다. 로그인하세요.')
-      // try {
-      //   const payload = jwtService.verify(token)
-      //   return { userId: payload.sub }
-      // } catch {
-      //   throw new Error('유효하지 않은 토큰입니다.')
-      // }
-      return { userId: 'dev-user' }  // 개발 중 임시 스킵
+      const token = data.token
+      if (!token) throw new Error('토큰이 없습니다. 로그인하세요.')
+      try {
+        const payload = jwtService.verify(token)
+        return { userId: payload.sub }
+      } catch {
+        throw new Error('유효하지 않은 토큰입니다.')
+      }
     },
 
     async onStoreDocument(data) {

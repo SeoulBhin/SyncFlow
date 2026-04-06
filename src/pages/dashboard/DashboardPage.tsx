@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -26,14 +26,8 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
-import {
-  MOCK_CHANNELS,
-  MOCK_RECENT_PAGES,
-  MOCK_MY_TASKS,
-  MOCK_MEETINGS,
-  type TaskPriority,
-  type TaskStatus,
-} from '@/constants'
+import { api } from '@/utils/api'
+import { type TaskPriority, type TaskStatus } from '@/constants'
 
 const priorityConfig: Record<TaskPriority, { label: string; color: string }> = {
   urgent: { label: '긴급', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
@@ -57,10 +51,24 @@ export function DashboardPage() {
   const [inviteCode, setInviteCode] = useState('')
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [showJoinGroup, setShowJoinGroup] = useState(false)
+  const [channels, setChannels] = useState<any[]>([])
+  const [recentPages, setRecentPages] = useState<any[]>([])
+  const [myTasks, setMyTasks] = useState<any[]>([])
+  const [meetings, setMeetings] = useState<any[]>([])
 
-  const channels = MOCK_CHANNELS.filter((c) => c.orgId === activeOrgId)
-  const scheduledMeetings = MOCK_MEETINGS.filter((m) => m.status === 'scheduled')
-  const recentMeetings = MOCK_MEETINGS.filter((m) => m.status === 'ended').slice(0, 3)
+  useEffect(() => {
+    api.get<{ groups: any[]; recentPages: any[]; myTasks: any[]; upcomingMeetings: any[] }>('/dashboard')
+      .then((data) => {
+        setChannels(data.groups)
+        setRecentPages(data.recentPages)
+        setMyTasks(data.myTasks)
+        setMeetings(data.upcomingMeetings)
+      })
+      .catch(() => {}) // 로그인 전이면 무시
+  }, [activeOrgId])
+
+  const scheduledMeetings = meetings.filter((m) => m.status === 'scheduled')
+  const recentMeetings = meetings.filter((m) => m.status === 'ended').slice(0, 3)
 
   const handleJoinGroup = () => {
     if (!inviteCode.trim()) {
@@ -152,7 +160,10 @@ export function DashboardPage() {
               최근 작업 페이지
             </h2>
             <Card className="divide-y divide-neutral-100 p-0 dark:divide-neutral-700/50">
-              {MOCK_RECENT_PAGES.map((page) => (
+              {recentPages.length === 0 && (
+                <p className="px-5 py-4 text-sm text-neutral-400">최근 작업한 페이지가 없습니다.</p>
+              )}
+              {recentPages.map((page) => (
                 <button
                   key={page.id}
                   className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
@@ -242,7 +253,10 @@ export function DashboardPage() {
               내 할 일
             </h2>
             <Card className="space-y-1 p-3">
-              {MOCK_MY_TASKS.map((task) => {
+              {myTasks.length === 0 && (
+                <p className="px-3 py-2 text-sm text-neutral-400">배정된 할 일이 없습니다.</p>
+              )}
+              {myTasks.map((task) => {
                 const priority = priorityConfig[task.priority]
                 const status = statusConfig[task.status]
                 const StatusIcon = status.icon
