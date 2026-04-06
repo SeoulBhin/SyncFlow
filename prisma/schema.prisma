@@ -50,8 +50,9 @@ model OauthAccount {
   userId        String   @map("user_id") @db.Uuid
   provider      String   @db.VarChar(20) // google, github, kakao
   providerId    String   @map("provider_id") @db.VarChar(255)
-  providerEmail String?  @map("provider_email") @db.VarChar(255)
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+  providerEmail       String?  @map("provider_email") @db.VarChar(255)
+  providerAccessToken String?  @map("provider_access_token") @db.Text
+  createdAt           DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 

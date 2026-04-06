@@ -3,7 +3,9 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { DocumentModule } from './document/document.module'  // ← 추가
+import { DocumentModule } from './document/document.module'; // ← 추가
+import { AuthModule } from './auth/auth.module';
+import { SettingsModule } from './settings/settings.module';
 
 @Module({
   imports: [
@@ -25,11 +27,14 @@ import { DocumentModule } from './document/document.module'  // ← 추가
         password: config.get('DATABASE_PASSWORD', 'syncflow1234'),
         database: config.get('DATABASE_NAME', 'syncflow'),
         autoLoadEntities: true,
-        synchronize: config.get('NODE_ENV') === 'development', // dev only
+        synchronize: config.get('NODE_ENV') === 'development',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
-    DocumentModule,   // ← 추가
+    DocumentModule, // ← 추가
+
+    AuthModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
