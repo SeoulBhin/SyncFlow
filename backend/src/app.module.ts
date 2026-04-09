@@ -3,14 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-<<<<<<< HEAD
 import { LiveKitModule } from './livekit/livekit.module';
 import { AuthModule } from './auth/auth.module';
 import { ChannelsModule } from './channels/channels.module';
 import { MessagesModule } from './messages/messages.module';
-=======
-import { DocumentModule } from './document/document.module'  // ← 추가
->>>>>>> SyncFlow-bong
+import { DocumentModule } from './document/document.module';
 
 @Module({
   imports: [
@@ -36,15 +33,12 @@ import { DocumentModule } from './document/document.module'  // ← 추가
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
-<<<<<<< HEAD
 
     LiveKitModule,
     AuthModule,
     ChannelsModule,
     MessagesModule,
-=======
-    DocumentModule,   // ← 추가
->>>>>>> SyncFlow-bong
+    DocumentModule,
   ],
   controllers: [AppController],
   providers: [AppService],
