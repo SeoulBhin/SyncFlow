@@ -3,11 +3,11 @@ import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { DocumentModule } from './document/document.module'
-import { AuthModule } from './auth/auth.module'
-import { SettingsModule } from './settings/settings.module'
-import { DashboardModule } from './dashboard/dashboard.module'
-import { MeetingsModule } from './meetings/meetings.module'
+import { LiveKitModule } from './livekit/livekit.module';
+import { AuthModule } from './auth/auth.module';
+import { ChannelsModule } from './channels/channels.module';
+import { MessagesModule } from './messages/messages.module';
+import { DocumentModule } from './document/document.module';
 
 @Module({
   imports: [
@@ -33,11 +33,12 @@ import { MeetingsModule } from './meetings/meetings.module'
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
-    DocumentModule,
+
+    LiveKitModule,
     AuthModule,
-    SettingsModule,
-    DashboardModule,
-    MeetingsModule,
+    ChannelsModule,
+    MessagesModule,
+    DocumentModule,
   ],
   controllers: [AppController],
   providers: [AppService],

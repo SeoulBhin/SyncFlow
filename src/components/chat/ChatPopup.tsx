@@ -108,7 +108,7 @@ export function ChatPopup() {
     if (!message.trim() && attachedFiles.length === 0) return
     const newMsg: MockMessage = {
       id: `mp-${Date.now()}`,
-      channelId: activeChannelId,
+      channelId: activeChannelId ?? '',
       userId: 'u1',
       userName: '김민수',
       content: message.trim(),

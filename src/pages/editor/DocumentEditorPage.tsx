@@ -74,6 +74,7 @@ import { MOCK_PAGES, MOCK_PROJECTS, MOCK_ATTACHMENTS } from '@/constants'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
 
 const lowlight = createLowlight(common)
 
@@ -96,21 +97,17 @@ export function DocumentEditorPage() {
   const providerRef = useRef(
     new HocuspocusProvider({
       url: 'ws://localhost:1234',
-      name: 'dev-page-001', // 나중에 실제 pageId로 교체
-      token: 'dev-token',   // 나중에 실제 JWT로 교체
+      name: pageId ?? 'unknown',
+      token: 'dev-token',   // TODO: Part 2 완료 후 실제 JWT로 교체
       document: ydocRef.current,
     }),
   )
-  void providerRef // 연결 유지용
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showTOC, setShowTOC] = useState(false)
   const [showImageModal, setShowImageModal] = useState(false)
-  const [onlineUsers] = useState([
-    { id: 'u2', name: '이테스터', color: 'bg-blue-500' },
-    { id: 'u4', name: '최테스터', color: 'bg-green-500' },
-  ])
+  const [onlineUsers, setOnlineUsers] = useState<{ id: string; name: string; color: string }[]>([])
 
   // 슬래시 커맨드 상태
   const [slashMenuOpen, setSlashMenuOpen] = useState(false)
@@ -148,6 +145,13 @@ export function DocumentEditorPage() {
         onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
       }),
       Collaboration.configure({ document: ydocRef.current }),
+      CollaborationCursor.configure({
+        provider: providerRef.current,
+        user: {
+          name: 'Dev User',   // TODO: Part 2 완료 후 실제 사용자 정보로 교체
+          color: '#3B82F6',
+        },
+      }),
     ],
     editorProps: {
       attributes: {
@@ -172,7 +176,47 @@ export function DocumentEditorPage() {
     },
   })
 
-  // 자동 저장 시뮬레이션
+  // Hocuspocus provider 이벤트 연결
+  useEffect(() => {
+    const provider = providerRef.current
+
+    // 로컬 사용자 등록 (awareness)
+    // TODO: Part 2 완료 후 실제 사용자 정보로 교체
+    provider.awareness.setLocalStateField('user', {
+      id: 'dev-user-1',
+      name: 'Dev User',
+      color: '#3B82F6',
+    })
+
+    // 접속자 목록 갱신
+    const handleAwarenessChange = () => {
+      const states = provider.awareness.getStates()
+      const users: { id: string; name: string; color: string }[] = []
+      states.forEach((state, clientId) => {
+        if (clientId !== provider.awareness.clientID && state.user) {
+          users.push(state.user as { id: string; name: string; color: string })
+        }
+      })
+      setOnlineUsers(users)
+    }
+    provider.awareness.on('change', handleAwarenessChange)
+
+    // 연결 상태 → saveStatus 반영
+    const handleStatus = ({ status }: { status: string }) => {
+      if (status === 'disconnected') setSaveStatus('error')
+      else if (status === 'connected') setSaveStatus((prev) => (prev === 'error' ? 'saved' : prev))
+    }
+    provider.on('status', handleStatus)
+
+    return () => {
+      provider.awareness.off('change', handleAwarenessChange)
+      provider.off('status', handleStatus)
+      provider.destroy()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 변경 감지 후 1.5초 디바운싱 → 저장 완료 표시
+  // (실제 DB 저장은 Hocuspocus 서버 onStoreDocument에서 동일 간격으로 처리)
   useEffect(() => {
     if (saveStatus !== 'unsaved') return
     const timer = setTimeout(() => {
@@ -267,7 +311,8 @@ export function DocumentEditorPage() {
               {onlineUsers.map((u) => (
                 <div
                   key={u.id}
-                  className={`h-6 w-6 rounded-full ${u.color} flex items-center justify-center text-[10px] font-medium text-white ring-2 ring-surface dark:ring-surface-dark-elevated`}
+                  className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-medium text-white ring-2 ring-surface dark:ring-surface-dark-elevated"
+                  style={{ backgroundColor: u.color }}
                   title={u.name}
                 >
                   {u.name[0]}
