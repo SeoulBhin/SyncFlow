@@ -11,7 +11,6 @@ import {
   Circle,
   Loader,
   Ticket,
-  Copy,
   ArrowRight,
   Plus,
   UserPlus,
@@ -312,25 +311,6 @@ export function DashboardPage() {
                 <Button size="sm" onClick={handleJoinGroup}>
                   <ArrowRight size={16} />
                 </Button>
-              </div>
-
-              <div className="mt-4 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">
-                <p className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">내 채널 초대 코드</p>
-                <div className="flex items-center justify-between">
-                  <span className="rounded bg-primary-50 px-2.5 py-1 text-sm font-semibold tracking-[0.25em] text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                    MK7X3P
-                  </span>
-                  <button
-                    onClick={() => {
-                      navigator.clipboard.writeText('MK7X3P')
-                      addToast('success', '초대 코드가 복사되었습니다.')
-                    }}
-                    className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-                    title="초대 코드 복사"
-                  >
-                    <Copy size={14} />
-                  </button>
-                </div>
               </div>
             </Card>
           </section>
