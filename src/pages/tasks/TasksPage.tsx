@@ -9,7 +9,6 @@ import { KanbanBoard } from '@/components/tasks/KanbanBoard'
 import { CalendarView } from '@/components/tasks/CalendarView'
 import { GanttChart } from '@/components/tasks/GanttChart'
 import { ListView } from '@/components/tasks/ListView'
-import { useToastStore } from '@/stores/useToastStore'
 import { MOCK_TASKS, MOCK_MILESTONES } from '@/constants'
 import type { MockTask, TaskStatus } from '@/constants'
 
@@ -23,7 +22,6 @@ const VIEW_TABS: { value: ViewTab; label: string; icon: typeof Columns3 }[] = [
 ]
 
 export function TasksPage() {
-  const addToast = useToastStore((s) => s.addToast)
   const [view, setView] = useState<ViewTab>('kanban')
   const [tasks, setTasks] = useState<MockTask[]>(MOCK_TASKS)
   const [modalOpen, setModalOpen] = useState(false)
@@ -68,15 +66,19 @@ export function TasksPage() {
     setTasks((prev) => prev.filter((t) => t.id !== id))
   }, [])
 
-  const handleStatusChange = useCallback((taskId: string, newStatus: TaskStatus) => {
+  const handleStatusChange = useCallback((taskId: string, newStatus: string) => {
     setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus } : t)),
+      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t)),
     )
   }, [])
 
   const handleDateClick = useCallback((_date: string) => {
     setEditingTask(null)
     setModalOpen(true)
+  }, [])
+
+  const handleQuickUpdate = useCallback((taskId: string, updates: Partial<MockTask>) => {
+    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)))
   }, [])
 
   // 통계 (필터 적용)
@@ -157,38 +159,49 @@ export function TasksPage() {
         </div>
       </div>
 
-      {/* 뷰 컨텐츠 */}
-      {view === 'kanban' && (
-        <KanbanBoard
-          tasks={filteredTasks}
-          onTaskClick={openEdit}
-          onStatusChange={handleStatusChange}
-          onAddTask={openCreate}
-        />
-      )}
+      {/* 뷰 컨텐츠 — 전환 애니메이션 */}
+      <div
+        key={view}
+        className="animate-[viewFadeIn_300ms_ease-out]"
+        style={{
+          // @ts-expect-error -- inline keyframe fallback
+          '--tw-enter-opacity': '0',
+          '--tw-enter-translate-y': '8px',
+        }}
+      >
+        {view === 'kanban' && (
+          <KanbanBoard
+            tasks={filteredTasks}
+            onTaskClick={openEdit}
+            onStatusChange={handleStatusChange}
+            onAddTask={openCreate}
+            onQuickUpdate={handleQuickUpdate}
+          />
+        )}
 
-      {view === 'calendar' && (
-        <CalendarView
-          tasks={filteredTasks}
-          onTaskClick={openEdit}
-          onDateClick={handleDateClick}
-        />
-      )}
+        {view === 'calendar' && (
+          <CalendarView
+            tasks={filteredTasks}
+            onTaskClick={openEdit}
+            onDateClick={handleDateClick}
+          />
+        )}
 
-      {view === 'gantt' && (
-        <GanttChart
-          tasks={filteredTasks}
-          onTaskClick={openEdit}
-        />
-      )}
+        {view === 'gantt' && (
+          <GanttChart
+            tasks={filteredTasks}
+            onTaskClick={openEdit}
+          />
+        )}
 
-      {view === 'list' && (
-        <ListView
-          tasks={filteredTasks}
-          milestones={MOCK_MILESTONES}
-          onTaskClick={openEdit}
-        />
-      )}
+        {view === 'list' && (
+          <ListView
+            tasks={filteredTasks}
+            milestones={MOCK_MILESTONES}
+            onTaskClick={openEdit}
+          />
+        )}
+      </div>
 
       {/* 할 일 모달 */}
       <TaskModal

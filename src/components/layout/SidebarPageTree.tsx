@@ -88,7 +88,7 @@ export function SidebarPageTree() {
               </div>
             ) : (
               /* 기본 상태 */
-              <button onClick={() => navigate(page.type === 'code' ? `/code/${page.id}` : `/editor/${page.id}`)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700">
+              <button onClick={() => navigate(page.type === 'code' ? `/app/code/${page.id}` : `/app/editor/${page.id}`)} className="flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700">
                 {page.type === 'doc' ? <FileText size={14} className="shrink-0" /> : <Code size={14} className="shrink-0" />}
                 <span className="flex-1 truncate text-left">{page.name}</span>
                 {/* hover 시 편집/삭제 버튼 */}

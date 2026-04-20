@@ -25,7 +25,7 @@ export function JoinGroupModal({ isOpen, onClose }: Props) {
       setError('초대 코드는 6자리입니다.')
       return
     }
-    addToast('success', '그룹에 참여했습니다! (목업)')
+    addToast('success', '채널에 참여했습니다! (목업)')
     handleClose()
   }
 
@@ -40,7 +40,7 @@ export function JoinGroupModal({ isOpen, onClose }: Props) {
       <div className="fixed inset-0 bg-black/40" onClick={handleClose} />
       <div className="relative z-10 w-full max-w-sm rounded-xl border border-neutral-200 bg-surface p-6 shadow-xl dark:border-neutral-700 dark:bg-surface-dark-elevated">
         <div className="mb-5 flex items-center justify-between">
-          <h2 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">그룹 참여</h2>
+          <h2 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">채널 참여</h2>
           <button onClick={handleClose} className="rounded-lg p-1 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">
             <X size={18} />
           </button>

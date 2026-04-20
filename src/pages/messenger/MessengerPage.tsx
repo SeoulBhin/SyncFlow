@@ -15,27 +15,47 @@ import {
   ImageIcon,
   FileText,
   Plus,
+  MessageCircle,
 } from 'lucide-react'
 import { useChatStore } from '@/stores/useChatStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import {
-  MOCK_CHANNELS,
+  MOCK_CHAT_CHANNELS,
   MOCK_DMS,
   MOCK_MESSAGES,
   EMOJI_LIST,
   MOCK_CHANNEL_MEMBERS,
-  type MockChannel,
+  type MockChatChannel,
   type MockMessage,
-  type MessageReaction,
 } from '@/constants'
+
+/* ── 스레드 목업 메시지 (로컬 데이터) ── */
+const THREAD_MESSAGES: MockMessage[] = [
+  /* m1(이수현의 마케팅 보고서 메시지)에 대한 답글 */
+  { id: 'tm1', channelId: 'cc1', userId: 'u1', userName: '김민수', content: '오후 4시까지 피드백 드리겠습니다.', timestamp: '오후 2:35', isOwn: true, parentMessageId: 'm1' },
+  { id: 'tm2', channelId: 'cc1', userId: 'u4', userName: '김하늘', content: '디자인 파트 제가 먼저 확인할게요.', timestamp: '오후 2:40', isOwn: false, parentMessageId: 'm1' },
+  { id: 'tm3', channelId: 'cc1', userId: 'u3', userName: '이수현', content: '감사합니다! 수정사항 있으면 알려주세요.', timestamp: '오후 2:45', isOwn: false, parentMessageId: 'm1' },
+  /* m7(박서준의 결제 모듈 PR 메시지)에 대한 답글 */
+  { id: 'tm4', channelId: 'cc2', userId: 'u1', userName: '김민수', content: 'LGTM! 몇 가지 코멘트 남겼습니다.', timestamp: '오후 1:25', isOwn: true, parentMessageId: 'm7' },
+  { id: 'tm5', channelId: 'cc2', userId: 'u5', userName: '정우진', content: '저도 리뷰 완료했습니다.', timestamp: '오후 1:30', isOwn: false, parentMessageId: 'm7' },
+]
+
+/* m1, m7에 replyCount 추가한 확장 메시지 목록 */
+const EXTENDED_MOCK_MESSAGES: MockMessage[] = MOCK_MESSAGES.map((msg) => {
+  if (msg.id === 'm1') return { ...msg, replyCount: 3 }
+  if (msg.id === 'm7') return { ...msg, replyCount: 2 }
+  return msg
+})
 
 export function MessengerPage() {
   const navigate = useNavigate()
   const { activeChannelId, setActiveChannel } = useChatStore()
   const { activeGroupName } = useGroupContextStore()
   const [message, setMessage] = useState('')
-  const [messages, setMessages] = useState<MockMessage[]>(MOCK_MESSAGES)
+  const [messages, setMessages] = useState<MockMessage[]>(EXTENDED_MOCK_MESSAGES)
+  const [threadMessages, setThreadMessages] = useState<MockMessage[]>(THREAD_MESSAGES)
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const threadMessagesEndRef = useRef<HTMLDivElement>(null)
   const [channelsOpen, setChannelsOpen] = useState(true)
   const [dmsOpen, setDmsOpen] = useState(true)
 
@@ -64,13 +84,22 @@ export function MessengerPage() {
   /* textarea ref (커서 위치 이모지 삽입용) */
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
-  const groupChannels = MOCK_CHANNELS.filter((ch) => ch.groupName === activeGroupName)
+  /* 스레드 패널 상태 */
+  const [activeThreadId, setActiveThreadId] = useState<string | null>(null)
+  const [threadMessage, setThreadMessage] = useState('')
+  const threadTextareaRef = useRef<HTMLTextAreaElement>(null)
+
+  /* 스레드 이모지 피커 상태 */
+  const [showThreadEmojiPicker, setShowThreadEmojiPicker] = useState(false)
+
+  const groupChannels = MOCK_CHAT_CHANNELS.filter((ch) => ch.channelName === activeGroupName)
   const activeChannel =
     [...groupChannels, ...MOCK_DMS].find((c) => c.id === activeChannelId) ??
-    groupChannels[0] ?? MOCK_CHANNELS[0]
+    groupChannels[0] ?? MOCK_CHAT_CHANNELS[0]
 
+  /* 메인 채널에는 최상위 메시지만 표시 (parentMessageId가 없는 것) */
   const channelMessages = messages.filter(
-    (m) => m.channelId === activeChannelId,
+    (m) => m.channelId === activeChannelId && !m.parentMessageId,
   )
 
   /* 검색 필터링 */
@@ -87,6 +116,16 @@ export function MessengerPage() {
           m.name.toLowerCase().includes(mentionQuery.toLowerCase()),
         )
       : []
+
+  /* 현재 열린 스레드의 원본 메시지 */
+  const threadParentMessage = activeThreadId
+    ? messages.find((m) => m.id === activeThreadId) ?? null
+    : null
+
+  /* 현재 스레드의 답글 목록 */
+  const currentThreadReplies = activeThreadId
+    ? threadMessages.filter((m) => m.parentMessageId === activeThreadId)
+    : []
 
   /* 메신저 페이지에서는 부모 main의 하단 여백/스크롤 제거 (풀사이즈 레이아웃) */
   useEffect(() => {
@@ -108,14 +147,24 @@ export function MessengerPage() {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [channelMessages.length, activeChannelId])
 
+  /* 스레드 메시지 목록 자동 스크롤 */
+  useEffect(() => {
+    threadMessagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [currentThreadReplies.length, activeThreadId])
+
+  /* 채널 변경 시 스레드 패널 닫기 */
+  useEffect(() => {
+    setActiveThreadId(null)
+  }, [activeChannelId])
+
   /* 메시지 전송 핸들러 (목업 — 로컬 상태에 추가) */
   const handleSend = () => {
     if (!message.trim() && attachedFiles.length === 0) return
     const newMsg: MockMessage = {
       id: `m-${Date.now()}`,
-      channelId: activeChannelId,
+      channelId: activeChannelId ?? '',
       userId: 'u1',
-      userName: '김테스터',
+      userName: '김민수',
       content: message.trim(),
       timestamp: new Date().toLocaleTimeString('ko-KR', {
         hour: 'numeric',
@@ -135,6 +184,35 @@ export function MessengerPage() {
     setMessage('')
     setAttachedFiles([])
     setMentionQuery(null)
+  }
+
+  /* 스레드 메시지 전송 핸들러 */
+  const handleThreadSend = () => {
+    if (!threadMessage.trim() || !activeThreadId) return
+    const newReply: MockMessage = {
+      id: `tm-${Date.now()}`,
+      channelId: activeChannelId ?? '',
+      userId: 'u1',
+      userName: '김민수',
+      content: threadMessage.trim(),
+      timestamp: new Date().toLocaleTimeString('ko-KR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }),
+      isOwn: true,
+      isRead: false,
+      parentMessageId: activeThreadId,
+    }
+    setThreadMessages((prev) => [...prev, newReply])
+    /* 부모 메시지의 replyCount 증가 */
+    setMessages((prev) =>
+      prev.map((m) => {
+        if (m.id !== activeThreadId) return m
+        return { ...m, replyCount: (m.replyCount ?? 0) + 1 }
+      }),
+    )
+    setThreadMessage('')
   }
 
   /* Enter 키로 메시지 전송 */
@@ -166,6 +244,14 @@ export function MessengerPage() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  /* 스레드 입력 Enter 키 핸들러 */
+  const handleThreadKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault()
+      handleThreadSend()
     }
   }
 
@@ -229,9 +315,31 @@ export function MessengerPage() {
     }, 0)
   }
 
+  /* 스레드 이모지 삽입 */
+  const insertThreadEmoji = (emoji: string) => {
+    const textarea = threadTextareaRef.current
+    if (!textarea) {
+      setThreadMessage((prev) => prev + emoji)
+      setShowThreadEmojiPicker(false)
+      return
+    }
+    const start = textarea.selectionStart
+    const end = textarea.selectionEnd
+    const before = threadMessage.slice(0, start)
+    const after = threadMessage.slice(end)
+    const newMsg = before + emoji + after
+    setThreadMessage(newMsg)
+    setShowThreadEmojiPicker(false)
+    setTimeout(() => {
+      textarea.focus()
+      const newPos = start + emoji.length
+      textarea.setSelectionRange(newPos, newPos)
+    }, 0)
+  }
+
   /* 메시지에 리액션 추가 */
   const addReaction = (msgId: string, emoji: string) => {
-    setMessages((prev) =>
+    const updater = (prev: MockMessage[]) =>
       prev.map((m) => {
         if (m.id !== msgId) return m
         const existing = m.reactions ?? []
@@ -258,8 +366,10 @@ export function MessengerPage() {
           }
         }
         return { ...m, reactions: [...existing, { emoji, users: ['u1'] }] }
-      }),
-    )
+      })
+
+    setMessages(updater)
+    setThreadMessages(updater)
     setReactionPickerMsgId(null)
   }
 
@@ -298,9 +408,204 @@ export function MessengerPage() {
     handleFileSelect(e.dataTransfer.files)
   }, [])
 
+  /* 스레드 열기 */
+  const openThread = (msgId: string) => {
+    setActiveThreadId(msgId)
+  }
+
+  /* 스레드 닫기 */
+  const closeThread = () => {
+    setActiveThreadId(null)
+    setThreadMessage('')
+    setShowThreadEmojiPicker(false)
+  }
+
+  /* ── 메시지 버블 렌더링 (메인 채널 + 스레드 공용) ── */
+  const renderMessageBubble = (msg: MockMessage, options?: { showThreadIndicator?: boolean }) => {
+    const showThread = options?.showThreadIndicator ?? false
+    const replyCount = msg.replyCount ?? 0
+
+    return (
+      <div
+        key={msg.id}
+        className={`group flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
+      >
+        <div
+          className={`max-w-[70%] ${msg.isOwn ? 'order-2' : 'order-1'}`}
+        >
+          {/* 보낸 사람 이름 (본인 메시지 제외) */}
+          {!msg.isOwn && (
+            <p className="mb-0.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
+              {msg.userName}
+            </p>
+          )}
+          {/* 첨부 파일 표시 */}
+          {msg.attachments && msg.attachments.length > 0 && (
+            <div className="mb-1 space-y-1">
+              {msg.attachments.map((att) => (
+                <div
+                  key={att.id}
+                  className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
+                    msg.isOwn
+                      ? 'bg-primary-400/30 text-white'
+                      : 'bg-neutral-50 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-200'
+                  }`}
+                >
+                  {att.type === 'image' ? (
+                    <ImageIcon size={14} className="shrink-0" />
+                  ) : (
+                    <FileText size={14} className="shrink-0" />
+                  )}
+                  <span className="truncate">{att.name}</span>
+                  <span className="shrink-0 text-[10px] opacity-70">
+                    {att.size}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* 메시지 버블 (보낸/받은 구분 색상) */}
+          <div
+            className={`rounded-2xl px-3.5 py-2 text-sm ${
+              msg.isOwn
+                ? 'rounded-br-md bg-primary-500 text-white'
+                : 'rounded-bl-md bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100'
+            }`}
+          >
+            {msg.content}
+          </div>
+          {/* 스레드 답글 인디케이터 — 메인 채널에서만 표시 */}
+          {showThread && replyCount > 0 && (
+            <button
+              onClick={() => openThread(msg.id)}
+              className={`mt-1 flex items-center gap-1 rounded-md px-2 py-0.5 text-xs font-medium text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/20 ${
+                msg.isOwn ? 'ml-auto' : ''
+              }`}
+              title="스레드 답글 보기"
+            >
+              {/* 스레드 답글 수 표시 */}
+              <MessageCircle size={12} />
+              <span>{replyCount}개 답글</span>
+            </button>
+          )}
+          {/* 리액션 배지 표시 */}
+          {msg.reactions && msg.reactions.length > 0 && (
+            <div className={`mt-1 flex flex-wrap items-center gap-1 ${msg.isOwn ? 'justify-end' : 'justify-start'}`}>
+              {msg.reactions.map((reaction) => (
+                <button
+                  key={reaction.emoji}
+                  onClick={() => addReaction(msg.id, reaction.emoji)}
+                  className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
+                    reaction.users.includes('u1')
+                      ? 'border-primary-300 bg-primary-50 dark:border-primary-700 dark:bg-primary-900/30'
+                      : 'border-neutral-200 bg-neutral-50 hover:border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500'
+                  }`}
+                  title="리액션 토글"
+                >
+                  <span>{reaction.emoji}</span>
+                  <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
+                    {reaction.users.length}
+                  </span>
+                </button>
+              ))}
+              {/* 리액션 추가 버튼 (호버 시 표시) */}
+              <div className="relative">
+                <button
+                  onClick={() =>
+                    setReactionPickerMsgId(
+                      reactionPickerMsgId === msg.id ? null : msg.id,
+                    )
+                  }
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:border-neutral-300 hover:text-neutral-600 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500 dark:hover:text-neutral-300"
+                  title="리액션 추가"
+                >
+                  <Plus size={10} />
+                </button>
+                {/* 리액션 미니 이모지 피커 */}
+                {reactionPickerMsgId === msg.id && (
+                  <>
+                    {/* 백드롭 (클릭 시 닫기) */}
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setReactionPickerMsgId(null)}
+                    />
+                    <div className={`absolute z-50 bottom-7 ${msg.isOwn ? 'right-0' : 'left-0'} w-52 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-600 dark:bg-neutral-800`}>
+                      <div className="grid grid-cols-8 gap-0.5">
+                        {EMOJI_LIST.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => addReaction(msg.id, emoji)}
+                            className="flex h-6 w-6 items-center justify-center rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                            title="이모지 리액션"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {/* 리액션이 없을 때도 호버 시 + 버튼 표시 */}
+          {(!msg.reactions || msg.reactions.length === 0) && (
+            <div className={`mt-1 flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}>
+              <div className="relative">
+                <button
+                  onClick={() =>
+                    setReactionPickerMsgId(
+                      reactionPickerMsgId === msg.id ? null : msg.id,
+                    )
+                  }
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:border-neutral-300 hover:text-neutral-600 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500 dark:hover:text-neutral-300"
+                  title="리액션 추가"
+                >
+                  <Plus size={10} />
+                </button>
+                {reactionPickerMsgId === msg.id && (
+                  <>
+                    <div
+                      className="fixed inset-0 z-40"
+                      onClick={() => setReactionPickerMsgId(null)}
+                    />
+                    <div className={`absolute z-50 bottom-7 ${msg.isOwn ? 'right-0' : 'left-0'} w-52 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-600 dark:bg-neutral-800`}>
+                      <div className="grid grid-cols-8 gap-0.5">
+                        {EMOJI_LIST.map((emoji) => (
+                          <button
+                            key={emoji}
+                            onClick={() => addReaction(msg.id, emoji)}
+                            className="flex h-6 w-6 items-center justify-center rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                            title="이모지 리액션"
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+          {/* 메시지 시간 + 읽음 표시 */}
+          <p
+            className={`mt-0.5 flex items-center gap-1 text-[10px] text-neutral-400 dark:text-neutral-500 ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
+          >
+            {msg.timestamp}
+            {/* 읽음 확인 (본인 메시지 + isRead) */}
+            {msg.isOwn && msg.isRead && (
+              <CheckCheck size={12} className="text-blue-500" />
+            )}
+          </p>
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="flex h-full">
-      {/* ====== 좌측: 채널/DM 목록 (디스코드 스타일) ====== */}
+      {/* ====== 좌측: 채널/DM 목록 (디스코드 스타일, 256px) ====== */}
       <aside className="hidden w-64 shrink-0 flex-col border-r border-neutral-200 bg-surface-secondary dark:border-neutral-700 dark:bg-surface-dark-secondary md:flex">
         <div className="flex h-14 items-center border-b border-neutral-200 px-4 dark:border-neutral-700">
           <div>
@@ -368,7 +673,7 @@ export function MessengerPage() {
         </div>
       </aside>
 
-      {/* ====== 우측: 메시지 영역 ====== */}
+      {/* ====== 중앙: 메시지 영역 (flex-1) ====== */}
       <div
         className="flex flex-1 flex-col relative"
         onDragOver={handleDragOver}
@@ -397,9 +702,9 @@ export function MessengerPage() {
                 ? activeChannel.dmUser
                 : activeChannel.name}
             </span>
-            {activeChannel.groupName && (
+            {activeChannel.channelName && (
               <span className="text-xs text-neutral-400 dark:text-neutral-500">
-                — {activeChannel.groupName}
+                — {activeChannel.channelName}
               </span>
             )}
           </div>
@@ -485,179 +790,20 @@ export function MessengerPage() {
             </div>
           ) : (
             <div className="space-y-3">
-              {filteredMessages.map((msg) => (
-                <div
-                  key={msg.id}
-                  className={`group flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
-                >
-                  <div
-                    className={`max-w-[70%] ${msg.isOwn ? 'order-2' : 'order-1'}`}
-                  >
-                    {/* 보낸 사람 이름 (본인 메시지 제외) */}
-                    {!msg.isOwn && (
-                      <p className="mb-0.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                        {msg.userName}
-                      </p>
-                    )}
-                    {/* 첨부 파일 표시 */}
-                    {msg.attachments && msg.attachments.length > 0 && (
-                      <div className="mb-1 space-y-1">
-                        {msg.attachments.map((att) => (
-                          <div
-                            key={att.id}
-                            className={`flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${
-                              msg.isOwn
-                                ? 'bg-primary-400/30 text-white'
-                                : 'bg-neutral-50 text-neutral-600 dark:bg-neutral-600 dark:text-neutral-200'
-                            }`}
-                          >
-                            {att.type === 'image' ? (
-                              <ImageIcon size={14} className="shrink-0" />
-                            ) : (
-                              <FileText size={14} className="shrink-0" />
-                            )}
-                            <span className="truncate">{att.name}</span>
-                            <span className="shrink-0 text-[10px] opacity-70">
-                              {att.size}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    )}
-                    {/* 메시지 버블 (보낸/받은 구분 색상) */}
-                    <div
-                      className={`rounded-2xl px-3.5 py-2 text-sm ${
-                        msg.isOwn
-                          ? 'rounded-br-md bg-primary-500 text-white'
-                          : 'rounded-bl-md bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100'
-                      }`}
-                    >
-                      {msg.content}
-                    </div>
-                    {/* 리액션 배지 표시 */}
-                    {msg.reactions && msg.reactions.length > 0 && (
-                      <div className={`mt-1 flex flex-wrap items-center gap-1 ${msg.isOwn ? 'justify-end' : 'justify-start'}`}>
-                        {msg.reactions.map((reaction) => (
-                          <button
-                            key={reaction.emoji}
-                            onClick={() => addReaction(msg.id, reaction.emoji)}
-                            className={`inline-flex items-center gap-0.5 rounded-full border px-1.5 py-0.5 text-xs transition-colors ${
-                              reaction.users.includes('u1')
-                                ? 'border-primary-300 bg-primary-50 dark:border-primary-700 dark:bg-primary-900/30'
-                                : 'border-neutral-200 bg-neutral-50 hover:border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500'
-                            }`}
-                            title="리액션 토글"
-                          >
-                            <span>{reaction.emoji}</span>
-                            <span className="text-[10px] text-neutral-500 dark:text-neutral-400">
-                              {reaction.users.length}
-                            </span>
-                          </button>
-                        ))}
-                        {/* 리액션 추가 버튼 (호버 시 표시) */}
-                        <div className="relative">
-                          <button
-                            onClick={() =>
-                              setReactionPickerMsgId(
-                                reactionPickerMsgId === msg.id ? null : msg.id,
-                              )
-                            }
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:border-neutral-300 hover:text-neutral-600 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500 dark:hover:text-neutral-300"
-                            title="리액션 추가"
-                          >
-                            <Plus size={10} />
-                          </button>
-                          {/* 리액션 미니 이모지 피커 */}
-                          {reactionPickerMsgId === msg.id && (
-                            <>
-                              {/* 백드롭 (클릭 시 닫기) */}
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setReactionPickerMsgId(null)}
-                              />
-                              <div className={`absolute z-50 bottom-7 ${msg.isOwn ? 'right-0' : 'left-0'} w-52 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-600 dark:bg-neutral-800`}>
-                                <div className="grid grid-cols-8 gap-0.5">
-                                  {EMOJI_LIST.map((emoji) => (
-                                    <button
-                                      key={emoji}
-                                      onClick={() => addReaction(msg.id, emoji)}
-                                      className="flex h-6 w-6 items-center justify-center rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
-                                      title="이모지 리액션"
-                                    >
-                                      {emoji}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {/* 리액션이 없을 때도 호버 시 + 버튼 표시 */}
-                    {(!msg.reactions || msg.reactions.length === 0) && (
-                      <div className={`mt-1 flex ${msg.isOwn ? 'justify-end' : 'justify-start'}`}>
-                        <div className="relative">
-                          <button
-                            onClick={() =>
-                              setReactionPickerMsgId(
-                                reactionPickerMsgId === msg.id ? null : msg.id,
-                              )
-                            }
-                            className="inline-flex h-5 w-5 items-center justify-center rounded-full border border-neutral-200 bg-neutral-50 text-neutral-400 opacity-0 transition-opacity group-hover:opacity-100 hover:border-neutral-300 hover:text-neutral-600 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500 dark:hover:text-neutral-300"
-                            title="리액션 추가"
-                          >
-                            <Plus size={10} />
-                          </button>
-                          {reactionPickerMsgId === msg.id && (
-                            <>
-                              <div
-                                className="fixed inset-0 z-40"
-                                onClick={() => setReactionPickerMsgId(null)}
-                              />
-                              <div className={`absolute z-50 bottom-7 ${msg.isOwn ? 'right-0' : 'left-0'} w-52 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-600 dark:bg-neutral-800`}>
-                                <div className="grid grid-cols-8 gap-0.5">
-                                  {EMOJI_LIST.map((emoji) => (
-                                    <button
-                                      key={emoji}
-                                      onClick={() => addReaction(msg.id, emoji)}
-                                      className="flex h-6 w-6 items-center justify-center rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
-                                      title="이모지 리액션"
-                                    >
-                                      {emoji}
-                                    </button>
-                                  ))}
-                                </div>
-                              </div>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    )}
-                    {/* 메시지 시간 + 읽음 표시 */}
-                    <p
-                      className={`mt-0.5 flex items-center gap-1 text-[10px] text-neutral-400 dark:text-neutral-500 ${msg.isOwn ? 'justify-end' : 'justify-start'}`}
-                    >
-                      {msg.timestamp}
-                      {/* 읽음 확인 (본인 메시지 + isRead) */}
-                      {msg.isOwn && msg.isRead && (
-                        <CheckCheck size={12} className="text-blue-500" />
-                      )}
-                    </p>
-                  </div>
-                </div>
-              ))}
+              {filteredMessages.map((msg) =>
+                renderMessageBubble(msg, { showThreadIndicator: true }),
+              )}
 
               {/* 타이핑 인디케이터 (목업) */}
               {isTyping && (
                 <div className="flex justify-start">
                   <div className="max-w-[70%]">
                     <p className="mb-0.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                      이테스터
+                      박서준
                     </p>
                     <div className="rounded-2xl rounded-bl-md bg-neutral-100 px-3.5 py-2 text-sm text-neutral-500 dark:bg-neutral-700 dark:text-neutral-400">
                       <span className="inline-flex items-center gap-0.5">
-                        이테스터님이 입력 중
+                        박서준님이 입력 중
                         <span className="inline-flex">
                           <span className="animate-bounce" style={{ animationDelay: '0ms' }}>.</span>
                           <span className="animate-bounce" style={{ animationDelay: '150ms' }}>.</span>
@@ -820,12 +966,147 @@ export function MessengerPage() {
               onClick={handleSend}
               disabled={!message.trim() && attachedFiles.length === 0}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white transition-colors hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-primary-600 dark:hover:bg-primary-700"
+              title="메시지 전송"
             >
               <Send size={16} />
             </button>
           </div>
         </div>
       </div>
+
+      {/* ====== 우측: 스레드 패널 (350px, 조건부 표시) ====== */}
+      {/* 모바일: 풀스크린 오버레이 / 데스크톱: 사이드 패널 */}
+      {activeThreadId && threadParentMessage && (
+        <>
+          {/* 모바일 백드롭 (md 이하에서만 표시) */}
+          <div
+            className="fixed inset-0 z-40 bg-black/30 md:hidden"
+            onClick={closeThread}
+          />
+          <aside
+            className={`
+              fixed inset-0 z-50 flex flex-col bg-white dark:bg-surface-dark
+              md:static md:z-auto md:w-[350px] md:shrink-0 md:border-l md:border-neutral-200 md:dark:border-neutral-700
+            `}
+          >
+            {/* 스레드 패널 헤더 */}
+            <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
+              <div className="flex-1 min-w-0">
+                <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+                  스레드
+                </h3>
+                <p className="truncate text-[11px] text-neutral-400 dark:text-neutral-500">
+                  {threadParentMessage.userName}: {threadParentMessage.content}
+                </p>
+              </div>
+              {/* 스레드 패널 닫기 버튼 */}
+              <button
+                onClick={closeThread}
+                className="ml-2 shrink-0 rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                title="스레드 닫기"
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            {/* 스레드 메시지 리스트 */}
+            <div className="flex-1 overflow-y-auto px-4 py-3">
+              <div className="space-y-3">
+                {/* 원본 메시지 (스레드 상단에 표시) */}
+                <div className="border-b border-neutral-100 pb-3 dark:border-neutral-700">
+                  {renderMessageBubble(threadParentMessage)}
+                </div>
+
+                {/* 답글 수 구분선 */}
+                {currentThreadReplies.length > 0 && (
+                  <div className="flex items-center gap-2 py-1">
+                    <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                    <span className="text-[10px] font-medium text-neutral-400 dark:text-neutral-500">
+                      {currentThreadReplies.length}개 답글
+                    </span>
+                    <div className="h-px flex-1 bg-neutral-200 dark:bg-neutral-700" />
+                  </div>
+                )}
+
+                {/* 스레드 답글 메시지 목록 */}
+                {currentThreadReplies.map((reply) =>
+                  renderMessageBubble(reply),
+                )}
+
+                {/* 스레드 자동 스크롤 앵커 */}
+                <div ref={threadMessagesEndRef} />
+              </div>
+            </div>
+
+            {/* 스레드 메시지 입력창 */}
+            <div className="shrink-0 border-t border-neutral-200 px-3 py-3 pb-14 md:pb-3 dark:border-neutral-700">
+              <div className="flex items-end gap-2">
+                <textarea
+                  ref={threadTextareaRef}
+                  value={threadMessage}
+                  onChange={(e) => setThreadMessage(e.target.value)}
+                  onKeyDown={handleThreadKeyDown}
+                  placeholder="답글을 입력하세요..."
+                  rows={1}
+                  className="max-h-20 flex-1 resize-none rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition placeholder:text-neutral-400 focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:placeholder:text-neutral-500 dark:focus:ring-primary-900"
+                />
+
+                {/* 스레드 이모지 피커 버튼 */}
+                <div className="relative">
+                  <button
+                    onClick={() => setShowThreadEmojiPicker((v) => !v)}
+                    className={`flex h-9 w-9 shrink-0 items-center justify-center rounded-lg transition-colors ${
+                      showThreadEmojiPicker
+                        ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                        : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'
+                    }`}
+                    title="스레드 이모지 선택"
+                  >
+                    <Smile size={16} />
+                  </button>
+                  {/* 스레드 이모지 피커 팝업 */}
+                  {showThreadEmojiPicker && (
+                    <>
+                      {/* 백드롭 (클릭 시 닫기) */}
+                      <div
+                        className="fixed inset-0 z-40"
+                        onClick={() => setShowThreadEmojiPicker(false)}
+                      />
+                      <div className="absolute bottom-11 right-0 z-50 w-56 rounded-lg border border-neutral-200 bg-white p-2 shadow-lg dark:border-neutral-600 dark:bg-neutral-800">
+                        <p className="mb-1.5 px-1 text-[10px] font-semibold uppercase text-neutral-400">
+                          이모지 선택
+                        </p>
+                        <div className="grid grid-cols-8 gap-0.5">
+                          {EMOJI_LIST.map((emoji) => (
+                            <button
+                              key={emoji}
+                              onClick={() => insertThreadEmoji(emoji)}
+                              className="flex h-6 w-6 items-center justify-center rounded text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700"
+                              title="스레드 이모지 삽입"
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+
+                {/* 스레드 메시지 전송 버튼 */}
+                <button
+                  onClick={handleThreadSend}
+                  disabled={!threadMessage.trim()}
+                  className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white transition-colors hover:bg-primary-600 disabled:opacity-40 disabled:cursor-not-allowed dark:bg-primary-600 dark:hover:bg-primary-700"
+                  title="스레드 답글 전송"
+                >
+                  <Send size={14} />
+                </button>
+              </div>
+            </div>
+          </aside>
+        </>
+      )}
     </div>
   )
 }
@@ -837,7 +1118,7 @@ function ChannelItem({
   active,
   onSelect,
 }: {
-  channel: MockChannel
+  channel: MockChatChannel
   active: boolean
   onSelect: (id: string) => void
 }) {
@@ -862,9 +1143,9 @@ function ChannelItem({
       <span className="flex-1 truncate text-left">
         {channel.type === 'dm' ? channel.dmUser : channel.name}
       </span>
-      {channel.groupName && channel.type !== 'dm' && (
+      {channel.channelName && channel.type !== 'dm' && (
         <span className="hidden truncate text-[10px] text-neutral-400 lg:inline">
-          {channel.groupName}
+          {channel.channelName}
         </span>
       )}
       {/* 읽지 않은 메시지 배지 */}

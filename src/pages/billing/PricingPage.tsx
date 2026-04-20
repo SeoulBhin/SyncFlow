@@ -384,7 +384,7 @@ export function PricingPage() {
       {/* 결제 내역 링크 */}
       <div className="text-center">
         <Link
-          to="/billing/history"
+          to="/app/billing/history"
           className="inline-flex items-center gap-2 text-sm text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300"
         >
           <Receipt size={14} />

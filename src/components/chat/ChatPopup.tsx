@@ -10,18 +10,17 @@ import {
   Smile,
   Paperclip,
   CheckCheck,
-  Plus,
 } from 'lucide-react'
 import { Link } from 'react-router-dom'
 import { useChatStore } from '@/stores/useChatStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import {
-  MOCK_CHANNELS,
+  MOCK_CHAT_CHANNELS,
   MOCK_DMS,
   MOCK_MESSAGES,
   MOCK_CHANNEL_MEMBERS,
   EMOJI_LIST,
-  type MockChannel,
+  type MockChatChannel,
   type MockMessage,
 } from '@/constants'
 
@@ -52,10 +51,10 @@ export function ChatPopup() {
   const [showTyping, setShowTyping] = useState(false)
   const typingTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  const groupChannels = MOCK_CHANNELS.filter((ch) => ch.groupName === activeGroupName)
+  const groupChannels = MOCK_CHAT_CHANNELS.filter((ch) => ch.channelName === activeGroupName)
   const allChannels = [...groupChannels, ...MOCK_DMS]
   const activeChannel =
-    allChannels.find((c) => c.id === activeChannelId) ?? MOCK_CHANNELS[0]
+    allChannels.find((c) => c.id === activeChannelId) ?? MOCK_CHAT_CHANNELS[0]
 
   const channelMessages = messages.filter(
     (m) => m.channelId === activeChannelId,
@@ -109,9 +108,9 @@ export function ChatPopup() {
     if (!message.trim() && attachedFiles.length === 0) return
     const newMsg: MockMessage = {
       id: `mp-${Date.now()}`,
-      channelId: activeChannelId,
+      channelId: activeChannelId ?? '',
       userId: 'u1',
-      userName: '김테스터',
+      userName: '김민수',
       content: message.trim(),
       timestamp: new Date().toLocaleTimeString('ko-KR', {
         hour: 'numeric',
@@ -364,11 +363,11 @@ export function ChatPopup() {
               <div className="flex justify-start">
                 <div className="max-w-[80%]">
                   <p className="mb-0.5 text-[10px] font-medium text-neutral-500 dark:text-neutral-400">
-                    이테스터
+                    박서준
                   </p>
                   {/* 입력 중 애니메이션 */}
                   <div className="inline-flex items-center gap-1 rounded-xl rounded-bl-sm bg-neutral-100 px-3 py-1.5 text-xs text-neutral-500 dark:bg-neutral-700 dark:text-neutral-400">
-                    <span className="text-[10px]">이테스터님이 입력 중</span>
+                    <span className="text-[10px]">박서준님이 입력 중</span>
                     <span className="inline-flex gap-0.5">
                       <span className="h-1 w-1 animate-bounce rounded-full bg-neutral-400 dark:bg-neutral-500" style={{ animationDelay: '0ms' }} />
                       <span className="h-1 w-1 animate-bounce rounded-full bg-neutral-400 dark:bg-neutral-500" style={{ animationDelay: '150ms' }} />
@@ -521,7 +520,7 @@ function ChannelOption({
   active,
   onSelect,
 }: {
-  channel: MockChannel
+  channel: MockChatChannel
   active: boolean
   onSelect: (id: string) => void
 }) {
@@ -545,9 +544,9 @@ function ChannelOption({
       <span className="truncate">
         {channel.type === 'dm' ? channel.dmUser : channel.name}
       </span>
-      {channel.groupName && channel.type !== 'dm' && (
+      {channel.channelName && channel.type !== 'dm' && (
         <span className="ml-auto truncate text-[10px] text-neutral-400">
-          {channel.groupName}
+          {channel.channelName}
         </span>
       )}
       {channel.unread > 0 && (

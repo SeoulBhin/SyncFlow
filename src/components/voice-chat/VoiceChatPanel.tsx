@@ -9,19 +9,8 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import type { VoiceParticipant } from '@/stores/useVoiceChatStore'
-
-const MOCK_MICS = [
-  { id: 'default', label: '기본 마이크' },
-  { id: 'mic1', label: '내장 마이크 (Realtek)' },
-  { id: 'mic2', label: 'USB 마이크' },
-]
-
-const MOCK_SPEAKERS = [
-  { id: 'default', label: '기본 스피커' },
-  { id: 'sp1', label: '내장 스피커 (Realtek)' },
-  { id: 'sp2', label: 'Bluetooth 헤드셋' },
-]
 
 function ParticipantRow({ p }: { p: VoiceParticipant }) {
   return (
@@ -73,7 +62,7 @@ function DeviceDropdown({
   onSelect,
 }: {
   label: string
-  devices: { id: string; label: string }[]
+  devices: MediaDeviceInfo[]
   selected: string
   onSelect: (id: string) => void
 }) {
@@ -88,7 +77,8 @@ function DeviceDropdown({
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  const selectedDevice = devices.find((d) => d.id === selected)
+  const selectedDevice = devices.find((d) => d.deviceId === selected)
+  const displayLabel = selectedDevice?.label || (devices.length === 0 ? '장치 없음' : '기본 장치')
 
   return (
     <div ref={ref} className="relative">
@@ -97,21 +87,23 @@ function DeviceDropdown({
         onClick={() => setOpen(!open)}
         className="flex w-full items-center justify-between gap-2 rounded-lg border border-neutral-200 bg-surface px-2.5 py-1.5 text-left text-xs text-neutral-700 transition-colors hover:border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200"
       >
-        <span className="truncate">{selectedDevice?.label ?? '선택'}</span>
+        <span className="truncate">{displayLabel}</span>
         <ChevronDown size={12} className={cn('shrink-0 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
         <div className="absolute top-full left-0 z-50 mt-1 w-full rounded-lg border border-neutral-200 bg-surface py-1 shadow-lg dark:border-neutral-600 dark:bg-neutral-800">
           {devices.map((d) => (
             <button
-              key={d.id}
-              onClick={() => { onSelect(d.id); setOpen(false) }}
+              key={d.deviceId}
+              onClick={() => { onSelect(d.deviceId); setOpen(false) }}
               className={cn(
                 'w-full px-3 py-1.5 text-left text-xs transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700',
-                d.id === selected ? 'text-primary-600 font-medium dark:text-primary-400' : 'text-neutral-600 dark:text-neutral-300',
+                d.deviceId === selected
+                  ? 'text-primary-600 font-medium dark:text-primary-400'
+                  : 'text-neutral-600 dark:text-neutral-300',
               )}
             >
-              {d.label}
+              {d.label || `장치 ${d.deviceId.slice(0, 8)}`}
             </button>
           ))}
         </div>
@@ -156,29 +148,42 @@ export function VoiceChatPanel() {
     participants,
     micVolume,
     speakerVolume,
+    availableMics,
+    availableSpeakers,
     selectedMic,
     selectedSpeaker,
-    showPanel,
     connectedGroupName,
+    error,
     toggleMute,
     disconnect,
     setMicVolume,
     setSpeakerVolume,
     setSelectedMic,
     setSelectedSpeaker,
-    togglePanel,
   } = useVoiceChatStore()
+  const { closePanel } = useDetailPanelStore()
 
   const [showSettings, setShowSettings] = useState(false)
 
   const handleToggleMute = useCallback(() => {
-    toggleMute()
+    void toggleMute()
   }, [toggleMute])
 
-  if (status === 'disconnected' || !showPanel) return null
+  if (status === 'disconnected') return (
+    <div className="flex h-full flex-col items-center justify-center gap-2 text-sm text-neutral-400">
+      <p>음성 채팅에 연결되지 않았습니다</p>
+      {error && <p className="text-xs text-red-400">{error}</p>}
+    </div>
+  )
+
+  if (status === 'connecting') return (
+    <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+      연결 중...
+    </div>
+  )
 
   return (
-    <div className="fixed right-4 bottom-14 z-40 w-72 rounded-xl border border-neutral-200 bg-surface shadow-xl dark:border-neutral-700 dark:bg-surface-dark-elevated">
+    <div className="flex h-full w-full flex-col bg-surface dark:bg-surface-dark">
       {/* 헤더 */}
       <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-700">
         <div className="flex items-center gap-2">
@@ -194,7 +199,7 @@ export function VoiceChatPanel() {
           <span className="text-xs text-neutral-400">{participants.length}명</span>
         </div>
         <button
-          onClick={togglePanel}
+          onClick={closePanel}
           className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
         >
           <X size={14} />
@@ -202,19 +207,29 @@ export function VoiceChatPanel() {
       </div>
 
       {/* 참여자 목록 */}
-      <div className="max-h-48 overflow-y-auto px-2 py-2 space-y-0.5">
+      <div className="flex-1 overflow-y-auto px-2 py-2 space-y-0.5">
         {participants.map((p) => (
           <ParticipantRow key={p.id} p={p} />
         ))}
       </div>
 
-      {/* 설정 토글 */}
+      {/* 오디오 설정 */}
       {showSettings && (
         <div className="space-y-3 border-t border-neutral-200 px-4 py-3 dark:border-neutral-700">
           <VolumeSlider label="마이크 볼륨" icon={Mic} value={micVolume} onChange={setMicVolume} />
           <VolumeSlider label="스피커 볼륨" icon={Volume2} value={speakerVolume} onChange={setSpeakerVolume} />
-          <DeviceDropdown label="마이크 장치" devices={MOCK_MICS} selected={selectedMic} onSelect={setSelectedMic} />
-          <DeviceDropdown label="스피커 장치" devices={MOCK_SPEAKERS} selected={selectedSpeaker} onSelect={setSelectedSpeaker} />
+          <DeviceDropdown
+            label="마이크 장치"
+            devices={availableMics}
+            selected={selectedMic}
+            onSelect={(id) => void setSelectedMic(id)}
+          />
+          <DeviceDropdown
+            label="스피커 장치"
+            devices={availableSpeakers}
+            selected={selectedSpeaker}
+            onSelect={(id) => void setSelectedSpeaker(id)}
+          />
         </div>
       )}
 
@@ -247,7 +262,7 @@ export function VoiceChatPanel() {
           </button>
         </div>
         <button
-          onClick={disconnect}
+          onClick={() => void disconnect()}
           className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-600"
         >
           <PhoneOff size={14} />

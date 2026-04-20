@@ -1,18 +1,12 @@
 import { useMemo } from 'react'
 import { cn } from '@/utils/cn'
-import type { MockTask, TaskPriority, TaskStatus } from '@/constants'
+import type { MockTask, TaskPriority } from '@/constants'
 
 const priorityColor: Record<TaskPriority, string> = {
   urgent: 'bg-red-400 dark:bg-red-500',
   high: 'bg-orange-400 dark:bg-orange-500',
   normal: 'bg-blue-400 dark:bg-blue-500',
   low: 'bg-neutral-400 dark:bg-neutral-500',
-}
-
-const statusLabel: Record<TaskStatus, string> = {
-  'todo': '할 일',
-  'in-progress': '진행 중',
-  'done': '완료',
 }
 
 interface GanttChartProps {
@@ -59,7 +53,6 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   }, [tasks])
 
   const todayStr = new Date().toISOString().slice(0, 10)
-  const todayOffset = startDate ? daysBetween(startDate, todayStr) : -1
 
   const sortedTasks = useMemo(() => {
     return [...tasks].sort((a, b) => a.startDate.localeCompare(b.startDate))

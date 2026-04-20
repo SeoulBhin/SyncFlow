@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
@@ -10,6 +10,40 @@ import { TableHeader } from '@tiptap/extension-table-header'
 import { Image as TipTapImage } from '@tiptap/extension-image'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
+import { Extension } from '@tiptap/core'
+
+const TextAlignClass = Extension.create({
+  name: 'textAlignClass',
+  addGlobalAttributes() {
+    return [{
+      types: ['paragraph', 'heading'],
+      attributes: {
+        textAlign: {
+          default: null,
+          parseHTML: (el) => el.getAttribute('data-align'),
+          renderHTML: (attrs) => {
+            if (!attrs.textAlign) return {}
+            return { 'data-align': attrs.textAlign, class: `align-${attrs.textAlign}` }
+          },
+        },
+      },
+    }]
+  },
+  addCommands() {
+    return {
+      setTextAlign: (alignment: string) => ({ commands }: any) => {
+        return ['paragraph', 'heading'].map((type) =>
+          commands.updateAttributes(type, { textAlign: alignment })
+        ).some(Boolean)
+      },
+      unsetTextAlign: () => ({ commands }: any) => {
+        return ['paragraph', 'heading'].map((type) =>
+          commands.resetAttributes(type, 'textAlign')
+        ).some(Boolean)
+      },
+    } as any
+  },
+})
 import { common, createLowlight } from 'lowlight'
 import {
   ArrowLeft,
@@ -30,8 +64,17 @@ import { ExportMenu } from '@/components/editor/ExportMenu'
 import { VersionHistoryPanel } from '@/components/editor/VersionHistoryPanel'
 import { TOCPanel } from '@/components/editor/TOCPanel'
 import { ImageUploadModal } from '@/components/editor/ImageUploadModal'
+import { SlashCommandMenu } from '@/components/editor/SlashCommandMenu'
+import { TableToolbar } from '@/components/editor/TableToolbar'
+import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
+import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
+import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
 import { useToastStore } from '@/stores/useToastStore'
-import { MOCK_PAGES, MOCK_PROJECTS, MOCK_DOC_CONTENT, MOCK_ATTACHMENTS } from '@/constants'
+import { MOCK_PAGES, MOCK_PROJECTS, MOCK_ATTACHMENTS } from '@/constants'
+import * as Y from 'yjs'
+import { HocuspocusProvider } from '@hocuspocus/provider'
+import Collaboration from '@tiptap/extension-collaboration'
+import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
 
 const lowlight = createLowlight(common)
 
@@ -42,22 +85,48 @@ export function DocumentEditorPage() {
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
 
-  const page = MOCK_PAGES.find((p) => p.id === pageId) ?? { id: pageId ?? 'unknown', name: '새 문서', type: 'doc' as const, projectId: 'p1' }
+  const page = MOCK_PAGES.find((p) => p.id === pageId) ?? {
+    id: pageId ?? 'unknown',
+    name: '새 문서',
+    type: 'doc' as const,
+    projectId: 'p1',
+  }
   const project = MOCK_PROJECTS.find((p) => p.id === page.projectId)
+
+  const ydocRef = useRef(new Y.Doc())
+  const providerRef = useRef(
+    new HocuspocusProvider({
+      url: 'ws://localhost:1234',
+      name: pageId ?? 'unknown',
+      token: 'dev-token',   // TODO: Part 2 완료 후 실제 JWT로 교체
+      document: ydocRef.current,
+    }),
+  )
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showTOC, setShowTOC] = useState(false)
   const [showImageModal, setShowImageModal] = useState(false)
-  const [onlineUsers] = useState([
-    { id: 'u2', name: '이테스터', color: 'bg-blue-500' },
-    { id: 'u4', name: '최테스터', color: 'bg-green-500' },
-  ])
+  const [onlineUsers, setOnlineUsers] = useState<{ id: string; name: string; color: string }[]>([])
+
+  // 슬래시 커맨드 상태
+  const [slashMenuOpen, setSlashMenuOpen] = useState(false)
+  const [slashQuery, setSlashQuery] = useState('')
+  const [slashRange, setSlashRange] = useState({ from: 0, to: 0 })
+  const slashCallbackRef = useRef({
+    onSlashCommand: (props: { query: string; range: { from: number; to: number } }) => {
+      setSlashQuery(props.query)
+      setSlashRange(props.range)
+      setSlashMenuOpen(true)
+    },
+    onSlashDismiss: () => setSlashMenuOpen(false),
+  })
 
   const editor = useEditor({
     extensions: [
       StarterKit.configure({
         codeBlock: false,
+        history: false, // Collaboration이 히스토리를 대신 관리
       }),
       Underline,
       TipTapTable.configure({ resizable: true }),
@@ -66,20 +135,88 @@ export function DocumentEditorPage() {
       TableHeader,
       TipTapImage.configure({ inline: false, allowBase64: true }),
       CodeBlockLowlight.configure({ lowlight }),
-      Placeholder.configure({ placeholder: '내용을 입력하세요...' }),
+      Placeholder.configure({ placeholder: '"/"를 입력하여 블록을 추가하세요...' }),
+      TextAlignClass,
+      CalloutBlock,
+      ToggleBlock,
+      SlashCommandExtension.configure({
+        onSlashCommand: (props: { query: string; range: { from: number; to: number } }) =>
+          slashCallbackRef.current.onSlashCommand(props),
+        onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
+      }),
+      Collaboration.configure({ document: ydocRef.current }),
+      CollaborationCursor.configure({
+        provider: providerRef.current,
+        user: {
+          name: 'Dev User',   // TODO: Part 2 완료 후 실제 사용자 정보로 교체
+          color: '#3B82F6',
+        },
+      }),
     ],
-    content: MOCK_DOC_CONTENT,
     editorProps: {
       attributes: {
-        class: 'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[500px] px-12 py-8',
+        class:
+          'prose prose-neutral dark:prose-invert max-w-none focus:outline-none min-h-[500px] px-12 py-8',
       },
     },
-    onUpdate: () => {
+    onUpdate: ({ editor: ed }) => {
       setSaveStatus('unsaved')
+      // 슬래시 커맨드 쿼리 업데이트
+      if (slashMenuOpen && ed) {
+        const { $from } = ed.state.selection
+        const text = $from.parent.textContent.slice(0, $from.parentOffset)
+        const slashMatch = text.match(/\/([^\s]*)$/)
+        if (slashMatch) {
+          setSlashQuery(slashMatch[1])
+          setSlashRange({ from: $from.pos - slashMatch[0].length, to: $from.pos })
+        } else {
+          setSlashMenuOpen(false)
+        }
+      }
     },
   })
 
-  // 자동 저장 시뮬레이션
+  // Hocuspocus provider 이벤트 연결
+  useEffect(() => {
+    const provider = providerRef.current
+
+    // 로컬 사용자 등록 (awareness)
+    // TODO: Part 2 완료 후 실제 사용자 정보로 교체
+    provider.awareness.setLocalStateField('user', {
+      id: 'dev-user-1',
+      name: 'Dev User',
+      color: '#3B82F6',
+    })
+
+    // 접속자 목록 갱신
+    const handleAwarenessChange = () => {
+      const states = provider.awareness.getStates()
+      const users: { id: string; name: string; color: string }[] = []
+      states.forEach((state, clientId) => {
+        if (clientId !== provider.awareness.clientID && state.user) {
+          users.push(state.user as { id: string; name: string; color: string })
+        }
+      })
+      setOnlineUsers(users)
+    }
+    provider.awareness.on('change', handleAwarenessChange)
+
+    // 연결 상태 → saveStatus 반영
+    const handleStatus = ({ status }: { status: string }) => {
+      if (status === 'disconnected') setSaveStatus('error')
+      else if (status === 'connected') setSaveStatus((prev) => (prev === 'error' ? 'saved' : prev))
+    }
+    provider.on('status', handleStatus)
+
+    return () => {
+      provider.awareness.off('change', handleAwarenessChange)
+      provider.off('status', handleStatus)
+      provider.destroy()
+    }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 변경 감지 후 1.5초 디바운싱 → 저장 완료 표시
+  // (실제 DB 저장은 Hocuspocus 서버 onStoreDocument에서 동일 간격으로 처리)
   useEffect(() => {
     if (saveStatus !== 'unsaved') return
     const timer = setTimeout(() => {
@@ -89,17 +226,20 @@ export function DocumentEditorPage() {
     return () => clearTimeout(timer)
   }, [saveStatus])
 
-  const handleInsertTable = useCallback(() => {
-    editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run()
+  const handleInsertTable = useCallback((rows: number, cols: number) => {
+    editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
   }, [editor])
 
   const handleInsertImage = useCallback(() => {
     setShowImageModal(true)
   }, [])
 
-  const handleImageInsert = useCallback((url: string, alt: string) => {
-    editor?.chain().focus().setImage({ src: url, alt }).run()
-  }, [editor])
+  const handleImageInsert = useCallback(
+    (url: string, alt: string) => {
+      editor?.chain().focus().setImage({ src: url, alt }).run()
+    },
+    [editor],
+  )
 
   const handleAttachFile = useCallback(() => {
     addToast('info', '파일 첨부 기능은 백엔드 연동 후 사용 가능합니다. (목업)')
@@ -126,7 +266,9 @@ export function DocumentEditorPage() {
             <ArrowLeft size={18} />
           </button>
           <div>
-            <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">{page.name}</h1>
+            <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+              {page.name}
+            </h1>
             {project && (
               <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{project.name}</p>
             )}
@@ -169,7 +311,8 @@ export function DocumentEditorPage() {
               {onlineUsers.map((u) => (
                 <div
                   key={u.id}
-                  className={`h-6 w-6 rounded-full ${u.color} flex items-center justify-center text-[10px] font-medium text-white ring-2 ring-surface dark:ring-surface-dark-elevated`}
+                  className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-medium text-white ring-2 ring-surface dark:ring-surface-dark-elevated"
+                  style={{ backgroundColor: u.color }}
                   title={u.name}
                 >
                   {u.name[0]}
@@ -191,7 +334,10 @@ export function DocumentEditorPage() {
 
           {/* 목차 */}
           <button
-            onClick={() => { setShowTOC(!showTOC); if (!showTOC) setShowVersionHistory(false) }}
+            onClick={() => {
+              setShowTOC(!showTOC)
+              if (!showTOC) setShowVersionHistory(false)
+            }}
             className={`rounded p-1.5 transition-colors ${showTOC ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'}`}
             title="목차"
           >
@@ -200,7 +346,10 @@ export function DocumentEditorPage() {
 
           {/* 버전 히스토리 */}
           <button
-            onClick={() => { setShowVersionHistory(!showVersionHistory); if (!showVersionHistory) setShowTOC(false) }}
+            onClick={() => {
+              setShowVersionHistory(!showVersionHistory)
+              if (!showVersionHistory) setShowTOC(false)
+            }}
             className={`rounded p-1.5 transition-colors ${showVersionHistory ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-neutral-500 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200'}`}
             title="버전 히스토리"
           >
@@ -208,7 +357,7 @@ export function DocumentEditorPage() {
           </button>
 
           {/* 내보내기 */}
-          <ExportMenu />
+          <ExportMenu editor={editor} pageId={pageId ?? 'unknown'} />
         </div>
       </div>
 
@@ -219,6 +368,14 @@ export function DocumentEditorPage() {
         onInsertImage={handleInsertImage}
         onAttachFile={handleAttachFile}
       />
+
+      {/* 표 편집 툴바 — 표 안에 커서가 있을 때만 표시 */}
+      {editor && editor.isActive('table') && (
+        <div className="flex items-center gap-1 border-b border-neutral-200 bg-neutral-50 px-3 py-1 dark:border-neutral-700 dark:bg-neutral-800/50">
+          <span className="mr-1 text-xs text-neutral-400">표 편집:</span>
+          <TableToolbar editor={editor} />
+        </div>
+      )}
 
       {/* 메인 영역 (에디터 + 사이드 패널) */}
       <div className="flex flex-1 overflow-hidden">
@@ -236,7 +393,9 @@ export function DocumentEditorPage() {
           <div className="mx-auto max-w-4xl border-t border-neutral-100 px-12 py-4 dark:border-neutral-800">
             <div className="flex items-center gap-2 mb-2">
               <Paperclip size={14} className="text-neutral-400" />
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">첨부 파일</span>
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
+                첨부 파일
+              </span>
             </div>
             <div className="flex flex-wrap gap-2">
               {MOCK_ATTACHMENTS.map((file) => (
@@ -257,7 +416,12 @@ export function DocumentEditorPage() {
         </div>
 
         {/* 사이드 패널 */}
-        <VersionHistoryPanel isOpen={showVersionHistory} onClose={() => setShowVersionHistory(false)} />
+        <VersionHistoryPanel
+          isOpen={showVersionHistory}
+          onClose={() => setShowVersionHistory(false)}
+          pageId={pageId ?? 'unknown'}
+          editor={editor}
+        />
         <TOCPanel isOpen={showTOC} onClose={() => setShowTOC(false)} editor={editor} />
       </div>
 
@@ -267,6 +431,17 @@ export function DocumentEditorPage() {
         onClose={() => setShowImageModal(false)}
         onInsert={handleImageInsert}
       />
+
+      {/* 슬래시 커맨드 메뉴 */}
+      {editor && (
+        <SlashCommandMenu
+          editor={editor}
+          isOpen={slashMenuOpen}
+          onClose={() => setSlashMenuOpen(false)}
+          query={slashQuery}
+          range={slashRange}
+        />
+      )}
     </div>
   )
 }

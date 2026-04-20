@@ -49,7 +49,7 @@ export function LoginPage() {
     if (user && v.password === MOCK_PASSWORD) {
       login(user)
       addToast('success', `${user.name}님, 환영합니다!`)
-      navigate('/dashboard')
+      navigate('/app')
     } else {
       addToast('error', '이메일 또는 비밀번호가 올바르지 않습니다.')
     }

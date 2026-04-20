@@ -7,7 +7,6 @@ import {
   Users,
   Calendar,
   FileText,
-  BarChart3,
   Briefcase,
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
@@ -36,7 +35,7 @@ export function GroupPage() {
   if (!group) {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
-        <p className="text-neutral-500 dark:text-neutral-400">그룹을 찾을 수 없습니다.</p>
+        <p className="text-neutral-500 dark:text-neutral-400">채널을 찾을 수 없습니다.</p>
       </div>
     )
   }
