@@ -11,6 +11,8 @@ import {
   Clock,
   Video,
   CircleDot,
+  Camera,
+  CameraOff,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useMeetingStore } from '@/stores/useMeetingStore'
@@ -88,6 +90,10 @@ export function MeetingRoomPage() {
     }
   }
 
+  const handleToggleCamera = () => {
+    void voiceChat.toggleCamera()
+  }
+
   // LiveKit VoiceParticipant → MeetingParticipants 형식으로 변환
   const participants = voiceChat.participants.map((p) => ({
     id: p.id,
@@ -95,6 +101,8 @@ export function MeetingRoomPage() {
     position: '',
     isMuted: p.isMuted,
     isSpeaking: p.isSpeaking,
+    cameraStream: p.cameraStream,
+    isLocal: p.isLocal,
   }))
 
   const isMuted = voiceChat.status === 'muted'
@@ -220,6 +228,18 @@ export function MeetingRoomPage() {
             >
               <CircleDot size={18} />
               {meeting.isRecording ? '녹화 중지' : '녹화 시작'}
+            </button>
+            <button
+              onClick={handleToggleCamera}
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                voiceChat.isCameraEnabled
+                  ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
+                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+              )}
+            >
+              {voiceChat.isCameraEnabled ? <CameraOff size={18} /> : <Camera size={18} />}
+              {voiceChat.isCameraEnabled ? '웹캠 끄기' : '웹캠 켜기'}
             </button>
           </div>
         </div>

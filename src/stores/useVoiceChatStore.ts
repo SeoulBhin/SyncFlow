@@ -9,6 +9,8 @@ export interface VoiceParticipant {
   color: string
   isMuted: boolean
   isSpeaking: boolean
+  cameraStream: MediaStream | null
+  isLocal: boolean
 }
 
 type VoiceStatus = 'disconnected' | 'connecting' | 'connected' | 'muted'
@@ -26,10 +28,12 @@ interface VoiceChatState {
   connectedGroupId: string | null
   connectedGroupName: string | null
   error: string | null
+  isCameraEnabled: boolean
 
   connect: (groupId: string, groupName: string) => Promise<void>
   disconnect: () => Promise<void>
   toggleMute: () => Promise<void>
+  toggleCamera: () => Promise<void>
   setMicVolume: (v: number) => void
   setSpeakerVolume: (v: number) => void
   setSelectedMic: (id: string) => Promise<void>
@@ -47,7 +51,10 @@ const AVATAR_COLORS = [
   'bg-pink-400',
 ]
 
-function toVoiceParticipant(p: Participant): VoiceParticipant {
+// 카메라 스트림 캐시 — Room 이벤트에서만 업데이트하여 불필요한 MediaStream 재생성 방지
+const cameraStreamMap = new Map<string, MediaStream>()
+
+function toVoiceParticipant(p: Participant, isLocal = false): VoiceParticipant {
   const colorIdx =
     p.identity.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % AVATAR_COLORS.length
   return {
@@ -56,33 +63,68 @@ function toVoiceParticipant(p: Participant): VoiceParticipant {
     color: AVATAR_COLORS[colorIdx],
     isMuted: !p.isMicrophoneEnabled,
     isSpeaking: p.isSpeaking,
+    cameraStream: cameraStreamMap.get(p.identity) ?? null,
+    isLocal,
   }
 }
 
 function collectParticipants(): VoiceParticipant[] {
-  const list: VoiceParticipant[] = [toVoiceParticipant(room.localParticipant)]
-  room.remoteParticipants.forEach((p) => list.push(toVoiceParticipant(p)))
+  const list: VoiceParticipant[] = [toVoiceParticipant(room.localParticipant, true)]
+  room.remoteParticipants.forEach((p) => list.push(toVoiceParticipant(p, false)))
   return list
 }
 
 export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
-  // Room 이벤트 → Zustand 상태 동기화
   const refreshParticipants = () => set({ participants: collectParticipants() })
 
   room
     .on(RoomEvent.ParticipantConnected, refreshParticipants)
-    .on(RoomEvent.ParticipantDisconnected, refreshParticipants)
+    .on(RoomEvent.ParticipantDisconnected, (p) => {
+      cameraStreamMap.delete(p.identity)
+      refreshParticipants()
+    })
     .on(RoomEvent.ActiveSpeakersChanged, refreshParticipants)
     .on(RoomEvent.TrackMuted, refreshParticipants)
     .on(RoomEvent.TrackUnmuted, refreshParticipants)
-    .on(RoomEvent.LocalTrackPublished, refreshParticipants)
-    .on(RoomEvent.LocalTrackUnpublished, refreshParticipants)
+    // 로컬 카메라 track publish → 스트림 캐시 등록
+    .on(RoomEvent.LocalTrackPublished, (pub) => {
+      if (pub.source === Track.Source.Camera && pub.track) {
+        cameraStreamMap.set(
+          room.localParticipant.identity,
+          new MediaStream([pub.track.mediaStreamTrack]),
+        )
+      }
+      refreshParticipants()
+    })
+    // 로컬 카메라 track unpublish → 스트림 캐시 제거
+    .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+      if (pub.source === Track.Source.Camera) {
+        cameraStreamMap.delete(room.localParticipant.identity)
+      }
+      refreshParticipants()
+    })
+    // 원격 참가자 카메라 track 구독 → 스트림 캐시 등록
+    .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      if (track.source === Track.Source.Camera) {
+        cameraStreamMap.set(participant.identity, new MediaStream([track.mediaStreamTrack]))
+        refreshParticipants()
+      }
+    })
+    // 원격 참가자 카메라 track 구독 해제 → 스트림 캐시 제거
+    .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+      if (track.source === Track.Source.Camera) {
+        cameraStreamMap.delete(participant.identity)
+        refreshParticipants()
+      }
+    })
     .on(RoomEvent.Disconnected, (_reason?: DisconnectReason) => {
+      cameraStreamMap.clear()
       set({
         status: 'disconnected',
         participants: [],
         connectedGroupId: null,
         connectedGroupName: null,
+        isCameraEnabled: false,
       })
     })
 
@@ -99,6 +141,7 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     connectedGroupId: null,
     connectedGroupName: null,
     error: null,
+    isCameraEnabled: false,
 
     connect: async (groupId, groupName) => {
       set({ status: 'connecting', error: null })
@@ -106,6 +149,7 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
         // 다른 방에 이미 연결되어 있으면 먼저 정리 (방별 분리 보장)
         if (room.state !== 'disconnected') {
           await room.disconnect()
+          cameraStreamMap.clear()
         }
 
         const authUser = useAuthStore.getState().user
@@ -133,6 +177,15 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     },
 
     disconnect: async () => {
+      // 카메라 track 정리 후 방 나가기
+      if (get().isCameraEnabled) {
+        try {
+          await room.localParticipant.setCameraEnabled(false)
+        } catch {
+          // 이미 종료 중인 경우 무시
+        }
+      }
+      cameraStreamMap.clear()
       await room.disconnect()
       set({
         status: 'disconnected',
@@ -140,6 +193,7 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
         showPanel: false,
         connectedGroupId: null,
         connectedGroupName: null,
+        isCameraEnabled: false,
       })
     },
 
@@ -149,6 +203,13 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
       const muting = status !== 'muted'
       await room.localParticipant.setMicrophoneEnabled(!muting)
       set({ status: muting ? 'muted' : 'connected' })
+    },
+
+    toggleCamera: async () => {
+      const { isCameraEnabled } = get()
+      const newEnabled = !isCameraEnabled
+      await room.localParticipant.setCameraEnabled(newEnabled)
+      set({ isCameraEnabled: newEnabled })
     },
 
     setMicVolume: (v) => set({ micVolume: v }),
