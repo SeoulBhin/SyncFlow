@@ -67,12 +67,7 @@ export const useMeetingStore = create<MeetingState>((set) => ({
   activeTab: 'transcript',
 
   startMeeting: (meetingId, title, channelName) => {
-    const meeting = MOCK_MEETINGS.find((m) => m.id === meetingId)
-    const participants: MeetingParticipant[] = (meeting?.participants ?? []).map((p, i) => ({
-      ...p,
-      isMuted: false,
-      isSpeaking: i === 0,
-    }))
+    const mockMeeting = MOCK_MEETINGS.find((m) => m.id === meetingId)
 
     set({
       status: 'in-meeting',
@@ -80,10 +75,10 @@ export const useMeetingStore = create<MeetingState>((set) => ({
       meetingTitle: title,
       channelName,
       elapsedSeconds: 0,
-      participants,
-      transcript: meeting?.transcript ?? [],
-      aiNotes: meeting?.summary ? [meeting.summary] : [],
-      actionItems: meeting?.actionItems ?? [],
+      participants: [],  // LiveKit 참여자는 useVoiceChatStore에서 관리
+      transcript: mockMeeting?.transcript ?? [],
+      aiNotes: mockMeeting?.summary ? [mockMeeting.summary] : [],
+      actionItems: mockMeeting?.actionItems ?? [],
       isMuted: false,
       isScreenSharing: false,
       sttEnabled: false,

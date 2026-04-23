@@ -4,25 +4,22 @@ import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
 import { MOCK_MEETINGS } from '@/constants'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
-import { useMeetingStore } from '@/stores/useMeetingStore'
 
 export function MeetingHistoryPage() {
   const navigate = useNavigate()
-  const { activeGroupName } = useGroupContextStore()
-  const meeting = useMeetingStore()
+  const { activeGroupId } = useGroupContextStore()
 
   const scheduled = MOCK_MEETINGS.filter((m) => m.status === 'scheduled')
   const ended = MOCK_MEETINGS.filter((m) => m.status === 'ended')
 
   const handleQuickMeeting = () => {
-    const quickId = `mt-quick-${Date.now()}`
-    meeting.startMeeting(quickId, '빠른 회의', activeGroupName ?? '채널')
-    navigate(`/meetings/${quickId}`)
+    // groupId 기반으로 방별 독립 회의 (roomName: voice-{groupId})
+    const groupId = activeGroupId ?? `quick-${Date.now()}`
+    navigate(`/app/meetings/${groupId}`)
   }
 
-  const handleJoinMeeting = (meetingId: string, title: string, channelName: string) => {
-    meeting.startMeeting(meetingId, title, channelName)
-    navigate(`/meetings/${meetingId}`)
+  const handleJoinMeeting = (meetingId: string, _title: string, _channelName: string) => {
+    navigate(`/app/meetings/${meetingId}`)
   }
 
   return (
@@ -85,7 +82,7 @@ export function MeetingHistoryPage() {
           {ended.map((m) => (
             <button
               key={m.id}
-              onClick={() => navigate(`/meetings/${m.id}/summary`)}
+              onClick={() => navigate(`/app/meetings/${m.id}/summary`)}
               className="flex w-full items-center gap-3 px-5 py-4 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
             >
               <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary-50 dark:bg-primary-900/30">

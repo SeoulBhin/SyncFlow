@@ -103,6 +103,11 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     connect: async (groupId, groupName) => {
       set({ status: 'connecting', error: null })
       try {
+        // 다른 방에 이미 연결되어 있으면 먼저 정리 (방별 분리 보장)
+        if (room.state !== 'disconnected') {
+          await room.disconnect()
+        }
+
         const authUser = useAuthStore.getState().user
         const identity = authUser?.id ?? `guest-${crypto.randomUUID().slice(0, 8)}`
         const name = authUser?.name ?? 'Guest'

@@ -20,6 +20,7 @@ import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useAIStore } from '@/stores/useAIStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { MOCK_MEETINGS } from '@/constants'
 
 /* 툴바 버튼 공통 컴포넌트 */
@@ -81,6 +82,7 @@ export function BottomToolbar() {
   const { activeGroupId, activeGroupName } = useGroupContextStore()
   const meeting = useMeetingStore()
   const { isOpen: isAIOpen, togglePanel: toggleAIPanel } = useAIStore()
+  const { openPanel, togglePanel: toggleDetailPanel } = useDetailPanelStore()
 
   /* 회의 타이머 */
   useEffect(() => {
@@ -93,17 +95,19 @@ export function BottomToolbar() {
   const handleVoiceClick = () => {
     if (voiceChat.status === 'disconnected') {
       if (activeGroupId && activeGroupName) {
-        voiceChat.connect(activeGroupId, activeGroupName)
+        void voiceChat.connect(activeGroupId, activeGroupName).then(() => {
+          openPanel('voice')
+        })
       }
     } else {
-      voiceChat.togglePanel()
+      toggleDetailPanel('voice')
     }
   }
 
   /* 음소거 토글 핸들러 */
   const handleMuteClick = () => {
     if (voiceChat.status !== 'disconnected') {
-      voiceChat.toggleMute()
+      void voiceChat.toggleMute()
     }
   }
 
@@ -111,12 +115,14 @@ export function BottomToolbar() {
   const handleScreenShareClick = () => {
     if (!screenShare.sharingUser) {
       if (activeGroupId && activeGroupName) {
-        screenShare.startSharing(activeGroupId, activeGroupName)
+        void screenShare.startSharing(activeGroupId, activeGroupName).then(() => {
+          openPanel('screen-share')
+        })
       }
     } else if (screenShare.isSharing) {
-      screenShare.stopSharing()
+      void screenShare.stopSharing()
     } else {
-      screenShare.togglePanel()
+      toggleDetailPanel('screen-share')
     }
   }
 
