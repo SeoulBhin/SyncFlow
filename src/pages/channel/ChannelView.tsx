@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
 } from 'react'
@@ -52,8 +53,10 @@ export function ChannelView() {
     activeChannelId,
     typingUsers,
     isLoading,
+    hasMore,
     loadChannels,
     setActiveChannel,
+    loadMoreMessages,
     sendMessage,
     sendTyping,
     addReaction,
@@ -76,6 +79,8 @@ export function ChannelView() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const prevScrollHeightRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -147,6 +152,22 @@ export function ChannelView() {
   )
 
   // ── Handlers ──────────────────────────────────────────────────────────────
+
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el || !activeChannelId || isLoading) return
+    if (el.scrollTop < 100 && (hasMore[activeChannelId] ?? false)) {
+      prevScrollHeightRef.current = el.scrollHeight
+      void loadMoreMessages(activeChannelId)
+    }
+  }, [activeChannelId, hasMore, isLoading, loadMoreMessages])
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || prevScrollHeightRef.current === 0) return
+    el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+    prevScrollHeightRef.current = 0
+  }, [activeMessages.length])
 
   const handleSend = useCallback(() => {
     if (!inputText.trim() || !activeChannelId) return
@@ -346,7 +367,7 @@ export function ChannelView() {
         )}
 
         {/* 메시지 목록 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-4">
           {!activeChannelId ? (
             <div className="flex h-full items-center justify-center text-neutral-400">
               <p className="text-sm">채널을 선택하세요</p>

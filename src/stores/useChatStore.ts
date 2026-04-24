@@ -92,8 +92,16 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const data = await apiJson<ChatChannel[]>(
         `/api/groups/${groupId}/channels`,
       )
-      set({ channels: data })
-      // Auto-select first channel if none selected
+      set((s) => {
+        const ids = new Set(data.map((c) => c.id))
+        return {
+          channels: data,
+          activeChannelId:
+            s.activeChannelId && ids.has(s.activeChannelId)
+              ? s.activeChannelId
+              : null,
+        }
+      })
       if (!get().activeChannelId && data.length > 0) {
         get().setActiveChannel(data[0].id)
       }
@@ -115,16 +123,19 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set({ activeChannelId: channelId })
 
-    // Join new room
-    sock.emit('chat:join', { channelId })
-
-    // Load messages if not already loaded
-    if (!get().messages[channelId]) {
-      void get().loadMessages(channelId)
-    }
-
-    // Mark as read
-    void get().markRead(channelId)
+    // Join channel via HTTP first (idempotent), then socket room + load messages
+    void (async () => {
+      try {
+        await apiJson(`/api/channels/${channelId}/join`, { method: 'POST' })
+      } catch {
+        // Already a member or channel unavailable — proceed anyway
+      }
+      sock.emit('chat:join', { channelId })
+      if (!get().messages[channelId]) {
+        void get().loadMessages(channelId)
+      }
+      void get().markRead(channelId)
+    })()
   },
 
   // ── Message loading ────────────────────────────────────────────────────────
