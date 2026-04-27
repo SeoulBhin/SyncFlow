@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { RoomEvent, Track, createLocalScreenTracks, type LocalVideoTrack } from 'livekit-client'
 import { room, fetchToken } from '@/lib/livekitRoom'
 import { useAuthStore } from './useAuthStore'
+import { useDetailPanelStore } from './useDetailPanelStore'
 
 interface ScreenShareState {
   isSharing: boolean
@@ -32,6 +33,7 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
           showPanel: true,
           screenStream: new MediaStream([track.mediaStreamTrack]),
         })
+        useDetailPanelStore.getState().openPanel('screen-share')
       }
     })
     .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
@@ -39,6 +41,9 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
         const { sharingUser } = get()
         if (sharingUser?.id === participant.identity) {
           set({ sharingUser: null, showPanel: false, screenStream: null })
+          if (useDetailPanelStore.getState().activePanel === 'screen-share') {
+            useDetailPanelStore.getState().closePanel()
+          }
         }
       }
     })
@@ -89,20 +94,29 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
     },
 
     stopSharing: async () => {
+      // 비디오 요소를 즉시 숨겨 검은 화면을 방지
+      set({ screenStream: null, isSharing: false })
+
       if (localScreenTrack) {
-        await room.localParticipant.unpublishTrack(localScreenTrack)
-        localScreenTrack.stop()
+        const track = localScreenTrack
         localScreenTrack = null
+        try {
+          await room.localParticipant.unpublishTrack(track)
+        } catch (err) {
+          console.warn('[ScreenShare] unpublishTrack error:', err)
+        }
+        track.stop()
       }
       set({
-        isSharing: false,
         sharingUser: null,
         isFollowMe: false,
         showPanel: false,
         sharingGroupId: null,
         sharingGroupName: null,
-        screenStream: null,
       })
+      if (useDetailPanelStore.getState().activePanel === 'screen-share') {
+        useDetailPanelStore.getState().closePanel()
+      }
     },
 
     toggleFollowMe: () => set((s) => ({ isFollowMe: !s.isFollowMe })),

@@ -63,7 +63,7 @@ function renderContent(content: string, isOwn: boolean) {
       <a
         key={m.index}
         href={url}
-        target="_blank"
+        download={name}
         rel="noopener noreferrer"
         className={`mt-1 flex items-center gap-1 rounded px-2 py-1 text-xs underline-offset-2 hover:underline ${
           isOwn

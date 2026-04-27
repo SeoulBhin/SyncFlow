@@ -9,8 +9,14 @@ function ScreenVideo({ stream }: { stream: MediaStream }) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
-    if (videoRef.current) {
-      videoRef.current.srcObject = stream
+    const video = videoRef.current
+    if (!video) return
+    video.srcObject = stream
+    video.play().catch((err: unknown) => {
+      console.warn('[ScreenVideo] play failed:', err)
+    })
+    return () => {
+      video.srcObject = null
     }
   }, [stream])
 
