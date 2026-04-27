@@ -20,6 +20,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { apiFetch } from '@/lib/api'
 import { useChatStore } from '@/stores/useChatStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useThreadStore } from '@/stores/useThreadStore'
@@ -42,6 +43,46 @@ function formatTime(iso: string): string {
     minute: '2-digit',
     hour12: true,
   })
+}
+
+// Splits content into text segments and file-link segments ([📎 name](url))
+const FILE_LINK_RE = /\[📎 ([^\]]+)\]\(([^)]+)\)/g
+
+function renderContent(content: string, isOwn: boolean) {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+
+  FILE_LINK_RE.lastIndex = 0
+  while ((m = FILE_LINK_RE.exec(content)) !== null) {
+    if (m.index > last) {
+      parts.push(content.slice(last, m.index))
+    }
+    const [, name, url] = m
+    parts.push(
+      <a
+        key={m.index}
+        href={url}
+        target="_blank"
+        rel="noopener noreferrer"
+        className={`mt-1 flex items-center gap-1 rounded px-2 py-1 text-xs underline-offset-2 hover:underline ${
+          isOwn
+            ? 'bg-primary-600/30 text-white'
+            : 'bg-neutral-200 text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200'
+        }`}
+      >
+        <Paperclip size={11} className="shrink-0" />
+        {name}
+      </a>,
+    )
+    last = m.index + m[0].length
+  }
+
+  if (last < content.length) {
+    parts.push(content.slice(last))
+  }
+
+  return parts
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -169,17 +210,38 @@ export function ChannelView() {
     prevScrollHeightRef.current = 0
   }, [activeMessages.length])
 
-  const handleSend = useCallback(() => {
-    if (!inputText.trim() || !activeChannelId) return
-    sendMessage(activeChannelId, inputText.trim())
+  const handleSend = useCallback(async () => {
+    if ((!inputText.trim() && attachedFiles.length === 0) || !activeChannelId) return
+
+    let content = inputText.trim()
+
+    if (attachedFiles.length > 0) {
+      const uploaded = await Promise.allSettled(
+        attachedFiles.map(async (file) => {
+          const form = new FormData()
+          form.append('file', file)
+          const res = await apiFetch('/api/upload', { method: 'POST', body: form })
+          if (!res.ok) throw new Error('upload failed')
+          const data: { fileUrl: string; fileName: string } = await res.json()
+          return `[📎 ${data.fileName}](${data.fileUrl})`
+        }),
+      )
+      const links = uploaded
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+        .map((r) => r.value)
+      content = [content, ...links].filter(Boolean).join('\n')
+    }
+
+    if (!content.trim()) return
+    sendMessage(activeChannelId, content)
     setInputText('')
     setAttachedFiles([])
-  }, [inputText, activeChannelId, sendMessage])
+  }, [inputText, attachedFiles, activeChannelId, sendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -517,7 +579,7 @@ export function ChannelView() {
                                 : 'rounded-bl-sm bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100',
                           )}
                         >
-                          {msg.content}
+                          {renderContent(msg.content, msg.isOwn ?? false)}
                         </div>
                       )}
 
@@ -712,8 +774,8 @@ export function ChannelView() {
             </button>
 
             <button
-              onClick={handleSend}
-              disabled={!inputText.trim() || !activeChannelId}
+              onClick={() => void handleSend()}
+              disabled={(!inputText.trim() && attachedFiles.length === 0) || !activeChannelId}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white transition-colors hover:bg-primary-600 disabled:opacity-40"
             >
               <Send size={16} />

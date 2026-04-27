@@ -8,6 +8,7 @@ import { AuthModule } from './auth/auth.module';
 import { ChannelsModule } from './channels/channels.module';
 import { MessagesModule } from './messages/messages.module';
 import { DocumentModule } from './document/document.module';
+import { UploadModule } from './upload/upload.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { DocumentModule } from './document/document.module';
     ChannelsModule,
     MessagesModule,
     DocumentModule,
+    UploadModule,
   ],
   controllers: [AppController],
   providers: [AppService],
