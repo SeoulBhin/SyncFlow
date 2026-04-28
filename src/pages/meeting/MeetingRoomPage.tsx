@@ -11,10 +11,14 @@ import {
   Clock,
   Video,
   CircleDot,
+  Camera,
+  CameraOff,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useMeetingStore } from '@/stores/useMeetingStore'
-import { MOCK_MEETINGS } from '@/constants'
+import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
+import { useScreenShareStore } from '@/stores/useScreenShareStore'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { MeetingParticipants } from '@/components/meeting/MeetingParticipants'
 import { MeetingTranscript } from '@/components/meeting/MeetingTranscript'
 import { MeetingNotes } from '@/components/meeting/MeetingNotes'
@@ -27,24 +31,41 @@ function formatTime(seconds: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
+// roomName 생성 규칙: voice-{groupId}
+// 방1(ch1) → voice-ch1, 방2(ch2) → voice-ch2 로 완전 분리됨
+function makeRoomName(groupId: string) {
+  return `voice-${groupId}`
+}
+
 export function MeetingRoomPage() {
-  const { id } = useParams<{ id: string }>()
+  const { id: groupId } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const meeting = useMeetingStore()
+  const voiceChat = useVoiceChatStore()
+  const screenShare = useScreenShareStore()
+  const { activeGroupName } = useGroupContextStore()
 
+  const groupName = activeGroupName ?? groupId ?? '회의'
+
+  // 진입 시 LiveKit 연결 + 회의 시작
+  // 퇴장/다른 방 이동 시 cleanup으로 연결 해제 (방별 독립성 보장)
   useEffect(() => {
-    if (meeting.status !== 'in-meeting' && id) {
-      const found = MOCK_MEETINGS.find((m) => m.id === id)
-      if (found) {
-        if (found.status === 'ended') {
-          navigate(`/app/meetings/${id}/summary`, { replace: true })
-          return
-        }
-        meeting.startMeeting(found.id, found.title, found.channelName)
-      }
-    }
-  }, [id])
+    if (!groupId) return
 
+    void voiceChat.connect(groupId, groupName).then(() => {
+      if (meeting.status !== 'in-meeting') {
+        meeting.startMeeting(groupId, `${groupName} 회의`, groupName)
+      }
+    })
+
+    return () => {
+      void voiceChat.disconnect()
+      meeting.endMeeting()
+    }
+    // groupId가 바뀌면(방 전환) cleanup → 새 방 연결
+  }, [groupId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 회의 타이머
   useEffect(() => {
     if (meeting.status !== 'in-meeting') return
     const interval = setInterval(() => meeting.tick(), 1000)
@@ -52,14 +73,62 @@ export function MeetingRoomPage() {
   }, [meeting.status])
 
   const handleEnd = () => {
+    void voiceChat.disconnect()
     meeting.endMeeting()
-    navigate(`/app/meetings/${id}/summary`)
+    navigate('/app/meetings')
   }
 
-  if (meeting.status !== 'in-meeting') {
+  const handleToggleMute = () => {
+    void voiceChat.toggleMute()
+  }
+
+  const handleToggleScreenShare = () => {
+    if (screenShare.isSharing) {
+      void screenShare.stopSharing()
+    } else if (groupId) {
+      void screenShare.startSharing(groupId, groupName)
+    }
+  }
+
+  const handleToggleCamera = () => {
+    void voiceChat.toggleCamera()
+  }
+
+  // LiveKit VoiceParticipant → MeetingParticipants 형식으로 변환
+  const participants = voiceChat.participants.map((p) => ({
+    id: p.id,
+    name: p.name,
+    position: '',
+    isMuted: p.isMuted,
+    isSpeaking: p.isSpeaking,
+    cameraStream: p.cameraStream,
+    isLocal: p.isLocal,
+  }))
+
+  const isMuted = voiceChat.status === 'muted'
+  const isScreenSharing = screenShare.isSharing
+
+  if (voiceChat.status === 'connecting') {
     return (
       <div className="flex h-full items-center justify-center">
-        <p className="text-neutral-500 dark:text-neutral-400">회의를 불러오는 중...</p>
+        <p className="text-neutral-500 dark:text-neutral-400">
+          회의 입장 중... ({makeRoomName(groupId ?? '')})
+        </p>
+      </div>
+    )
+  }
+
+  if (voiceChat.status === 'disconnected' && voiceChat.error) {
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-3">
+        <p className="text-neutral-500 dark:text-neutral-400">회의 연결 실패</p>
+        <p className="text-sm text-red-400">{voiceChat.error}</p>
+        <button
+          onClick={() => navigate('/app/meetings')}
+          className="rounded-lg bg-neutral-100 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-200 dark:bg-neutral-700 dark:text-neutral-300"
+        >
+          회의 목록으로
+        </button>
       </div>
     )
   }
@@ -77,9 +146,11 @@ export function MeetingRoomPage() {
           <Video size={20} className="text-primary-500" />
           <div>
             <h1 className="text-sm font-bold text-neutral-800 dark:text-neutral-100">
-              {meeting.meetingTitle}
+              {meeting.meetingTitle || `${groupName} 회의`}
             </h1>
-            <p className="text-xs text-neutral-400">{meeting.channelName}</p>
+            <p className="text-xs text-neutral-400">
+              {groupName} · {makeRoomName(groupId ?? '')}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-4">
@@ -90,7 +161,7 @@ export function MeetingRoomPage() {
             </span>
           </div>
           <span className="text-xs text-neutral-400">
-            {meeting.participants.length}명 참석
+            {participants.length}명 참석
           </span>
           <button
             onClick={handleEnd}
@@ -106,32 +177,32 @@ export function MeetingRoomPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* 좌측: 참여자 그리드 */}
         <div className="flex flex-1 flex-col border-r border-neutral-200 dark:border-neutral-700">
-          <MeetingParticipants participants={meeting.participants} />
+          <MeetingParticipants participants={participants} />
 
           {/* 하단 컨트롤 */}
           <div className="flex items-center justify-center gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
             <button
-              onClick={() => meeting.toggleMute()}
+              onClick={handleToggleMute}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
-                meeting.isMuted
+                isMuted
                   ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {meeting.isMuted ? <MicOff size={18} /> : <Mic size={18} />}
-              {meeting.isMuted ? '음소거 해제' : '음소거'}
+              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+              {isMuted ? '음소거 해제' : '음소거'}
             </button>
             <button
-              onClick={() => meeting.toggleScreenShare()}
+              onClick={handleToggleScreenShare}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
-                meeting.isScreenSharing
+                isScreenSharing
                   ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {meeting.isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+              {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
               화면 공유
             </button>
             <button
@@ -158,12 +229,23 @@ export function MeetingRoomPage() {
               <CircleDot size={18} />
               {meeting.isRecording ? '녹화 중지' : '녹화 시작'}
             </button>
+            <button
+              onClick={handleToggleCamera}
+              className={cn(
+                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                voiceChat.isCameraEnabled
+                  ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
+                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+              )}
+            >
+              {voiceChat.isCameraEnabled ? <CameraOff size={18} /> : <Camera size={18} />}
+              {voiceChat.isCameraEnabled ? '웹캠 끄기' : '웹캠 켜기'}
+            </button>
           </div>
         </div>
 
         {/* 우측: 자막/노트 패널 */}
         <div className="flex w-[380px] shrink-0 flex-col bg-surface dark:bg-surface-dark">
-          {/* 탭 */}
           <div className="flex border-b border-neutral-200 dark:border-neutral-700">
             {tabs.map(({ key, label, icon: Icon }) => (
               <button
@@ -181,8 +263,6 @@ export function MeetingRoomPage() {
               </button>
             ))}
           </div>
-
-          {/* 탭 내용 */}
           <div className="flex-1 overflow-y-auto">
             {meeting.activeTab === 'transcript' && (
               <MeetingTranscript entries={meeting.transcript} />

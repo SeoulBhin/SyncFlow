@@ -2,6 +2,7 @@ import {
   useState,
   useRef,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
 } from 'react'
@@ -19,6 +20,7 @@ import {
   Loader2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { apiFetch } from '@/lib/api'
 import { useChatStore } from '@/stores/useChatStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useThreadStore } from '@/stores/useThreadStore'
@@ -43,6 +45,46 @@ function formatTime(iso: string): string {
   })
 }
 
+// Splits content into text segments and file-link segments ([📎 name](url))
+const FILE_LINK_RE = /\[📎 ([^\]]+)\]\(([^)]+)\)/g
+
+function renderContent(content: string, isOwn: boolean) {
+  const parts: React.ReactNode[] = []
+  let last = 0
+  let m: RegExpExecArray | null
+
+  FILE_LINK_RE.lastIndex = 0
+  while ((m = FILE_LINK_RE.exec(content)) !== null) {
+    if (m.index > last) {
+      parts.push(content.slice(last, m.index))
+    }
+    const [, name, url] = m
+    parts.push(
+      <a
+        key={m.index}
+        href={url}
+        download={name}
+        rel="noopener noreferrer"
+        className={`mt-1 flex items-center gap-1 rounded px-2 py-1 text-xs underline-offset-2 hover:underline ${
+          isOwn
+            ? 'bg-primary-600/30 text-white'
+            : 'bg-neutral-200 text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200'
+        }`}
+      >
+        <Paperclip size={11} className="shrink-0" />
+        {name}
+      </a>,
+    )
+    last = m.index + m[0].length
+  }
+
+  if (last < content.length) {
+    parts.push(content.slice(last))
+  }
+
+  return parts
+}
+
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function ChannelView() {
@@ -52,8 +94,10 @@ export function ChannelView() {
     activeChannelId,
     typingUsers,
     isLoading,
+    hasMore,
     loadChannels,
     setActiveChannel,
+    loadMoreMessages,
     sendMessage,
     sendTyping,
     addReaction,
@@ -76,6 +120,8 @@ export function ChannelView() {
   const [attachedFiles, setAttachedFiles] = useState<File[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
+  const prevScrollHeightRef = useRef(0)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -148,17 +194,54 @@ export function ChannelView() {
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
-  const handleSend = useCallback(() => {
-    if (!inputText.trim() || !activeChannelId) return
-    sendMessage(activeChannelId, inputText.trim())
+  const handleScroll = useCallback(() => {
+    const el = scrollContainerRef.current
+    if (!el || !activeChannelId || isLoading) return
+    if (el.scrollTop < 100 && (hasMore[activeChannelId] ?? false)) {
+      prevScrollHeightRef.current = el.scrollHeight
+      void loadMoreMessages(activeChannelId)
+    }
+  }, [activeChannelId, hasMore, isLoading, loadMoreMessages])
+
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el || prevScrollHeightRef.current === 0) return
+    el.scrollTop = el.scrollHeight - prevScrollHeightRef.current
+    prevScrollHeightRef.current = 0
+  }, [activeMessages.length])
+
+  const handleSend = useCallback(async () => {
+    if ((!inputText.trim() && attachedFiles.length === 0) || !activeChannelId) return
+
+    let content = inputText.trim()
+
+    if (attachedFiles.length > 0) {
+      const uploaded = await Promise.allSettled(
+        attachedFiles.map(async (file) => {
+          const form = new FormData()
+          form.append('file', file)
+          const res = await apiFetch('/api/upload', { method: 'POST', body: form })
+          if (!res.ok) throw new Error('upload failed')
+          const data: { fileUrl: string; fileName: string } = await res.json()
+          return `[📎 ${data.fileName}](${data.fileUrl})`
+        }),
+      )
+      const links = uploaded
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+        .map((r) => r.value)
+      content = [content, ...links].filter(Boolean).join('\n')
+    }
+
+    if (!content.trim()) return
+    sendMessage(activeChannelId, content)
     setInputText('')
     setAttachedFiles([])
-  }, [inputText, activeChannelId, sendMessage])
+  }, [inputText, attachedFiles, activeChannelId, sendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      handleSend()
+      void handleSend()
     }
   }
 
@@ -346,7 +429,7 @@ export function ChannelView() {
         )}
 
         {/* 메시지 목록 */}
-        <div className="flex-1 overflow-y-auto px-6 py-4">
+        <div ref={scrollContainerRef} onScroll={handleScroll} className="flex-1 overflow-y-auto px-6 py-4">
           {!activeChannelId ? (
             <div className="flex h-full items-center justify-center text-neutral-400">
               <p className="text-sm">채널을 선택하세요</p>
@@ -496,7 +579,7 @@ export function ChannelView() {
                                 : 'rounded-bl-sm bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100',
                           )}
                         >
-                          {msg.content}
+                          {renderContent(msg.content, msg.isOwn ?? false)}
                         </div>
                       )}
 
@@ -691,8 +774,8 @@ export function ChannelView() {
             </button>
 
             <button
-              onClick={handleSend}
-              disabled={!inputText.trim() || !activeChannelId}
+              onClick={() => void handleSend()}
+              disabled={(!inputText.trim() && attachedFiles.length === 0) || !activeChannelId}
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white transition-colors hover:bg-primary-600 disabled:opacity-40"
             >
               <Send size={16} />

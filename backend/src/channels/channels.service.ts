@@ -130,6 +130,7 @@ export class ChannelsService {
     userId: string,
     userName: string,
   ): Promise<void> {
+    await this.findOne(channelId); // 404 if channel doesn't exist
     const existing = await this.memberRepo.findOne({
       where: { channelId, userId },
     });

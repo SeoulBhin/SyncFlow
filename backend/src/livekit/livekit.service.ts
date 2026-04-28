@@ -26,6 +26,7 @@ export class LiveKitService {
       roomJoin: true,
       canPublish: true,
       canSubscribe: true,
+      canPublishData: true,
     });
 
     return {
