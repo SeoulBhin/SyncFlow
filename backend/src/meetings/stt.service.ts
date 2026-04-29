@@ -1,8 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { SpeechClient } from '@google-cloud/speech'
+import type { Duplex } from 'stream'
 
-interface TranscriptResult {
+export interface TranscriptResult {
   text: string
   speaker: string | null
   startTime: number | null
@@ -37,7 +38,11 @@ export class SttService {
     )
   }
 
-  async transcribeAudio(audioBuffer: Buffer, mimeType: string): Promise<TranscriptResult[]> {
+  async transcribeAudio(
+    audioBuffer: Buffer,
+    mimeType: string,
+    speakerMap?: Record<string, string>,
+  ): Promise<TranscriptResult[]> {
     const encoding = this.getEncoding(mimeType)
     const channelCount = this.detectChannelCount(audioBuffer, mimeType)
 
@@ -87,7 +92,7 @@ export class SttService {
     const lastWords: WordInfo[] = results[results.length - 1]?.alternatives?.[0]?.words ?? []
 
     if (lastWords.length > 0 && lastWords.some((w) => w.speakerTag !== undefined)) {
-      const grouped = this.groupBySpeaker(lastWords)
+      const grouped = this.groupBySpeaker(lastWords, speakerMap)
       this.logger.log(`STT 완료: ${grouped.length}개 세그먼트 (화자 분리)`)
       return grouped
     }
@@ -110,7 +115,10 @@ export class SttService {
   }
 
   // 같은 speakerTag로 연속된 단어를 하나의 세그먼트로 묶기
-  private groupBySpeaker(words: WordInfo[]): TranscriptResult[] {
+  private groupBySpeaker(
+    words: WordInfo[],
+    speakerMap?: Record<string, string>,
+  ): TranscriptResult[] {
     const segments: TranscriptResult[] = []
     let current: { tag: number; words: WordInfo[] } | null = null
 
@@ -118,7 +126,7 @@ export class SttService {
       const tag = w.speakerTag ?? 0
       if (!current || current.tag !== tag) {
         if (current && current.words.length > 0) {
-          segments.push(this.buildSegment(current.tag, current.words))
+          segments.push(this.buildSegment(current.tag, current.words, speakerMap))
         }
         current = { tag, words: [w] }
       } else {
@@ -126,16 +134,21 @@ export class SttService {
       }
     }
     if (current && current.words.length > 0) {
-      segments.push(this.buildSegment(current.tag, current.words))
+      segments.push(this.buildSegment(current.tag, current.words, speakerMap))
     }
     return segments
   }
 
-  private buildSegment(tag: number, words: WordInfo[]): TranscriptResult {
+  private buildSegment(
+    tag: number,
+    words: WordInfo[],
+    speakerMap?: Record<string, string>,
+  ): TranscriptResult {
     const text = words.map((w) => w.word ?? '').join(' ').trim()
+    const speaker = speakerMap?.[String(tag)] ?? `Speaker ${tag}`
     return {
       text,
-      speaker: `Speaker ${tag}`,
+      speaker,
       startTime: this.toSeconds(words[0]?.startTime),
       endTime: this.toSeconds(words[words.length - 1]?.endTime),
     }
@@ -167,5 +180,36 @@ export class SttService {
     if (buffer.toString('ascii', 8, 12) !== 'WAVE') return undefined
     const channels = buffer.readUInt16LE(22)
     return channels >= 1 && channels <= 8 ? channels : undefined
+  }
+
+  // 실시간 STT 스트리밍 세션 생성 — Google STT StreamingRecognize API 사용.
+  // 반환된 Duplex 스트림에 audio chunk Buffer를 write()하면 onResult 콜백이 호출됨.
+  // 스트림 수명은 Google STT 제한(약 5분)에 따르며, Gateway에서 세션 단위로 관리함.
+  createStreamingSession(onResult: (result: TranscriptResult) => void): Duplex {
+    const recognizeStream: Duplex = this.client.streamingRecognize({
+      config: {
+        encoding: 'WEBM_OPUS' as any,
+        languageCode: this.languageCode,
+        enableAutomaticPunctuation: true,
+        model: this.model,
+      },
+      interimResults: false,
+    }) as unknown as Duplex
+
+    recognizeStream.on('data', (data: any) => {
+      const results: any[] = data.results ?? []
+      for (const r of results) {
+        const transcript: string = r.alternatives?.[0]?.transcript ?? ''
+        if (r.isFinal && transcript.trim()) {
+          onResult({ text: transcript.trim(), speaker: null, startTime: null, endTime: null })
+        }
+      }
+    })
+
+    recognizeStream.on('error', (err: Error) => {
+      this.logger.warn(`STT 스트리밍 오류: ${err.message}`)
+    })
+
+    return recognizeStream
   }
 }

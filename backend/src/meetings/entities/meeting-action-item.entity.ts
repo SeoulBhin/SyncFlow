@@ -1,4 +1,4 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne } from 'typeorm'
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, ManyToOne, Index } from 'typeorm'
 import { Meeting } from './meeting.entity'
 
 @Entity('meeting_action_items')
@@ -9,6 +9,7 @@ export class MeetingActionItem {
   @ManyToOne(() => Meeting, { onDelete: 'CASCADE' })
   meeting: Meeting
 
+  @Index()
   @Column({ name: 'meeting_id', type: 'uuid' })
   meetingId: string
 

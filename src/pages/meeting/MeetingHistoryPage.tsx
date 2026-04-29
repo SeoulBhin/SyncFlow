@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Video, Clock, Users, Calendar, ChevronRight, Plus } from 'lucide-react'
 import { Card } from '@/components/common/Card'
@@ -36,10 +37,12 @@ export function MeetingHistoryPage() {
   const error = useMeetingStore((s) => s.error)
   const createMeeting = useMeetingStore((s) => s.createMeeting)
   const startMeeting = useMeetingStore((s) => s.startMeeting)
+  const loadMyMeetings = useMeetingStore((s) => s.loadMyMeetings)
   const addToast = useToastStore((s) => s.addToast)
 
-  // TODO: 프로젝트 컨텍스트가 추가되면 loadMeetingsByProject(activeProjectId) 자동 호출
-  // 현재는 createMeeting/finalizeMeeting 호출 시 store에 캐싱된 항목만 표시
+  useEffect(() => {
+    void loadMyMeetings()
+  }, [loadMyMeetings])
 
   const scheduled: ApiMeeting[] = meetings.filter(
     (m) => m.status === 'scheduled' || m.status === 'in-progress',

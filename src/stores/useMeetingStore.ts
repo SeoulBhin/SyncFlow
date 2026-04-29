@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { apiJson, apiFetch } from '@/lib/api'
+import { apiJson } from '@/lib/api'
 import type {
   ApiMeeting,
   ApiMeetingActionItem,
@@ -57,6 +57,7 @@ interface MeetingState {
   currentSummary: ApiMeetingSummary | null
   currentActionItems: ApiMeetingActionItem[]
   isLoading: boolean
+  uploadProgress: number  // 0-100, 오디오 업로드 진행률
   error: string | null
 
   // ── 로컬 UI 액션 ───────────────────────────────────────────────────────────
@@ -69,11 +70,15 @@ interface MeetingState {
   setActiveTab: (tab: 'transcript' | 'notes' | 'chat') => void
   tick: () => void
 
+  // 실시간 STT 세그먼트를 store transcript에 즉시 반영 (Gateway 브로드캐스트 수신 시)
+  addRealtimeTranscript: (entry: ApiMeetingTranscript) => void
+
   // ── API 액션 ───────────────────────────────────────────────────────────────
   createMeeting: (title: string, opts?: { groupId?: string; projectId?: string }) => Promise<ApiMeeting>
-  uploadAudio: (meetingId: string, file: File) => Promise<UploadAudioResponse>
+  uploadAudio: (meetingId: string, file: File, speakerMap?: Record<string, string>) => Promise<UploadAudioResponse>
   finalizeMeeting: (meetingId: string) => Promise<EndMeetingResponse>
   loadMeeting: (meetingId: string) => Promise<void>
+  loadMyMeetings: () => Promise<void>
   loadMeetingsByProject: (projectId: string) => Promise<void>
   updateActionItem: (
     meetingId: string,
@@ -142,6 +147,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   currentSummary: null,
   currentActionItems: [],
   isLoading: false,
+  uploadProgress: 0,
   error: null,
 
   // ── 로컬 UI 액션 ───────────────────────────────────────────────────────────
@@ -181,6 +187,15 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       isRecording: false,
     }),
 
+  addRealtimeTranscript: (entry) =>
+    set((s) => {
+      const next = [...s.currentTranscripts, entry]
+      return {
+        currentTranscripts: next,
+        transcript: toTranscriptEntries(next),
+      }
+    }),
+
   toggleMute: () => set((s) => ({ isMuted: !s.isMuted })),
   toggleScreenShare: () => set((s) => ({ isScreenSharing: !s.isScreenSharing })),
   toggleSTT: () => set((s) => ({ sttEnabled: !s.sttEnabled })),
@@ -206,26 +221,59 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
     return meeting
   },
 
-  uploadAudio: async (meetingId, file) => {
+  uploadAudio: (meetingId, file, speakerMap) => {
     const form = new FormData()
     form.append('audio', file)
-    const res = await apiFetch(`/api/meetings/${meetingId}/audio`, {
-      method: 'POST',
-      body: form,
-    })
-    if (!res.ok) {
-      const text = await res.text().catch(() => res.statusText)
-      throw new Error(text || `오디오 업로드 실패 (${res.status})`)
+    if (speakerMap && Object.keys(speakerMap).length > 0) {
+      form.append('speakerMap', JSON.stringify(speakerMap))
     }
-    const data = (await res.json()) as UploadAudioResponse
-    set((s) => ({
-      currentTranscripts: [...s.currentTranscripts, ...data.transcripts],
-      transcript: toTranscriptEntries([
-        ...s.currentTranscripts,
-        ...data.transcripts,
-      ]),
-    }))
-    return data
+
+    return new Promise<UploadAudioResponse>((resolve, reject) => {
+      const xhr = new XMLHttpRequest()
+      xhr.open('POST', `/api/meetings/${meetingId}/audio`)
+
+      const token = localStorage.getItem('accessToken')
+      if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
+
+      xhr.upload.addEventListener('progress', (e) => {
+        if (e.lengthComputable) {
+          set({ uploadProgress: Math.round((e.loaded / e.total) * 100) })
+        }
+      })
+
+      xhr.addEventListener('load', () => {
+        set({ uploadProgress: 0 })
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            const data = JSON.parse(xhr.responseText) as UploadAudioResponse
+            set((s) => ({
+              currentTranscripts: [...s.currentTranscripts, ...data.transcripts],
+              transcript: toTranscriptEntries([
+                ...s.currentTranscripts,
+                ...data.transcripts,
+              ]),
+            }))
+            resolve(data)
+          } catch {
+            reject(new Error('서버 응답 파싱 실패'))
+          }
+        } else {
+          reject(new Error(xhr.responseText || `오디오 업로드 실패 (${xhr.status})`))
+        }
+      })
+
+      xhr.addEventListener('error', () => {
+        set({ uploadProgress: 0 })
+        reject(new Error('네트워크 오류로 업로드에 실패했습니다'))
+      })
+
+      xhr.addEventListener('abort', () => {
+        set({ uploadProgress: 0 })
+        reject(new Error('업로드가 취소되었습니다'))
+      })
+
+      xhr.send(form)
+    })
   },
 
   finalizeMeeting: async (meetingId) => {
@@ -267,6 +315,19 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       set({
         isLoading: false,
         error: err instanceof Error ? err.message : '회의를 불러올 수 없습니다',
+      })
+    }
+  },
+
+  loadMyMeetings: async () => {
+    set({ isLoading: true, error: null })
+    try {
+      const meetings = await apiJson<ApiMeeting[]>('/api/meetings/my')
+      set({ meetings, isLoading: false })
+    } catch (err) {
+      set({
+        isLoading: false,
+        error: err instanceof Error ? err.message : '회의 목록을 불러올 수 없습니다',
       })
     }
   },

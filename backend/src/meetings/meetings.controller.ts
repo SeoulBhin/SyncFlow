@@ -9,6 +9,7 @@ import {
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  ParseUUIDPipe,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { diskStorage } from 'multer'
@@ -100,15 +101,36 @@ export class MeetingsController {
   uploadAudio(
     @Param('id') id: string,
     @UploadedFile() file: Express.Multer.File,
+    @Body('speakerMap') speakerMapRaw?: string,
   ) {
     if (!file) throw new BadRequestException('오디오 파일이 없습니다')
-    return this.meetingsService.uploadAudio(id, file.path, file.mimetype, file.filename)
+    let speakerMap: Record<string, string> | undefined
+    if (speakerMapRaw) {
+      try {
+        speakerMap = JSON.parse(speakerMapRaw) as Record<string, string>
+      } catch {
+        // 파싱 실패 시 speakerMap 없이 처리
+      }
+    }
+    return this.meetingsService.uploadAudio(id, file.path, file.mimetype, file.filename, speakerMap)
   }
 
   // 회의 종료 → 회의록 자동 생성
   @Put(':id/end')
   endMeeting(@Param('id') id: string) {
     return this.meetingsService.endMeeting(id)
+  }
+
+  // 내 회의 목록 (호스트 기준) — 반드시 ':id' 라우트보다 앞에 위치해야 함
+  @Get('my')
+  getMyMeetings(@CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.getMyMeetings(user.userId)
+  }
+
+  // 프로젝트 회의 목록 — 반드시 ':id' 라우트보다 앞에 위치해야 함
+  @Get('project/:projectId')
+  getMeetingsByProject(@Param('projectId') projectId: string) {
+    return this.meetingsService.getMeetingsByProject(projectId)
   }
 
   // 회의 상세
@@ -144,18 +166,12 @@ export class MeetingsController {
     return this.meetingsService.updateActionItem(aid, body)
   }
 
-  // 확인된 액션아이템 → 작업 등록
+  // 확인된 액션아이템 → Task 일괄 등록
   @Post(':id/action-items/confirm')
   confirmActionItems(
     @Param('id') id: string,
     @Body() body: { actionItemIds: string[] },
   ) {
     return this.meetingsService.confirmActionItems(id, body.actionItemIds)
-  }
-
-  // 프로젝트 회의 목록
-  @Get('project/:projectId')
-  getMeetingsByProject(@Param('projectId') projectId: string) {
-    return this.meetingsService.getMeetingsByProject(projectId)
   }
 }

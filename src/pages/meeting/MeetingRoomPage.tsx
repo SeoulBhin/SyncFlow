@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { io, type Socket } from 'socket.io-client'
 import {
   Mic,
   MicOff,
@@ -54,6 +55,13 @@ export function MeetingRoomPage() {
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const uploadProgress = useMeetingStore((s) => s.uploadProgress)
+  const addRealtimeTranscript = useMeetingStore((s) => s.addRealtimeTranscript)
+
+  // 실시간 STT용 refs (언마운트/STT 종료 시 정리)
+  const sttSocketRef = useRef<Socket | null>(null)
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
+  const audioStreamRef = useRef<MediaStream | null>(null)
 
   const groupName = activeGroupName ?? groupId ?? '회의'
 
@@ -124,14 +132,19 @@ export function MeetingRoomPage() {
     const file = e.target.files?.[0]
     if (!file || !meetingId) return
 
+    // LiveKit 참가자 목록으로 speakerMap 구성 (tag 1-based → 이름)
+    const speakerMap: Record<string, string> = {}
+    participants.forEach((p, idx) => {
+      if (p.name) speakerMap[String(idx + 1)] = p.name
+    })
+
     setIsUploading(true)
     try {
-      const result = await meeting.uploadAudio(meetingId, file)
+      const result = await meeting.uploadAudio(meetingId, file, speakerMap)
       addToast(
         'success',
         `STT 완료 — ${result.segments}개 세그먼트 추가됨`,
       )
-      // STT 결과가 store.transcript에 반영되어 우측 자막 패널에 자동 표시됨
       meeting.setActiveTab('transcript')
     } catch (err) {
       addToast(
@@ -143,6 +156,86 @@ export function MeetingRoomPage() {
       if (fileInputRef.current) fileInputRef.current.value = ''
     }
   }
+
+  const stopRealtimeSTT = useCallback(() => {
+    mediaRecorderRef.current?.stop()
+    mediaRecorderRef.current = null
+    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
+    audioStreamRef.current = null
+    sttSocketRef.current?.disconnect()
+    sttSocketRef.current = null
+  }, [])
+
+  const startRealtimeSTT = useCallback(async (id: string) => {
+    stopRealtimeSTT()
+
+    let stream: MediaStream
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+    } catch {
+      addToast('error', '마이크 접근 권한이 필요합니다')
+      meeting.toggleSTT()
+      return
+    }
+    audioStreamRef.current = stream
+
+    const token = localStorage.getItem('accessToken')
+    const socket: Socket = io('/meetings', {
+      path: '/socket.io',
+      auth: token ? { token } : undefined,
+    })
+    sttSocketRef.current = socket
+
+    // speakerMap 구성 (LiveKit participants 직접 참조)
+    const speakerMap: Record<string, string> = {}
+    voiceChat.participants.forEach((p, idx) => { if (p.name) speakerMap[String(idx + 1)] = p.name })
+
+    socket.on('connect', () => {
+      socket.emit('meeting:join', { meetingId: id, speakerMap })
+    })
+
+    socket.on('meeting:transcript', (data: { id: string; text: string; speaker: string | null; startTime: number | null; createdAt: string }) => {
+      addRealtimeTranscript({
+        id: data.id,
+        meetingId: id,
+        text: data.text,
+        speaker: data.speaker,
+        startTime: data.startTime,
+        endTime: null,
+        createdAt: data.createdAt,
+      })
+      meeting.setActiveTab('transcript')
+    })
+
+    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
+    mediaRecorderRef.current = recorder
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0 && socket.connected) {
+        void e.data.arrayBuffer().then((buf) => {
+          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+          socket.emit('meeting:audio-chunk', { chunk: b64 })
+        })
+      }
+    }
+
+    // 1초 단위 청크 전송
+    recorder.start(1000)
+  }, [participants, addRealtimeTranscript, meeting, addToast, stopRealtimeSTT])
+
+  // STT 토글 시 실시간 세션 시작/중지
+  useEffect(() => {
+    if (!meetingId) return
+    if (meeting.sttEnabled) {
+      void startRealtimeSTT(meetingId)
+    } else {
+      stopRealtimeSTT()
+    }
+    return () => { if (!meeting.sttEnabled) stopRealtimeSTT() }
+  }, [meeting.sttEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 언마운트 시 STT 세션 정리
+  useEffect(() => () => stopRealtimeSTT(), [stopRealtimeSTT])
 
   const handleToggleMute = () => {
     void voiceChat.toggleMute()
@@ -317,20 +410,34 @@ export function MeetingRoomPage() {
                 className="hidden"
                 onChange={(e) => void handleAudioFileSelected(e)}
               />
-              <button
-                onClick={() => fileInputRef.current?.click()}
-                disabled={isUploading}
-                className={cn(
-                  'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
-                  isUploading
-                    ? 'cursor-not-allowed bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
-                    : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400',
+              <div className="flex flex-col gap-1">
+                <button
+                  onClick={() => fileInputRef.current?.click()}
+                  disabled={isUploading}
+                  className={cn(
+                    'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                    isUploading
+                      ? 'cursor-not-allowed bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                      : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400',
+                  )}
+                  title="회의 오디오 파일 업로드 (테스트용)"
+                >
+                  {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                  {isUploading
+                    ? uploadProgress > 0
+                      ? `업로드 중 ${uploadProgress}%`
+                      : 'STT 처리 중...'
+                    : '오디오 업로드'}
+                </button>
+                {isUploading && uploadProgress > 0 && (
+                  <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+                    <div
+                      className="h-full rounded-full bg-amber-500 transition-all duration-200"
+                      style={{ width: `${uploadProgress}%` }}
+                    />
+                  </div>
                 )}
-                title="회의 오디오 파일 업로드 (테스트용)"
-              >
-                {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
-                {isUploading ? 'STT 처리 중...' : '오디오 업로드'}
-              </button>
+              </div>
             </div>
           </div>
         </div>

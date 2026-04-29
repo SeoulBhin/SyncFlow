@@ -5,12 +5,13 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Repository } from 'typeorm'
+import { In, Repository } from 'typeorm'
 import * as fs from 'fs'
 import { Meeting } from './entities/meeting.entity'
 import { MeetingTranscript } from './entities/meeting-transcript.entity'
 import { MeetingSummary } from './entities/meeting-summary.entity'
 import { MeetingActionItem } from './entities/meeting-action-item.entity'
+import { Task } from '../tasks/entities/task.entity'
 import { SttService } from './stt.service'
 import { SummaryService } from './summary.service'
 
@@ -36,6 +37,7 @@ export class MeetingsService {
     @InjectRepository(MeetingTranscript) private transcriptRepo: Repository<MeetingTranscript>,
     @InjectRepository(MeetingSummary) private summaryRepo: Repository<MeetingSummary>,
     @InjectRepository(MeetingActionItem) private actionItemRepo: Repository<MeetingActionItem>,
+    @InjectRepository(Task) private taskRepo: Repository<Task>,
     private sttService: SttService,
     private summaryService: SummaryService,
   ) {}
@@ -57,10 +59,13 @@ export class MeetingsService {
   }
 
   // 오디오 파일(디스크 경로) → STT → DB 저장
-  async uploadAudio(meetingId: string, filePath: string, mimeType: string, filename: string) {
-    // UUID 형식 검증 — 임시 클라이언트 ID(예: "mt-quick-...")가 들어오면
-    // findOne 단계에서 Postgres 가 invalid input syntax 로 throw 해 500을 반환함.
-    // 명시적 400 BadRequest 로 빠르게 실패시키고 업로드 파일도 정리.
+  async uploadAudio(
+    meetingId: string,
+    filePath: string,
+    mimeType: string,
+    filename: string,
+    speakerMap?: Record<string, string>,
+  ) {
     if (!UUID_RE.test(meetingId)) {
       this.safeUnlink(filePath)
       throw new BadRequestException(
@@ -76,7 +81,7 @@ export class MeetingsService {
 
     try {
       const audioBuffer = fs.readFileSync(filePath)
-      const results = await this.sttService.transcribeAudio(audioBuffer, mimeType)
+      const results = await this.sttService.transcribeAudio(audioBuffer, mimeType, speakerMap)
 
       const transcripts = this.transcriptRepo.create(
         results.map((r) => ({
@@ -89,10 +94,12 @@ export class MeetingsService {
       )
       await this.transcriptRepo.save(transcripts)
 
+      // P0-4: STT 완료 후 원본 파일 삭제 — 디스크 용량 누수 방지
+      this.safeUnlink(filePath)
+
       this.logger.log(`회의 ${meetingId} 오디오 처리 완료: ${results.length}개 세그먼트`)
 
       return {
-        audioUrl: `/uploads/audio/${filename}`,
         segments: transcripts.length,
         transcripts,
       }
@@ -101,6 +108,15 @@ export class MeetingsService {
       this.safeUnlink(filePath)
       throw err
     }
+  }
+
+  // 실시간 STT 세그먼트를 DB에 저장 (Gateway에서 호출)
+  async saveTranscriptSegment(
+    meetingId: string,
+    segment: { text: string; speaker: string | null; startTime: number | null },
+  ) {
+    const transcript = this.transcriptRepo.create({ meetingId, ...segment, endTime: null })
+    return this.transcriptRepo.save(transcript)
   }
 
   // 회의 종료 → Gemini 회의록 생성
@@ -209,19 +225,59 @@ export class MeetingsService {
     return this.actionItemRepo.findOne({ where: { id: actionItemId } })
   }
 
-  // 확인된 액션아이템 → 작업 등록 (tasks 테이블 연동은 Part 7 완료 후)
+  // 확인된 액션아이템 → tasks 테이블에 일괄 등록
   async confirmActionItems(meetingId: string, actionItemIds: string[]) {
     assertUuid(meetingId, 'meetingId')
     actionItemIds.forEach((id) => assertUuid(id, 'actionItemId'))
     if (actionItemIds.length === 0) {
       return this.actionItemRepo.find({ where: { meetingId, confirmed: true } })
     }
-    await this.actionItemRepo.update(
-      actionItemIds.map((id) => ({ id })) as any,
-      { confirmed: true },
-    )
-    // TODO: Part 7 완료 후 tasks 테이블에 일괄 등록
+
+    // 이미 confirmed된 항목은 중복 Task 생성을 방지하기 위해 제외
+    const items = await this.actionItemRepo.find({
+      where: { id: In(actionItemIds), meetingId, confirmed: false },
+    })
+
+    if (items.length > 0) {
+      // Task 일괄 생성
+      const tasks = await this.taskRepo.save(
+        items.map((item) =>
+          this.taskRepo.create({
+            title: item.title,
+            assignee: item.assignee,
+            dueDate: item.dueDate,
+            status: 'todo',
+            sourceMeetingId: meetingId,
+            sourceActionItemId: item.id,
+          }),
+        ),
+      )
+
+      // 각 액션아이템에 taskId 기록 + confirmed 플래그 설정
+      await Promise.all(
+        tasks.map((task) =>
+          this.actionItemRepo.update(
+            { id: task.sourceActionItemId! },
+            { confirmed: true, taskId: task.id },
+          ),
+        ),
+      )
+
+      this.logger.log(
+        `회의 ${meetingId}: ${tasks.length}개 액션아이템 → Task 등록 완료`,
+      )
+    }
+
     return this.actionItemRepo.find({ where: { meetingId, confirmed: true } })
+  }
+
+  // 현재 사용자 회의 목록 (최근 50건)
+  async getMyMeetings(hostId: string) {
+    return this.meetingRepo.find({
+      where: { hostId },
+      order: { createdAt: 'DESC' },
+      take: 50,
+    })
   }
 
   // 프로젝트 회의 목록
