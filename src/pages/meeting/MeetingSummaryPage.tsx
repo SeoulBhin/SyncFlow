@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Video,
@@ -14,8 +14,9 @@ import {
   ArrowUpRight,
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
-import { MOCK_MEETINGS, MOCK_CHANNEL_MEMBERS } from '@/constants'
+import { MOCK_CHANNEL_MEMBERS } from '@/constants'
 import { useToastStore } from '@/stores/useToastStore'
+import { useMeetingStore } from '@/stores/useMeetingStore'
 
 /* ── 액션 아이템 리뷰용 타입 ── */
 type ReviewItem = {
@@ -40,91 +41,177 @@ const PRIORITY_CONFIG: Record<
   low: { label: '낮음', dot: 'bg-neutral-400', bg: 'bg-neutral-50 dark:bg-neutral-800', text: 'text-neutral-500 dark:text-neutral-400' },
 }
 
+function formatTimeFromSeconds(seconds: number | null): string {
+  if (seconds == null || isNaN(seconds)) return ''
+  const m = Math.floor(seconds / 60)
+  const s = Math.floor(seconds % 60)
+  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+}
+
+function formatDuration(start: string | null, end: string | null): string {
+  if (!start || !end) return ''
+  const ms = new Date(end).getTime() - new Date(start).getTime()
+  if (isNaN(ms) || ms <= 0) return ''
+  const mins = Math.round(ms / 60000)
+  if (mins < 60) return `${mins}분`
+  return `${Math.floor(mins / 60)}시간 ${mins % 60}분`
+}
+
 export function MeetingSummaryPage() {
   const { id } = useParams<{ id: string }>()
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
-  const meeting = MOCK_MEETINGS.find((m) => m.id === id)
 
-  /* ── 리뷰 모달 상태 ── */
+  const meeting = useMeetingStore((s) => s.currentMeeting)
+  const transcripts = useMeetingStore((s) => s.currentTranscripts)
+  const summary = useMeetingStore((s) => s.currentSummary)
+  const actionItems = useMeetingStore((s) => s.currentActionItems)
+  const isLoading = useMeetingStore((s) => s.isLoading)
+  const error = useMeetingStore((s) => s.error)
+  const loadMeeting = useMeetingStore((s) => s.loadMeeting)
+  const confirmActionItems = useMeetingStore((s) => s.confirmActionItems)
+
   const [showReviewModal, setShowReviewModal] = useState(false)
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
   const [registeredIds, setRegisteredIds] = useState<Set<string>>(new Set())
 
+  // 회의 데이터 로드
+  useEffect(() => {
+    if (id) {
+      void loadMeeting(id)
+    }
+  }, [id, loadMeeting])
+
+  // 등록된 액션아이템 동기화 (서버에서 confirmed=true로 표시된 항목)
+  useEffect(() => {
+    setRegisteredIds(
+      new Set(actionItems.filter((a) => a.confirmed).map((a) => a.id)),
+    )
+  }, [actionItems])
+
   /* ── 회의 액션 아이템에서 ReviewItem 초기화 ── */
-  const initializeReviewItems = useCallback(() => {
-    if (!meeting?.actionItems) return []
-    return meeting.actionItems.map((item) => {
+  const initializeReviewItems = useCallback((): ReviewItem[] => {
+    return actionItems.map((item) => {
       const member = MOCK_CHANNEL_MEMBERS.find((m) => m.name === item.assignee)
       return {
         id: item.id,
         title: item.title,
-        assignee: item.assignee,
+        assignee: item.assignee ?? '',
         assigneeId: member?.id ?? 'u1',
-        dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+        dueDate:
+          item.dueDate ??
+          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
         priority: 'normal' as const,
-        selected: !item.done,
-        done: item.done,
+        selected: !item.confirmed,
+        done: item.confirmed,
       }
     })
-  }, [meeting])
+  }, [actionItems])
 
   /* ── 회의 종료 상태일 때 500ms 후 모달 자동 표시 ── */
   useEffect(() => {
-    if (meeting?.status === 'ended' && registeredIds.size === 0) {
+    if (
+      meeting?.status === 'ended' &&
+      actionItems.length > 0 &&
+      registeredIds.size === 0
+    ) {
       const timer = setTimeout(() => {
         setReviewItems(initializeReviewItems())
         setShowReviewModal(true)
       }, 500)
       return () => clearTimeout(timer)
     }
-  }, [meeting, initializeReviewItems, registeredIds.size])
+  }, [meeting, actionItems.length, initializeReviewItems, registeredIds.size])
 
-  /* ── 선택된 아이템 등록 처리 ── */
-  const handleRegister = (items: ReviewItem[]) => {
+  /* ── 선택된 아이템 등록 처리 (백엔드 confirm API 호출) ── */
+  const handleRegister = async (items: ReviewItem[]) => {
     const toRegister = items.filter((item) => item.selected && !item.done)
-    if (toRegister.length === 0) return
-    const newIds = new Set(registeredIds)
-    toRegister.forEach((item) => newIds.add(item.id))
-    setRegisteredIds(newIds)
-    setShowReviewModal(false)
-    /* 등록 완료 토스트 알림 */
-    addToast('success', `${toRegister.length}개 작업이 작업보드에 등록되었습니다`)
+    if (toRegister.length === 0 || !id) return
+
+    try {
+      await confirmActionItems(id, toRegister.map((item) => item.id))
+      const newIds = new Set(registeredIds)
+      toRegister.forEach((item) => newIds.add(item.id))
+      setRegisteredIds(newIds)
+      setShowReviewModal(false)
+      addToast('success', `${toRegister.length}개 작업이 작업보드에 등록되었습니다`)
+    } catch (err) {
+      addToast(
+        'error',
+        err instanceof Error ? err.message : '작업 등록 중 오류가 발생했습니다',
+      )
+    }
   }
 
-  /* ── 모두 선택 후 등록 ── */
-  const handleRegisterAll = () => {
-    const allSelected = reviewItems.map((item) => ({ ...item, selected: true }))
-    handleRegister(allSelected)
+  const handleRegisterAll = () =>
+    handleRegister(reviewItems.map((item) => ({ ...item, selected: true })))
+  const handleRegisterSelected = () => handleRegister(reviewItems)
+
+  const handleRegisterSingle = async (itemId: string) => {
+    if (!id) return
+    try {
+      await confirmActionItems(id, [itemId])
+      const newIds = new Set(registeredIds)
+      newIds.add(itemId)
+      setRegisteredIds(newIds)
+      addToast('success', '1개 작업이 작업보드에 등록되었습니다')
+    } catch (err) {
+      addToast(
+        'error',
+        err instanceof Error ? err.message : '작업 등록 중 오류가 발생했습니다',
+      )
+    }
   }
 
-  /* ── 선택 항목만 등록 ── */
-  const handleRegisterSelected = () => {
-    handleRegister(reviewItems)
-  }
-
-  /* ── 개별 아이템 등록 (메인 페이지에서) ── */
-  const handleRegisterSingle = (itemId: string) => {
-    const newIds = new Set(registeredIds)
-    newIds.add(itemId)
-    setRegisteredIds(newIds)
-    /* 개별 등록 토스트 알림 */
-    addToast('success', '1개 작업이 작업보드에 등록되었습니다')
-  }
-
-  /* ── 리뷰 아이템 필드 수정 핸들러 ── */
   const updateReviewItem = (itemId: string, updates: Partial<ReviewItem>) => {
     setReviewItems((prev) =>
       prev.map((item) => (item.id === itemId ? { ...item, ...updates } : item)),
     )
   }
 
-  /* ── 리뷰 아이템 삭제 ── */
   const deleteReviewItem = (itemId: string) => {
     setReviewItems((prev) => prev.filter((item) => item.id !== itemId))
   }
 
   const selectedCount = reviewItems.filter((item) => item.selected && !item.done).length
+
+  // 트랜스크립트 화자별 색상용 매핑
+  const speakerColors = useMemo(() => {
+    const map = new Map<string, string>()
+    const palette = [
+      'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400',
+      'bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-400',
+      'bg-green-100 text-green-600 dark:bg-green-900/30 dark:text-green-400',
+      'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400',
+      'bg-purple-100 text-purple-600 dark:bg-purple-900/30 dark:text-purple-400',
+      'bg-pink-100 text-pink-600 dark:bg-pink-900/30 dark:text-pink-400',
+    ]
+    let idx = 0
+    for (const t of transcripts) {
+      const key = t.speaker ?? '발화자'
+      if (!map.has(key)) {
+        map.set(key, palette[idx % palette.length])
+        idx++
+      }
+    }
+    return map
+  }, [transcripts])
+
+  if (isLoading && !meeting) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-neutral-500 dark:text-neutral-400">회의를 불러오는 중...</p>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex h-full items-center justify-center">
+        <p className="text-red-500 dark:text-red-400">{error}</p>
+      </div>
+    )
+  }
 
   if (!meeting) {
     return (
@@ -138,7 +225,6 @@ export function MeetingSummaryPage() {
     <div className="mx-auto max-w-4xl p-6">
       {/* 헤더 */}
       <div className="mb-6">
-        {/* 뒤로가기 버튼 */}
         <button
           onClick={() => navigate('/app/meetings')}
           className="mb-3 flex items-center gap-1 text-sm text-neutral-500 transition-colors hover:text-neutral-700 dark:text-neutral-400 dark:hover:text-neutral-200"
@@ -156,16 +242,15 @@ export function MeetingSummaryPage() {
                 {meeting.title}
               </h1>
               <div className="mt-1 flex items-center gap-4 text-sm text-neutral-400">
-                <span>#{meeting.channelName}</span>
-                {meeting.duration && (
+                {meeting.startedAt && meeting.endedAt && (
                   <span className="flex items-center gap-1">
                     <Clock size={13} />
-                    {meeting.duration}
+                    {formatDuration(meeting.startedAt, meeting.endedAt)}
                   </span>
                 )}
                 <span className="flex items-center gap-1">
                   <Users size={13} />
-                  {meeting.participants.length}명
+                  {speakerColors.size}명 발화
                 </span>
               </div>
             </div>
@@ -177,7 +262,7 @@ export function MeetingSummaryPage() {
         {/* 좌측 2열 */}
         <div className="space-y-6 lg:col-span-2">
           {/* AI 요약 */}
-          {meeting.summary && (
+          {summary && (
             <Card>
               <div className="mb-3 flex items-center gap-2">
                 <FileText size={16} className="text-primary-500" />
@@ -186,37 +271,47 @@ export function MeetingSummaryPage() {
                 </h2>
               </div>
               <p className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
-                {meeting.summary}
+                {summary.summary}
               </p>
             </Card>
           )}
 
           {/* 회의록 */}
-          {meeting.transcript && meeting.transcript.length > 0 && (
+          {transcripts.length > 0 && (
             <Card>
               <h2 className="mb-4 flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
                 <FileText size={16} className="text-primary-500" />
                 회의록
               </h2>
               <div className="space-y-3">
-                {meeting.transcript.map((entry, i) => (
-                  <div key={i} className="flex gap-3">
-                    <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-primary-100 text-xs font-medium text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                      {entry.speaker[0]}
-                    </div>
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                          {entry.speaker}
-                        </span>
-                        <span className="text-[10px] text-neutral-400">{entry.time}</span>
+                {transcripts.map((entry) => {
+                  const speaker = entry.speaker ?? '발화자'
+                  const color =
+                    speakerColors.get(speaker) ??
+                    'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                  return (
+                    <div key={entry.id} className="flex gap-3">
+                      <div
+                        className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-xs font-medium ${color}`}
+                      >
+                        {speaker[0] ?? '?'}
                       </div>
-                      <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-300">
-                        {entry.text}
-                      </p>
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2">
+                          <span className="text-xs font-medium text-neutral-700 dark:text-neutral-200">
+                            {speaker}
+                          </span>
+                          <span className="text-[10px] text-neutral-400">
+                            {formatTimeFromSeconds(entry.startTime)}
+                          </span>
+                        </div>
+                        <p className="mt-0.5 text-sm text-neutral-600 dark:text-neutral-300">
+                          {entry.text}
+                        </p>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  )
+                })}
               </div>
             </Card>
           )}
@@ -224,51 +319,25 @@ export function MeetingSummaryPage() {
 
         {/* 우측 1열 */}
         <div className="space-y-6">
-          {/* 참석자 */}
-          <Card>
-            <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-              <Users size={16} className="text-primary-500" />
-              참석자
-            </h2>
-            <div className="space-y-2">
-              {meeting.participants.map((p) => (
-                <div key={p.id} className="flex items-center gap-2">
-                  <div className="flex h-7 w-7 items-center justify-center rounded-full bg-neutral-100 text-xs font-medium text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
-                    {p.name[0]}
-                  </div>
-                  <div>
-                    <p className="text-sm text-neutral-700 dark:text-neutral-200">{p.name}</p>
-                    <p className="text-[10px] text-neutral-400">{p.position}</p>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </Card>
-
-          {/* 액션 아이템 (향상된 섹션) */}
-          {meeting.actionItems && meeting.actionItems.length > 0 && (
+          {/* 액션 아이템 */}
+          {actionItems.length > 0 && (
             <Card>
               <h2 className="mb-3 flex items-center gap-2 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
                 <ListChecks size={16} className="text-primary-500" />
                 액션 아이템
               </h2>
               <div className="space-y-2">
-                {meeting.actionItems.map((item) => {
-                  const isRegistered = registeredIds.has(item.id)
+                {actionItems.map((item) => {
+                  const isRegistered = registeredIds.has(item.id) || item.confirmed
                   return (
                     <div
                       key={item.id}
                       className="flex items-start gap-2 rounded-lg p-2 hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
                     >
-                      {/* 등록 완료: 초록 체크, 미등록 완료: 초록 체크, 미등록 미완료: 회색 원 */}
-                      {item.done || isRegistered ? (
+                      {isRegistered ? (
                         <CheckCircle
                           size={16}
-                          className={`mt-0.5 shrink-0 ${
-                            isRegistered
-                              ? 'text-green-500 dark:text-green-400'
-                              : 'text-success'
-                          }`}
+                          className="mt-0.5 shrink-0 text-green-500 dark:text-green-400"
                         />
                       ) : (
                         <Circle
@@ -280,35 +349,31 @@ export function MeetingSummaryPage() {
                         <div className="flex items-center gap-2">
                           <p
                             className={`text-sm ${
-                              item.done
+                              isRegistered
                                 ? 'text-neutral-400 line-through'
                                 : 'text-neutral-700 dark:text-neutral-200'
                             }`}
                           >
                             {item.title}
                           </p>
-                          {/* 등록됨 배지 */}
                           {isRegistered && (
                             <span className="inline-flex shrink-0 items-center rounded-full bg-green-50 px-2 py-0.5 text-[10px] font-medium text-green-600 dark:bg-green-900/30 dark:text-green-400">
                               작업보드에 등록됨
                             </span>
                           )}
-                          {/* 회의에서 생성 배지 */}
-                          {isRegistered && (
-                            <span className="inline-flex shrink-0 items-center rounded-full bg-purple-50 px-2 py-0.5 text-[10px] font-medium text-purple-600 dark:bg-purple-900/30 dark:text-purple-400">
-                              회의에서 생성
-                            </span>
-                          )}
                         </div>
-                        <p className="text-[10px] text-neutral-400">담당: {item.assignee}</p>
+                        {item.assignee && (
+                          <p className="text-[10px] text-neutral-400">담당: {item.assignee}</p>
+                        )}
+                        {item.dueDate && (
+                          <p className="text-[10px] text-neutral-400">마감: {item.dueDate}</p>
+                        )}
                       </div>
-                      {/* 미등록 아이템에 개별 등록 버튼 */}
-                      {!isRegistered && !item.done && (
+                      {!isRegistered && (
                         <button
-                          onClick={() => handleRegisterSingle(item.id)}
+                          onClick={() => void handleRegisterSingle(item.id)}
                           className="mt-0.5 flex shrink-0 items-center gap-1 rounded-md bg-primary-50 px-2 py-1 text-[10px] font-medium text-primary-600 transition-colors hover:bg-primary-100 dark:bg-primary-900/30 dark:text-primary-400 dark:hover:bg-primary-900/50"
                         >
-                          {/* 작업보드에 등록 버튼 */}
                           <ArrowUpRight size={10} />
                           작업보드에 등록
                         </button>
@@ -319,6 +384,32 @@ export function MeetingSummaryPage() {
               </div>
             </Card>
           )}
+
+          {/* 키워드 */}
+          {summary?.keywords && (
+            <Card>
+              <h2 className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+                주요 키워드
+              </h2>
+              <div className="flex flex-wrap gap-1.5">
+                {(() => {
+                  try {
+                    const list = JSON.parse(summary.keywords) as string[]
+                    return list.map((k) => (
+                      <span
+                        key={k}
+                        className="rounded-full bg-neutral-100 px-2.5 py-0.5 text-xs text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+                      >
+                        {k}
+                      </span>
+                    ))
+                  } catch {
+                    return null
+                  }
+                })()}
+              </div>
+            </Card>
+          )}
         </div>
       </div>
 
@@ -326,7 +417,6 @@ export function MeetingSummaryPage() {
       {showReviewModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
           <div className="max-h-[90vh] w-full max-w-3xl overflow-hidden rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-700 dark:bg-neutral-900">
-            {/* 모달 헤더 */}
             <div className="flex items-center justify-between border-b border-neutral-200 px-6 py-4 dark:border-neutral-700">
               <div>
                 <h2 className="text-lg font-bold text-neutral-800 dark:text-neutral-100">
@@ -336,7 +426,6 @@ export function MeetingSummaryPage() {
                   {meeting.title}
                 </p>
               </div>
-              {/* 모달 닫기 버튼 */}
               <button
                 onClick={() => setShowReviewModal(false)}
                 className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
@@ -345,7 +434,6 @@ export function MeetingSummaryPage() {
               </button>
             </div>
 
-            {/* 모달 본문: 편집 가능한 테이블 */}
             <div className="max-h-[60vh] overflow-y-auto px-6 py-4">
               {reviewItems.length === 0 ? (
                 <p className="py-8 text-center text-sm text-neutral-400">
@@ -363,7 +451,6 @@ export function MeetingSummaryPage() {
                       } ${item.done ? 'opacity-50' : ''}`}
                     >
                       <div className="flex items-start gap-3">
-                        {/* 선택 체크박스 */}
                         <label className="mt-2 flex cursor-pointer items-center">
                           <input
                             type="checkbox"
@@ -377,7 +464,6 @@ export function MeetingSummaryPage() {
                         </label>
 
                         <div className="min-w-0 flex-1 space-y-3">
-                          {/* 제목 입력 */}
                           <input
                             type="text"
                             value={item.title}
@@ -390,7 +476,6 @@ export function MeetingSummaryPage() {
                           />
 
                           <div className="flex flex-wrap items-center gap-3">
-                            {/* 담당자 드롭다운 */}
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                 담당
@@ -419,7 +504,6 @@ export function MeetingSummaryPage() {
                               </select>
                             </div>
 
-                            {/* 마감일 입력 */}
                             <div className="flex items-center gap-1.5">
                               <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                 마감
@@ -435,7 +519,6 @@ export function MeetingSummaryPage() {
                               />
                             </div>
 
-                            {/* 우선순위 버튼 그룹 */}
                             <div className="flex items-center gap-1">
                               {(
                                 ['urgent', 'high', 'normal', 'low'] as ReviewItem['priority'][]
@@ -443,7 +526,6 @@ export function MeetingSummaryPage() {
                                 const config = PRIORITY_CONFIG[p]
                                 const isActive = item.priority === p
                                 return (
-                                  /* 우선순위 선택 버튼 */
                                   <button
                                     key={p}
                                     disabled={item.done}
@@ -456,7 +538,6 @@ export function MeetingSummaryPage() {
                                         : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700'
                                     }`}
                                   >
-                                    {/* 우선순위 색상 도트 */}
                                     <span
                                       className={`inline-block h-2 w-2 rounded-full ${config.dot}`}
                                     />
@@ -468,7 +549,6 @@ export function MeetingSummaryPage() {
                           </div>
                         </div>
 
-                        {/* 아이템 삭제 버튼 */}
                         <button
                           onClick={() => deleteReviewItem(item.id)}
                           disabled={item.done}
@@ -478,7 +558,6 @@ export function MeetingSummaryPage() {
                         </button>
                       </div>
 
-                      {/* 완료된 아이템 안내 */}
                       {item.done && (
                         <p className="mt-2 text-[11px] text-neutral-400">이미 완료된 항목입니다</p>
                       )}
@@ -488,16 +567,13 @@ export function MeetingSummaryPage() {
               )}
             </div>
 
-            {/* 모달 푸터: 등록 액션 버튼 */}
             <div className="flex items-center justify-end gap-3 border-t border-neutral-200 px-6 py-4 dark:border-neutral-700">
-              {/* 나중에 버튼 — 모달을 닫고 등록하지 않음 */}
               <button
                 onClick={() => setShowReviewModal(false)}
                 className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
               >
                 나중에
               </button>
-              {/* 선택 등록 버튼 — 체크된 항목만 작업보드에 등록 */}
               <button
                 onClick={handleRegisterSelected}
                 disabled={selectedCount === 0}
@@ -505,7 +581,6 @@ export function MeetingSummaryPage() {
               >
                 선택 등록 ({selectedCount}개)
               </button>
-              {/* 모두 등록 버튼 — 전체 항목을 선택하고 작업보드에 등록 */}
               <button
                 onClick={handleRegisterAll}
                 className="rounded-lg bg-primary-600 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"

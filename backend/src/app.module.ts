@@ -9,6 +9,8 @@ import { ChannelsModule } from './channels/channels.module';
 import { MessagesModule } from './messages/messages.module';
 import { DocumentModule } from './document/document.module';
 import { UploadModule } from './upload/upload.module';
+import { MeetingsModule } from './meetings/meetings.module';
+import { DashboardModule } from './dashboard/dashboard.module';
 
 @Module({
   imports: [
@@ -41,6 +43,8 @@ import { UploadModule } from './upload/upload.module';
     MessagesModule,
     DocumentModule,
     UploadModule,
+    MeetingsModule,
+    DashboardModule,
   ],
   controllers: [AppController],
   providers: [AppService],

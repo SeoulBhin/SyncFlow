@@ -43,16 +43,16 @@ export class DashboardService {
       .filter((m) => m.channel != null)
       .map((m) => m.channelId);
 
-    // 채널별 최신 메시지 시간을 한 번에 집계 (N+1 방지)
-    const latestMessages = channelIds.length > 0
-      ? await this.messageRepo
-          .createQueryBuilder('m')
-          .select('m.channelId', 'channelId')
-          .addSelect('MAX(m.createdAt)', 'lastAt')
-          .where('m.channelId IN (:...ids)', { ids: channelIds })
-          .groupBy('m.channelId')
-          .getRawMany<{ channelId: string; lastAt: Date }>()
-      : [];
+    const latestMessages =
+      channelIds.length > 0
+        ? await this.messageRepo
+            .createQueryBuilder('m')
+            .select('m.channelId', 'channelId')
+            .addSelect('MAX(m.createdAt)', 'lastAt')
+            .where('m.channelId IN (:...ids)', { ids: channelIds })
+            .groupBy('m.channelId')
+            .getRawMany<{ channelId: string; lastAt: Date }>()
+        : [];
     const lastMap = new Map(latestMessages.map((r) => [r.channelId, r.lastAt]));
 
     return Promise.all(

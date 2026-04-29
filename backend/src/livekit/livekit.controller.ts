@@ -1,5 +1,6 @@
-import { Body, Controller, Post } from '@nestjs/common';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
 import { IsNotEmpty, IsString } from 'class-validator';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { LiveKitService } from './livekit.service';
 
 class GenerateTokenDto {
@@ -17,6 +18,7 @@ class GenerateTokenDto {
 }
 
 @Controller('livekit')
+@UseGuards(JwtAuthGuard)
 export class LiveKitController {
   constructor(private readonly livekitService: LiveKitService) {}
 

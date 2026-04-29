@@ -30,15 +30,24 @@ import { type TaskPriority, type TaskStatus } from '@/constants'
 
 const priorityConfig: Record<TaskPriority, { label: string; color: string }> = {
   urgent: { label: '긴급', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-  high: { label: '높음', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
-  normal: { label: '보통', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
-  low: { label: '낮음', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400' },
+  high: {
+    label: '높음',
+    color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
+  },
+  normal: {
+    label: '보통',
+    color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
+  },
+  low: {
+    label: '낮음',
+    color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400',
+  },
 }
 
 const statusConfig: Record<TaskStatus, { label: string; icon: typeof Circle }> = {
-  'todo': { label: '할 일', icon: Circle },
+  todo: { label: '할 일', icon: Circle },
   'in-progress': { label: '진행 중', icon: Loader },
-  'done': { label: '완료', icon: CheckCircle },
+  done: { label: '완료', icon: CheckCircle },
 }
 
 export function DashboardPage() {
@@ -56,7 +65,10 @@ export function DashboardPage() {
   const [meetings, setMeetings] = useState<any[]>([])
 
   useEffect(() => {
-    api.get<{ groups: any[]; recentPages: any[]; myTasks: any[]; upcomingMeetings: any[] }>('/dashboard')
+    api
+      .get<{ groups: any[]; recentPages: any[]; myTasks: any[]; upcomingMeetings: any[] }>(
+        '/dashboard',
+      )
       .then((data) => {
         setChannels(data.groups)
         setRecentPages(data.recentPages)
@@ -82,10 +94,19 @@ export function DashboardPage() {
     setInviteCode('')
   }
 
-  const handleQuickMeeting = () => {
-    const quickId = `mt-quick-${Date.now()}`
-    meetingStore.startMeeting(quickId, '빠른 회의', activeGroupName ?? '채널')
-    navigate(`/app/meetings/${quickId}`)
+  const handleQuickMeeting = async () => {
+    const channelName = activeGroupName ?? '채널'
+    const title = `${channelName} 빠른 회의`
+    try {
+      const created = await meetingStore.createMeeting(title)
+      meetingStore.startMeeting(created.id, title, channelName)
+      navigate(`/app/meetings/${created.id}`)
+    } catch (err) {
+      addToast(
+        'error',
+        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
+      )
+    }
   }
 
   return (
@@ -97,7 +118,11 @@ export function DashboardPage() {
           <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">대시보드</h1>
         </div>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          안녕하세요, <span className="font-medium text-neutral-700 dark:text-neutral-200">{user?.name ?? '사용자'}</span>님!
+          안녕하세요,{' '}
+          <span className="font-medium text-neutral-700 dark:text-neutral-200">
+            {user?.name ?? '사용자'}
+          </span>
+          님!
         </p>
       </div>
 
@@ -107,21 +132,27 @@ export function DashboardPage() {
           {/* 내 채널 카드 */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">내 채널</h2>
+              <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
+                내 채널
+              </h2>
               <div className="flex gap-1.5">
                 <Button variant="ghost" size="sm" onClick={() => setShowJoinGroup(true)}>
                   <UserPlus size={14} />
                   참여
                 </Button>
                 <Button size="sm" onClick={() => setShowCreateGroup(true)}>
-                  <Plus size={14} />
-                  새 채널
+                  <Plus size={14} />새 채널
                 </Button>
               </div>
             </div>
             <div className="grid gap-4 sm:grid-cols-2">
               {channels.map((channel) => (
-                <Card key={channel.id} hoverable className="cursor-pointer" onClick={() => navigate(`/app/group/${channel.id}`)}>
+                <Card
+                  key={channel.id}
+                  hoverable
+                  className="cursor-pointer"
+                  onClick={() => navigate(`/app/group/${channel.id}`)}
+                >
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-semibold text-neutral-800 dark:text-neutral-100">
@@ -131,7 +162,10 @@ export function DashboardPage() {
                         {channel.description}
                       </p>
                     </div>
-                    <ChevronRight size={18} className="shrink-0 text-neutral-300 dark:text-neutral-600" />
+                    <ChevronRight
+                      size={18}
+                      className="shrink-0 text-neutral-300 dark:text-neutral-600"
+                    />
                   </div>
                   <div className="mt-4 flex items-center gap-4 text-xs text-neutral-400 dark:text-neutral-500">
                     <span className="flex items-center gap-1">
@@ -203,7 +237,9 @@ export function DashboardPage() {
             <Card className="space-y-3 p-3">
               {scheduledMeetings.length > 0 && (
                 <div>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">예정</p>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">
+                    예정
+                  </p>
                   {scheduledMeetings.map((m) => (
                     <button
                       key={m.id}
@@ -215,7 +251,9 @@ export function DashboardPage() {
                     >
                       <Video size={14} className="shrink-0 text-blue-500" />
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">{m.title}</p>
+                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">
+                          {m.title}
+                        </p>
                         <p className="text-[10px] text-neutral-400">
                           <Calendar size={10} className="mr-0.5 inline" />
                           {m.scheduledAt}
@@ -227,7 +265,9 @@ export function DashboardPage() {
               )}
               {recentMeetings.length > 0 && (
                 <div>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">최근</p>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">
+                    최근
+                  </p>
                   {recentMeetings.map((m) => (
                     <button
                       key={m.id}
@@ -236,8 +276,12 @@ export function DashboardPage() {
                     >
                       <Video size={14} className="shrink-0 text-neutral-400" />
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">{m.title}</p>
-                        <p className="text-[10px] text-neutral-400">{m.duration} · {m.participants.length}명</p>
+                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">
+                          {m.title}
+                        </p>
+                        <p className="text-[10px] text-neutral-400">
+                          {m.duration} · {m.participants.length}명
+                        </p>
                       </div>
                     </button>
                   ))}
@@ -271,11 +315,15 @@ export function DashboardPage() {
                       className={`mt-0.5 shrink-0 ${isDone ? 'text-success' : task.status === 'in-progress' ? 'text-primary-500' : 'text-neutral-300 dark:text-neutral-600'}`}
                     />
                     <div className="flex-1 min-w-0">
-                      <p className={`text-sm ${isDone ? 'text-neutral-400 line-through dark:text-neutral-500' : 'text-neutral-800 dark:text-neutral-100'}`}>
+                      <p
+                        className={`text-sm ${isDone ? 'text-neutral-400 line-through dark:text-neutral-500' : 'text-neutral-800 dark:text-neutral-100'}`}
+                      >
                         {task.title}
                       </p>
                       <div className="mt-1 flex items-center gap-2">
-                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${priority.color}`}>
+                        <span
+                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${priority.color}`}
+                        >
                           {priority.label}
                         </span>
                         <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
@@ -297,7 +345,9 @@ export function DashboardPage() {
             <Card>
               <div className="flex items-center gap-2 mb-3">
                 <Ticket size={18} className="text-primary-500" />
-                <p className="text-sm text-neutral-700 dark:text-neutral-200">초대 코드로 채널에 참여하세요</p>
+                <p className="text-sm text-neutral-700 dark:text-neutral-200">
+                  초대 코드로 채널에 참여하세요
+                </p>
               </div>
               <div className="flex gap-2">
                 <input

@@ -88,3 +88,61 @@ export interface PaginatedMessages {
   nextCursor: string | null
   hasMore: boolean
 }
+
+// ── Meeting / STT (백엔드 엔티티와 동일) ──────────────────────────────────────
+
+export type MeetingApiStatus = 'scheduled' | 'in-progress' | 'ended'
+
+export interface ApiMeeting {
+  id: string
+  title: string
+  groupId: string | null
+  projectId: string | null
+  hostId: string | null
+  status: MeetingApiStatus
+  startedAt: string | null
+  endedAt: string | null
+  createdAt: string
+  updatedAt: string
+}
+
+export interface ApiMeetingTranscript {
+  id: string
+  meetingId: string
+  text: string
+  speaker: string | null
+  startTime: number | null
+  endTime: number | null
+  createdAt: string
+}
+
+export interface ApiMeetingSummary {
+  id: string
+  meetingId: string
+  summary: string
+  keywords: string | null
+  createdAt: string
+}
+
+export interface ApiMeetingActionItem {
+  id: string
+  meetingId: string
+  title: string
+  assignee: string | null
+  dueDate: string | null
+  confirmed: boolean
+  taskId: string | null
+  createdAt: string
+}
+
+export interface UploadAudioResponse {
+  audioUrl: string
+  segments: number
+  transcripts: ApiMeetingTranscript[]
+}
+
+export interface EndMeetingResponse {
+  meeting: ApiMeeting
+  summary: ApiMeetingSummary | null
+  actionItems: ApiMeetingActionItem[]
+}

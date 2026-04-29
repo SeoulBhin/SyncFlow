@@ -1,6 +1,12 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+} from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { Repository } from 'typeorm'
+import * as fs from 'fs'
 import { Meeting } from './entities/meeting.entity'
 import { MeetingTranscript } from './entities/meeting-transcript.entity'
 import { MeetingSummary } from './entities/meeting-summary.entity'
@@ -8,8 +14,23 @@ import { MeetingActionItem } from './entities/meeting-action-item.entity'
 import { SttService } from './stt.service'
 import { SummaryService } from './summary.service'
 
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function toUuidOrNull(v?: string | null): string | null {
+  return v && UUID_RE.test(v) ? v : null
+}
+
+function assertUuid(v: string, label = 'id'): void {
+  if (!UUID_RE.test(v)) {
+    throw new BadRequestException(`${label}가 유효한 UUID 형식이 아닙니다: ${v}`)
+  }
+}
+
 @Injectable()
 export class MeetingsService {
+  private readonly logger = new Logger(MeetingsService.name)
+
   constructor(
     @InjectRepository(Meeting) private meetingRepo: Repository<Meeting>,
     @InjectRepository(MeetingTranscript) private transcriptRepo: Repository<MeetingTranscript>,
@@ -21,39 +42,70 @@ export class MeetingsService {
 
   // 회의 생성
   async createMeeting(title: string, hostId: string, groupId?: string, projectId?: string) {
+    // group_id / project_id 컬럼은 uuid 타입 — 비-UUID 값(MOCK 채널 "ch1" 등)이
+    // 들어오면 Postgres가 invalid input syntax 로 throw 해 500을 반환함.
+    // 프런트 보냄 값이 무엇이든 안전하게 null 로 정규화 (방어적 프로그래밍)
     const meeting = this.meetingRepo.create({
       title,
-      hostId,
-      groupId: groupId ?? null,
-      projectId: projectId ?? null,
+      hostId: toUuidOrNull(hostId) ?? hostId,
+      groupId: toUuidOrNull(groupId),
+      projectId: toUuidOrNull(projectId),
       status: 'in-progress',
       startedAt: new Date(),
     })
     return this.meetingRepo.save(meeting)
   }
 
-  // 오디오 업로드 → STT → DB 저장
-  async uploadAudio(meetingId: string, audioBuffer: Buffer, mimeType: string) {
+  // 오디오 파일(디스크 경로) → STT → DB 저장
+  async uploadAudio(meetingId: string, filePath: string, mimeType: string, filename: string) {
+    // UUID 형식 검증 — 임시 클라이언트 ID(예: "mt-quick-...")가 들어오면
+    // findOne 단계에서 Postgres 가 invalid input syntax 로 throw 해 500을 반환함.
+    // 명시적 400 BadRequest 로 빠르게 실패시키고 업로드 파일도 정리.
+    if (!UUID_RE.test(meetingId)) {
+      this.safeUnlink(filePath)
+      throw new BadRequestException(
+        `meetingId가 유효한 UUID 형식이 아닙니다: ${meetingId}`,
+      )
+    }
+
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
-    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    if (!meeting) {
+      this.safeUnlink(filePath)
+      throw new NotFoundException('회의를 찾을 수 없습니다')
+    }
 
-    const results = await this.sttService.transcribeAudio(audioBuffer, mimeType)
+    try {
+      const audioBuffer = fs.readFileSync(filePath)
+      const results = await this.sttService.transcribeAudio(audioBuffer, mimeType)
 
-    const transcripts = this.transcriptRepo.create(
-      results.map((r) => ({
-        meetingId,
-        text: r.text,
-        speaker: r.speaker,
-        startTime: r.startTime,
-        endTime: r.endTime,
-      })),
-    )
-    await this.transcriptRepo.save(transcripts)
-    return transcripts
+      const transcripts = this.transcriptRepo.create(
+        results.map((r) => ({
+          meetingId,
+          text: r.text,
+          speaker: r.speaker,
+          startTime: r.startTime,
+          endTime: r.endTime,
+        })),
+      )
+      await this.transcriptRepo.save(transcripts)
+
+      this.logger.log(`회의 ${meetingId} 오디오 처리 완료: ${results.length}개 세그먼트`)
+
+      return {
+        audioUrl: `/uploads/audio/${filename}`,
+        segments: transcripts.length,
+        transcripts,
+      }
+    } catch (err) {
+      this.logger.error(`STT 처리 실패: ${(err as Error).message}`)
+      this.safeUnlink(filePath)
+      throw err
+    }
   }
 
   // 회의 종료 → Gemini 회의록 생성
   async endMeeting(meetingId: string) {
+    assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
 
@@ -61,7 +113,10 @@ export class MeetingsService {
     await this.meetingRepo.update(meetingId, { status: 'ended', endedAt: new Date() })
 
     // 2. 트랜스크립트 전체 가져오기
-    const transcripts = await this.transcriptRepo.find({ where: { meetingId } })
+    const transcripts = await this.transcriptRepo.find({
+      where: { meetingId },
+      order: { startTime: 'ASC' },
+    })
     const fullText = transcripts
       .map((t) => (t.speaker ? `[${t.speaker}] ${t.text}` : t.text))
       .join('\n')
@@ -70,21 +125,42 @@ export class MeetingsService {
       return { meeting, summary: null, actionItems: [] }
     }
 
-    // 3. Gemini 회의록 생성
-    const result = await this.summaryService.generateSummary(fullText)
+    // 3. Gemini 회의록 생성 — 실패해도 endMeeting 전체를 깨뜨리지 않음.
+    //    AI가 다운/쿼터 초과/모델 변경 등으로 실패해도 회의는 'ended' 상태로 닫혀야 함.
+    let aiResult: {
+      summary: string
+      keywords: string[]
+      actionItems: Array<{
+        title: string
+        assignee: string | null
+        dueDate: string | null
+      }>
+    }
+    try {
+      aiResult = await this.summaryService.generateSummary(fullText)
+    } catch (err) {
+      this.logger.error(
+        `Gemini 요약 생성 실패 — placeholder 로 진행: ${(err as Error).message}`,
+      )
+      aiResult = {
+        summary: '요약 생성 대기 중 (AI 처리 실패) — 잠시 후 다시 시도해주세요',
+        keywords: [],
+        actionItems: [],
+      }
+    }
 
-    // 4. 회의록 저장
+    // 4. 회의록 저장 (placeholder 라도 저장 — 프런트에서 일관된 응답 보장)
     const summary = await this.summaryRepo.save(
       this.summaryRepo.create({
         meetingId,
-        summary: result.summary,
-        keywords: JSON.stringify(result.keywords),
+        summary: aiResult.summary,
+        keywords: JSON.stringify(aiResult.keywords),
       }),
     )
 
-    // 5. 액션아이템 저장
+    // 5. 액션아이템 저장 (실패 케이스에서는 빈 배열)
     const actionItems = await this.actionItemRepo.save(
-      result.actionItems.map((item) =>
+      aiResult.actionItems.map((item) =>
         this.actionItemRepo.create({
           meetingId,
           title: item.title,
@@ -99,6 +175,7 @@ export class MeetingsService {
 
   // 회의 상세 조회
   async getMeeting(meetingId: string) {
+    assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
     return meeting
@@ -106,6 +183,7 @@ export class MeetingsService {
 
   // 트랜스크립트 조회
   async getTranscript(meetingId: string) {
+    assertUuid(meetingId, 'meetingId')
     return this.transcriptRepo.find({
       where: { meetingId },
       order: { startTime: 'ASC' },
@@ -114,22 +192,30 @@ export class MeetingsService {
 
   // 회의록 조회
   async getSummary(meetingId: string) {
+    assertUuid(meetingId, 'meetingId')
     return this.summaryRepo.findOne({ where: { meetingId } })
   }
 
   // 액션아이템 조회
   async getActionItems(meetingId: string) {
+    assertUuid(meetingId, 'meetingId')
     return this.actionItemRepo.find({ where: { meetingId } })
   }
 
   // 액션아이템 수정
   async updateActionItem(actionItemId: string, data: Partial<MeetingActionItem>) {
+    assertUuid(actionItemId, 'actionItemId')
     await this.actionItemRepo.update(actionItemId, data)
     return this.actionItemRepo.findOne({ where: { id: actionItemId } })
   }
 
   // 확인된 액션아이템 → 작업 등록 (tasks 테이블 연동은 Part 7 완료 후)
   async confirmActionItems(meetingId: string, actionItemIds: string[]) {
+    assertUuid(meetingId, 'meetingId')
+    actionItemIds.forEach((id) => assertUuid(id, 'actionItemId'))
+    if (actionItemIds.length === 0) {
+      return this.actionItemRepo.find({ where: { meetingId, confirmed: true } })
+    }
     await this.actionItemRepo.update(
       actionItemIds.map((id) => ({ id })) as any,
       { confirmed: true },
@@ -140,9 +226,18 @@ export class MeetingsService {
 
   // 프로젝트 회의 목록
   async getMeetingsByProject(projectId: string) {
+    assertUuid(projectId, 'projectId')
     return this.meetingRepo.find({
       where: { projectId },
       order: { createdAt: 'DESC' },
     })
+  }
+
+  private safeUnlink(filePath: string) {
+    try {
+      if (fs.existsSync(filePath)) fs.unlinkSync(filePath)
+    } catch (err) {
+      this.logger.warn(`파일 삭제 실패: ${(err as Error).message}`)
+    }
   }
 }

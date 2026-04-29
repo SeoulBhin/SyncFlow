@@ -1,4 +1,5 @@
 import { Room } from 'livekit-client'
+import { apiFetch } from '@/lib/api'
 
 /**
  * 앱 전체에서 공유하는 LiveKit Room 싱글톤.
@@ -17,9 +18,8 @@ export async function fetchToken(
   identity: string,
   name: string,
 ): Promise<{ token: string; url: string }> {
-  const res = await fetch('/api/livekit/token', {
+  const res = await apiFetch('/api/livekit/token', {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ roomName, participantIdentity: identity, participantName: name }),
   })
   if (!res.ok) {
