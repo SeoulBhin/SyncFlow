@@ -41,6 +41,64 @@ function makeRoomName(groupId: string) {
   return `voice-${groupId}`
 }
 
+const THUMB_COLORS = [
+  'bg-primary-400', 'bg-violet-400', 'bg-emerald-400',
+  'bg-orange-400', 'bg-pink-400', 'bg-cyan-400',
+]
+
+interface ThumbParticipant {
+  id: string
+  name: string
+  cameraStream: MediaStream | null
+  isLocal: boolean
+  isSpeaking: boolean
+  isMuted: boolean
+}
+
+function ParticipantThumb({ p, index }: { p: ThumbParticipant; index: number }) {
+  const videoRef = useRef<HTMLVideoElement>(null)
+
+  useEffect(() => {
+    const video = videoRef.current
+    if (!video) return
+    video.srcObject = p.cameraStream ?? null
+  }, [p.cameraStream])
+
+  return (
+    <div
+      className={cn(
+        'relative flex h-full w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg',
+        p.isSpeaking && !p.isMuted
+          ? 'ring-2 ring-green-400'
+          : 'ring-1 ring-neutral-600',
+        'bg-neutral-700',
+      )}
+    >
+      {p.cameraStream ? (
+        <video
+          ref={videoRef}
+          autoPlay
+          playsInline
+          muted={p.isLocal}
+          className="h-full w-full object-cover"
+        />
+      ) : (
+        <div
+          className={cn(
+            'flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white',
+            THUMB_COLORS[index % THUMB_COLORS.length],
+          )}
+        >
+          {p.name[0]}
+        </div>
+      )}
+      <p className="absolute bottom-1 left-0 right-0 truncate px-1 text-center text-[9px] text-white drop-shadow">
+        {p.name}
+      </p>
+    </div>
+  )
+}
+
 export function MeetingRoomPage() {
   // 라우트 :id 는 createMeeting()이 반환한 백엔드 meetingId (UUID)
   // LiveKit 룸 키로도 그대로 사용 → 각 회의가 독립 룸을 가짐
@@ -62,6 +120,14 @@ export function MeetingRoomPage() {
   const sttSocketRef = useRef<Socket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
+
+  // 녹화용 refs
+  const recordingRecorderRef = useRef<MediaRecorder | null>(null)
+  const recordingChunksRef = useRef<Blob[]>([])
+  const recordingMicStreamRef = useRef<MediaStream | null>(null)
+
+  // 화면공유 video ref
+  const screenVideoRef = useRef<HTMLVideoElement>(null)
 
   const groupName = activeGroupName ?? groupId ?? '회의'
 
@@ -107,6 +173,91 @@ export function MeetingRoomPage() {
     const interval = setInterval(() => meeting.tick(), 1000)
     return () => clearInterval(interval)
   }, [meeting.status])
+
+  // 화면공유 스트림 → video 요소 연결
+  useEffect(() => {
+    const video = screenVideoRef.current
+    if (!video) return
+    video.srcObject = screenShare.screenStream
+    if (screenShare.screenStream) void video.play().catch(() => {})
+  }, [screenShare.screenStream])
+
+  // LiveKit VoiceParticipant → MeetingParticipants 형식으로 변환
+  // 이후 모든 핸들러/useCallback/dep 배열에서 사용하므로 최상단에 선언
+  const participants = voiceChat.participants.map((p) => ({
+    id: p.id,
+    name: p.name,
+    position: '',
+    isMuted: p.isMuted,
+    isSpeaking: p.isSpeaking,
+    cameraStream: p.cameraStream,
+    isLocal: p.isLocal,
+  }))
+
+  const handleToggleRecording = useCallback(async () => {
+    if (meeting.isRecording) {
+      recordingRecorderRef.current?.stop()
+      recordingRecorderRef.current = null
+      // 녹화 전용 마이크 스트림 정리
+      recordingMicStreamRef.current?.getTracks().forEach((t) => t.stop())
+      recordingMicStreamRef.current = null
+      meeting.toggleRecording()
+      return
+    }
+
+    const tracks: MediaStreamTrack[] = []
+
+    // 1순위: 화면공유 비디오 / 2순위: 로컬 카메라
+    if (screenShare.screenStream) {
+      screenShare.screenStream.getVideoTracks().forEach((t) => tracks.push(t))
+    } else {
+      const localCam = voiceChat.participants.find((p) => p.isLocal)?.cameraStream
+      localCam?.getVideoTracks().forEach((t) => tracks.push(t))
+    }
+
+    // 마이크 오디오 (LiveKit mute 상태와 무관하게 별도 스트림으로 캡처)
+    try {
+      const micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
+      recordingMicStreamRef.current = micStream   // 나중에 stop() 호출을 위해 보관
+      micStream.getAudioTracks().forEach((t) => tracks.push(t))
+    } catch {
+      // 마이크 권한 없으면 영상만 녹화
+    }
+
+    if (tracks.length === 0) {
+      addToast('error', '녹화할 스트림이 없습니다. 웹캠 또는 화면공유를 먼저 시작하세요.')
+      return
+    }
+
+    const stream = new MediaStream(tracks)
+    const mimeType = ['video/webm;codecs=vp9,opus', 'video/webm'].find((m) =>
+      MediaRecorder.isTypeSupported(m),
+    )
+    const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined)
+    recordingRecorderRef.current = recorder
+    recordingChunksRef.current = []
+
+    recorder.ondataavailable = (e) => {
+      if (e.data.size > 0) recordingChunksRef.current.push(e.data)
+    }
+
+    recorder.onstop = () => {
+      const blob = new Blob(recordingChunksRef.current, { type: 'video/webm' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `meeting-${meetingId ?? 'rec'}-${Date.now()}.webm`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+      recordingChunksRef.current = []
+      addToast('success', '녹화 파일이 다운로드되었습니다')
+    }
+
+    recorder.start(1000)
+    meeting.toggleRecording()
+  }, [meeting, screenShare, voiceChat.participants, meetingId, addToast])
 
   const handleEnd = () => {
     if (!meetingId) {
@@ -221,7 +372,7 @@ export function MeetingRoomPage() {
 
     // 1초 단위 청크 전송
     recorder.start(1000)
-  }, [participants, addRealtimeTranscript, meeting, addToast, stopRealtimeSTT])
+  }, [addRealtimeTranscript, meeting, addToast, stopRealtimeSTT, voiceChat.participants])
 
   // STT 토글 시 실시간 세션 시작/중지
   useEffect(() => {
@@ -234,8 +385,16 @@ export function MeetingRoomPage() {
     return () => { if (!meeting.sttEnabled) stopRealtimeSTT() }
   }, [meeting.sttEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 언마운트 시 STT 세션 정리
-  useEffect(() => () => stopRealtimeSTT(), [stopRealtimeSTT])
+  // 언마운트 시 STT·녹화 세션 정리
+  useEffect(() => () => {
+    stopRealtimeSTT()
+    if (recordingRecorderRef.current?.state !== 'inactive') {
+      recordingRecorderRef.current?.stop()
+    }
+    recordingRecorderRef.current = null
+    recordingMicStreamRef.current?.getTracks().forEach((t) => t.stop())
+    recordingMicStreamRef.current = null
+  }, [stopRealtimeSTT])
 
   const handleToggleMute = () => {
     void voiceChat.toggleMute()
@@ -252,17 +411,6 @@ export function MeetingRoomPage() {
   const handleToggleCamera = () => {
     void voiceChat.toggleCamera()
   }
-
-  // LiveKit VoiceParticipant → MeetingParticipants 형식으로 변환
-  const participants = voiceChat.participants.map((p) => ({
-    id: p.id,
-    name: p.name,
-    position: '',
-    isMuted: p.isMuted,
-    isSpeaking: p.isSpeaking,
-    cameraStream: p.cameraStream,
-    isLocal: p.isLocal,
-  }))
 
   const isMuted = voiceChat.status === 'muted'
   const isScreenSharing = screenShare.isSharing
@@ -334,9 +482,37 @@ export function MeetingRoomPage() {
 
       {/* 메인 영역 */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 좌측: 참여자 그리드 */}
+        {/* 좌측: 메인 영역 — 화면공유 > 참여자 그리드 우선순위 */}
         <div className="flex flex-1 flex-col border-r border-neutral-200 dark:border-neutral-700">
-          <MeetingParticipants participants={participants} />
+          {screenShare.screenStream ? (
+            /* 화면공유 활성: 큰 영역 + 하단 참여자 썸네일 */
+            <div className="flex flex-1 flex-col overflow-hidden">
+              <div className="relative flex-1 overflow-hidden bg-neutral-900">
+                <video
+                  ref={screenVideoRef}
+                  autoPlay
+                  muted
+                  playsInline
+                  className="h-full w-full object-contain"
+                />
+                <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1">
+                  <Monitor size={12} className="text-white" />
+                  <span className="text-xs text-white">
+                    {screenShare.sharingUser?.name ?? '화면 공유 중'}
+                  </span>
+                </div>
+              </div>
+              {/* 참여자 썸네일 스트립 */}
+              <div className="flex h-28 shrink-0 gap-2 overflow-x-auto border-t border-neutral-700 bg-neutral-800 p-2">
+                {participants.map((p, i) => (
+                  <ParticipantThumb key={p.id} p={p} index={i} />
+                ))}
+              </div>
+            </div>
+          ) : (
+            /* 화면공유 없음: 참여자 그리드 (카메라 ON → video, OFF → avatar) */
+            <MeetingParticipants participants={participants} />
+          )}
 
           {/* 하단 컨트롤 */}
           <div className="flex items-center justify-center gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
@@ -377,7 +553,7 @@ export function MeetingRoomPage() {
               STT {meeting.sttEnabled ? 'ON' : 'OFF'}
             </button>
             <button
-              onClick={() => meeting.toggleRecording()}
+              onClick={() => void handleToggleRecording()}
               className={cn(
                 'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
                 meeting.isRecording

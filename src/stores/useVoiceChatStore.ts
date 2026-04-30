@@ -84,8 +84,21 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
       refreshParticipants()
     })
     .on(RoomEvent.ActiveSpeakersChanged, refreshParticipants)
-    .on(RoomEvent.TrackMuted, refreshParticipants)
-    .on(RoomEvent.TrackUnmuted, refreshParticipants)
+    .on(RoomEvent.TrackMuted, (pub, participant) => {
+      if (pub.source === Track.Source.Camera) {
+        cameraStreamMap.delete(participant.identity)
+      }
+      refreshParticipants()
+    })
+    .on(RoomEvent.TrackUnmuted, (pub, participant) => {
+      if (pub.source === Track.Source.Camera && pub.track) {
+        cameraStreamMap.set(
+          participant.identity,
+          new MediaStream([pub.track.mediaStreamTrack]),
+        )
+      }
+      refreshParticipants()
+    })
     // 로컬 카메라 track publish → 스트림 캐시 등록
     .on(RoomEvent.LocalTrackPublished, (pub) => {
       if (pub.source === Track.Source.Camera && pub.track) {
@@ -208,6 +221,11 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     toggleCamera: async () => {
       const { isCameraEnabled } = get()
       const newEnabled = !isCameraEnabled
+      if (!newEnabled) {
+        // 카메라 OFF: 이벤트를 기다리지 않고 즉시 스트림 제거 → 검은 화면 방지
+        cameraStreamMap.delete(room.localParticipant.identity)
+        refreshParticipants()
+      }
       await room.localParticipant.setCameraEnabled(newEnabled)
       set({ isCameraEnabled: newEnabled })
     },

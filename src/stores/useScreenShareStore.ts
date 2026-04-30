@@ -33,7 +33,7 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
           showPanel: true,
           screenStream: new MediaStream([track.mediaStreamTrack]),
         })
-        useDetailPanelStore.getState().openPanel('screen-share')
+        // 화면공유는 MeetingRoomPage 센터 영역에서 직접 렌더링
       }
     })
     .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
