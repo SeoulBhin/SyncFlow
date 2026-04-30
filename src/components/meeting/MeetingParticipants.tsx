@@ -27,7 +27,7 @@ const COLORS = [
   'bg-rose-400',
 ]
 
-function ParticipantCard({ p, index }: { p: Participant; index: number }) {
+function ParticipantCard({ p, index, large }: { p: Participant; index: number; large?: boolean }) {
   const videoRef = useRef<HTMLVideoElement>(null)
 
   useEffect(() => {
@@ -39,12 +39,11 @@ function ParticipantCard({ p, index }: { p: Participant; index: number }) {
   return (
     <div
       className={cn(
-        'relative flex flex-col items-center justify-center overflow-hidden rounded-xl border-2 bg-neutral-100 transition-all dark:bg-neutral-800',
+        'relative flex flex-col items-center justify-center overflow-hidden rounded-xl border-2 bg-neutral-100 transition-all dark:bg-neutral-800 aspect-video',
         p.isSpeaking && !p.isMuted
           ? 'border-green-400 shadow-lg shadow-green-400/20'
           : 'border-transparent',
       )}
-      style={{ minHeight: 160 }}
     >
       {/* 카메라 ON: 실제 영상 */}
       {p.cameraStream && (
@@ -53,7 +52,7 @@ function ParticipantCard({ p, index }: { p: Participant; index: number }) {
           autoPlay
           playsInline
           muted={p.isLocal}
-          className="absolute inset-0 h-full w-full rounded-xl object-cover"
+          className="absolute inset-0 h-full w-full object-contain bg-black"
         />
       )}
 
@@ -61,7 +60,8 @@ function ParticipantCard({ p, index }: { p: Participant; index: number }) {
       {!p.cameraStream && (
         <div
           className={cn(
-            'flex h-16 w-16 items-center justify-center rounded-full text-xl font-bold text-white',
+            'flex items-center justify-center rounded-full font-bold text-white',
+            large ? 'h-40 w-40 text-6xl' : 'h-24 w-24 text-3xl',
             COLORS[index % COLORS.length],
           )}
         >
@@ -72,7 +72,8 @@ function ParticipantCard({ p, index }: { p: Participant; index: number }) {
       {/* 이름 — 카메라 ON이면 하단 오버레이, OFF면 아바타 아래 */}
       <p
         className={cn(
-          'z-10 text-sm font-medium',
+          'z-10 font-medium',
+          large ? 'text-lg' : 'text-base',
           p.cameraStream
             ? 'absolute bottom-8 left-3 text-white drop-shadow-md'
             : 'mt-3 text-neutral-700 dark:text-neutral-200',
@@ -88,11 +89,11 @@ function ParticipantCard({ p, index }: { p: Participant; index: number }) {
       <div className="absolute bottom-3 right-3 z-10">
         {p.isMuted ? (
           <div className="rounded-full bg-red-100 p-1 dark:bg-red-900/30">
-            <MicOff size={12} className="text-red-500" />
+            <MicOff size={14} className="text-red-500" />
           </div>
         ) : p.isSpeaking ? (
           <div className="rounded-full bg-green-100 p-1 dark:bg-green-900/30">
-            <Mic size={12} className="text-green-500" />
+            <Mic size={14} className="text-green-500" />
           </div>
         ) : null}
       </div>
@@ -101,20 +102,26 @@ function ParticipantCard({ p, index }: { p: Participant; index: number }) {
 }
 
 export function MeetingParticipants({ participants }: Props) {
+  const count = participants.length
+
   const gridCols =
-    participants.length <= 2
-      ? 'grid-cols-1 sm:grid-cols-2'
-      : participants.length <= 4
-        ? 'grid-cols-2'
-        : participants.length <= 6
-          ? 'grid-cols-2 lg:grid-cols-3'
-          : 'grid-cols-3 lg:grid-cols-4'
+    count === 1 ? 'grid-cols-1' :
+    count <= 4 ? 'grid-cols-2' :
+    count <= 6 ? 'grid-cols-3' :
+    'grid-cols-4'
+
+  // 참여자 수에 따라 그리드 너비 제한 — 1명은 화면의 약 2/3, 2명은 전체에 가깝게
+  const sizeClass =
+    count === 1 ? 'w-[92%]' :
+    'w-full'
 
   return (
-    <div className={cn('grid flex-1 gap-3 p-4', gridCols)}>
-      {participants.map((p, i) => (
-        <ParticipantCard key={p.id} p={p} index={i} />
-      ))}
+    <div className="flex flex-1 items-center justify-center overflow-hidden p-4">
+      <div className={cn('grid gap-5', gridCols, sizeClass)}>
+        {participants.map((p, i) => (
+          <ParticipantCard key={p.id} p={p} index={i} large={count === 1} />
+        ))}
+      </div>
     </div>
   )
 }

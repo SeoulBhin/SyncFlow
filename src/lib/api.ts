@@ -43,5 +43,7 @@ export async function apiJson<T>(
     const text = await res.text().catch(() => res.statusText)
     throw new Error(text || `HTTP ${res.status}`)
   }
-  return res.json() as Promise<T>
+  // 204 No Content 또는 빈 body → null 반환 (res.json()이 throw하는 것 방지)
+  const text = await res.text()
+  return (text ? JSON.parse(text) : null) as T
 }

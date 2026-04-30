@@ -23,6 +23,7 @@ import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
 import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { MeetingParticipants } from '@/components/meeting/MeetingParticipants'
 import { MeetingTranscript } from '@/components/meeting/MeetingTranscript'
 import { MeetingNotes } from '@/components/meeting/MeetingNotes'
@@ -67,7 +68,7 @@ function ParticipantThumb({ p, index }: { p: ThumbParticipant; index: number }) 
   return (
     <div
       className={cn(
-        'relative flex h-full w-24 shrink-0 items-center justify-center overflow-hidden rounded-lg',
+        'relative flex h-full w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg',
         p.isSpeaking && !p.isMuted
           ? 'ring-2 ring-green-400'
           : 'ring-1 ring-neutral-600',
@@ -85,14 +86,14 @@ function ParticipantThumb({ p, index }: { p: ThumbParticipant; index: number }) 
       ) : (
         <div
           className={cn(
-            'flex h-10 w-10 items-center justify-center rounded-full text-sm font-bold text-white',
+            'flex h-12 w-12 items-center justify-center rounded-full text-base font-bold text-white',
             THUMB_COLORS[index % THUMB_COLORS.length],
           )}
         >
           {p.name[0]}
         </div>
       )}
-      <p className="absolute bottom-1 left-0 right-0 truncate px-1 text-center text-[9px] text-white drop-shadow">
+      <p className="absolute bottom-1 left-0 right-0 truncate px-1 text-center text-[11px] text-white drop-shadow">
         {p.name}
       </p>
     </div>
@@ -110,6 +111,9 @@ export function MeetingRoomPage() {
   const screenShare = useScreenShareStore()
   const { activeGroupName } = useGroupContextStore()
   const addToast = useToastStore((s) => s.addToast)
+
+  const authUser = useAuthStore((s) => s.user)
+  const [elapsed, setElapsed] = useState(0)
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
@@ -167,12 +171,12 @@ export function MeetingRoomPage() {
     // meetingId 가 바뀌면(방 전환) cleanup → 새 방 연결
   }, [meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 회의 타이머
+  // 회의 타이머 — 페이지 진입 즉시 시작, meetingId 변경 시 리셋
   useEffect(() => {
-    if (meeting.status !== 'in-meeting') return
-    const interval = setInterval(() => meeting.tick(), 1000)
+    setElapsed(0)
+    const interval = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(interval)
-  }, [meeting.status])
+  }, [meetingId])
 
   // 화면공유 스트림 → video 요소 연결
   useEffect(() => {
@@ -183,16 +187,27 @@ export function MeetingRoomPage() {
   }, [screenShare.screenStream])
 
   // LiveKit VoiceParticipant → MeetingParticipants 형식으로 변환
-  // 이후 모든 핸들러/useCallback/dep 배열에서 사용하므로 최상단에 선언
-  const participants = voiceChat.participants.map((p) => ({
+  const mappedParticipants = voiceChat.participants.map((p) => ({
     id: p.id,
     name: p.name,
-    position: '',
+    position: authUser?.position ?? '',
     isMuted: p.isMuted,
     isSpeaking: p.isSpeaking,
     cameraStream: p.cameraStream,
     isLocal: p.isLocal,
   }))
+  // LiveKit 연결 전(빈 배열)이면 로컬 유저 placeholder 표시
+  const participants = mappedParticipants.length > 0
+    ? mappedParticipants
+    : [{
+        id: 'local-placeholder',
+        name: authUser?.name ?? 'Guest',
+        position: authUser?.position ?? '',
+        isMuted: false,
+        isSpeaking: false,
+        cameraStream: null as MediaStream | null,
+        isLocal: true,
+      }]
 
   const handleToggleRecording = useCallback(async () => {
     if (meeting.isRecording) {
@@ -448,33 +463,33 @@ export function MeetingRoomPage() {
   return (
     <div className="flex h-full flex-col">
       {/* 상단 바 */}
-      <div className="flex items-center justify-between border-b border-neutral-200 bg-surface px-6 py-3 dark:border-neutral-700 dark:bg-surface-dark">
+      <div className="flex items-center justify-between border-b border-neutral-200 bg-surface px-8 py-4 dark:border-neutral-700 dark:bg-surface-dark">
         <div className="flex items-center gap-3">
-          <Video size={20} className="text-primary-500" />
+          <Video size={24} className="text-primary-500" />
           <div>
-            <h1 className="text-sm font-bold text-neutral-800 dark:text-neutral-100">
+            <h1 className="text-base font-bold text-neutral-800 dark:text-neutral-100">
               {meeting.meetingTitle || `${groupName} 회의`}
             </h1>
-            <p className="text-xs text-neutral-400">
+            <p className="text-sm text-neutral-400">
               {groupName} · {makeRoomName(groupId ?? '')}
             </p>
           </div>
         </div>
         <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 rounded-lg bg-primary-50 px-3 py-1.5 dark:bg-primary-900/30">
-            <Clock size={14} className="text-primary-500" />
-            <span className="text-sm font-medium text-primary-600 dark:text-primary-400">
-              {formatTime(meeting.elapsedSeconds)}
+          <div className="flex items-center gap-1.5 rounded-lg bg-primary-50 px-4 py-2 dark:bg-primary-900/30">
+            <Clock size={17} className="text-primary-500" />
+            <span className="text-base font-medium text-primary-600 dark:text-primary-400">
+              {formatTime(elapsed)}
             </span>
           </div>
-          <span className="text-xs text-neutral-400">
-            {participants.length}명 참석
+          <span className="text-sm text-neutral-400">
+            {voiceChat.participants.length}명 참석
           </span>
           <button
             onClick={handleEnd}
-            className="flex items-center gap-1.5 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-red-600"
+            className="flex items-center gap-1.5 rounded-lg bg-red-500 px-5 py-2.5 text-base font-medium text-white transition-colors hover:bg-red-600"
           >
-            <PhoneOff size={16} />
+            <PhoneOff size={20} />
             회의 종료
           </button>
         </div>
@@ -503,7 +518,7 @@ export function MeetingRoomPage() {
                 </div>
               </div>
               {/* 참여자 썸네일 스트립 */}
-              <div className="flex h-28 shrink-0 gap-2 overflow-x-auto border-t border-neutral-700 bg-neutral-800 p-2">
+              <div className="flex h-36 shrink-0 gap-3 overflow-x-auto border-t border-neutral-700 bg-neutral-800 p-3">
                 {participants.map((p, i) => (
                   <ParticipantThumb key={p.id} p={p} index={i} />
                 ))}
@@ -515,65 +530,65 @@ export function MeetingRoomPage() {
           )}
 
           {/* 하단 컨트롤 */}
-          <div className="flex items-center justify-center gap-2 border-t border-neutral-200 bg-neutral-50 px-4 py-3 dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="flex flex-wrap items-center justify-center gap-3 border-t border-neutral-200 bg-neutral-50 px-6 py-4 dark:border-neutral-700 dark:bg-neutral-900">
             <button
               onClick={handleToggleMute}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
                 isMuted
                   ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
+              {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
               {isMuted ? '음소거 해제' : '음소거'}
             </button>
             <button
               onClick={handleToggleScreenShare}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
                 isScreenSharing
                   ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+              {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
               화면 공유
             </button>
             <button
               onClick={() => meeting.toggleSTT()}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
                 meeting.sttEnabled
                   ? 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              <FileText size={18} />
+              <FileText size={24} />
               STT {meeting.sttEnabled ? 'ON' : 'OFF'}
             </button>
             <button
               onClick={() => void handleToggleRecording()}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
                 meeting.isRecording
                   ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              <CircleDot size={18} />
+              <CircleDot size={24} />
               {meeting.isRecording ? '녹화 중지' : '녹화 시작'}
             </button>
             <button
               onClick={handleToggleCamera}
               className={cn(
-                'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
                 voiceChat.isCameraEnabled
                   ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
                   : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {voiceChat.isCameraEnabled ? <CameraOff size={18} /> : <Camera size={18} />}
+              {voiceChat.isCameraEnabled ? <CameraOff size={24} /> : <Camera size={24} />}
               {voiceChat.isCameraEnabled ? '웹캠 끄기' : '웹캠 켜기'}
             </button>
 
@@ -591,14 +606,14 @@ export function MeetingRoomPage() {
                   onClick={() => fileInputRef.current?.click()}
                   disabled={isUploading}
                   className={cn(
-                    'flex items-center gap-1.5 rounded-lg px-4 py-2.5 text-sm font-medium transition-colors',
+                    'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
                     isUploading
                       ? 'cursor-not-allowed bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
                       : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400',
                   )}
                   title="회의 오디오 파일 업로드 (테스트용)"
                 >
-                  {isUploading ? <Loader2 size={18} className="animate-spin" /> : <Upload size={18} />}
+                  {isUploading ? <Loader2 size={24} className="animate-spin" /> : <Upload size={24} />}
                   {isUploading
                     ? uploadProgress > 0
                       ? `업로드 중 ${uploadProgress}%`
@@ -619,20 +634,20 @@ export function MeetingRoomPage() {
         </div>
 
         {/* 우측: 자막/노트 패널 */}
-        <div className="flex w-[380px] shrink-0 flex-col bg-surface dark:bg-surface-dark">
+        <div className="flex w-[500px] shrink-0 flex-col bg-surface dark:bg-surface-dark">
           <div className="flex border-b border-neutral-200 dark:border-neutral-700">
             {tabs.map(({ key, label, icon: Icon }) => (
               <button
                 key={key}
                 onClick={() => meeting.setActiveTab(key)}
                 className={cn(
-                  'flex flex-1 items-center justify-center gap-1.5 py-3 text-xs font-medium transition-colors',
+                  'flex flex-1 items-center justify-center gap-2 py-4 text-base font-medium transition-colors',
                   meeting.activeTab === key
                     ? 'border-b-2 border-primary-500 text-primary-600 dark:text-primary-400'
                     : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400',
                 )}
               >
-                <Icon size={14} />
+                <Icon size={18} />
                 {label}
               </button>
             ))}
