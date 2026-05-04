@@ -11,7 +11,34 @@ import { Image as TipTapImage } from '@tiptap/extension-image'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Extension } from '@tiptap/core'
+import { common, createLowlight } from 'lowlight'
+import {
+  ArrowLeft,
+  Save,
+  History,
+  ListTree,
+  Cloud,
+  CloudOff,
+  Loader,
+  Paperclip,
+  Download as DownloadIcon,
+  X,
+} from 'lucide-react'
+import { EditorToolbar } from '@/components/editor/EditorToolbar'
+import { LiveCursors } from '@/components/editor/LiveCursors'
+import { ExportMenu } from '@/components/editor/ExportMenu'
+import { VersionHistoryPanel } from '@/components/editor/VersionHistoryPanel'
+import { TOCPanel } from '@/components/editor/TOCPanel'
+import { ImageUploadModal } from '@/components/editor/ImageUploadModal'
+import { SlashCommandMenu } from '@/components/editor/SlashCommandMenu'
+import { TableToolbar } from '@/components/editor/TableToolbar'
+import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
+import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
+import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
+import { useToastStore } from '@/stores/useToastStore'
+import { MOCK_PAGES, MOCK_PROJECTS, MOCK_ATTACHMENTS } from '@/constants'
 
+// TextAlign 커스텀 Extension (data-align 속성 기반)
 const TextAlignClass = Extension.create({
   name: 'textAlignClass',
   addGlobalAttributes() {
@@ -44,37 +71,6 @@ const TextAlignClass = Extension.create({
     } as any
   },
 })
-import { common, createLowlight } from 'lowlight'
-import {
-  ArrowLeft,
-  Save,
-  History,
-  ListTree,
-  Users,
-  Cloud,
-  CloudOff,
-  Loader,
-  Paperclip,
-  Download as DownloadIcon,
-  X,
-} from 'lucide-react'
-import { EditorToolbar } from '@/components/editor/EditorToolbar'
-import { LiveCursors } from '@/components/editor/LiveCursors'
-import { ExportMenu } from '@/components/editor/ExportMenu'
-import { VersionHistoryPanel } from '@/components/editor/VersionHistoryPanel'
-import { TOCPanel } from '@/components/editor/TOCPanel'
-import { ImageUploadModal } from '@/components/editor/ImageUploadModal'
-import { SlashCommandMenu } from '@/components/editor/SlashCommandMenu'
-import { TableToolbar } from '@/components/editor/TableToolbar'
-import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
-import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
-import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
-import { useToastStore } from '@/stores/useToastStore'
-import { MOCK_PAGES, MOCK_PROJECTS, MOCK_ATTACHMENTS } from '@/constants'
-import * as Y from 'yjs'
-import { HocuspocusProvider } from '@hocuspocus/provider'
-import Collaboration from '@tiptap/extension-collaboration'
-import CollaborationCursor from '@tiptap/extension-collaboration-cursor'
 
 const lowlight = createLowlight(common)
 
@@ -93,21 +89,13 @@ export function DocumentEditorPage() {
   }
   const project = MOCK_PROJECTS.find((p) => p.id === page.projectId)
 
-  const ydocRef = useRef(new Y.Doc())
-  const providerRef = useRef(
-    new HocuspocusProvider({
-      url: 'ws://localhost:1234',
-      name: pageId ?? 'unknown',
-      token: 'dev-token',   // TODO: Part 2 완료 후 실제 JWT로 교체
-      document: ydocRef.current,
-    }),
-  )
-
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
+  // 자동저장 debounce 타이머
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showTOC, setShowTOC] = useState(false)
   const [showImageModal, setShowImageModal] = useState(false)
-  const [onlineUsers, setOnlineUsers] = useState<{ id: string; name: string; color: string }[]>([])
 
   // 슬래시 커맨드 상태
   const [slashMenuOpen, setSlashMenuOpen] = useState(false)
@@ -126,7 +114,8 @@ export function DocumentEditorPage() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
-        history: false, // Collaboration이 히스토리를 대신 관리
+        // Tiptap v3 StarterKit은 Underline 기본 포함 → 명시적 Underline 중복 방지
+        underline: false,
       }),
       Underline,
       TipTapTable.configure({ resizable: true }),
@@ -144,14 +133,6 @@ export function DocumentEditorPage() {
           slashCallbackRef.current.onSlashCommand(props),
         onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
       }),
-      Collaboration.configure({ document: ydocRef.current }),
-      CollaborationCursor.configure({
-        provider: providerRef.current,
-        user: {
-          name: 'Dev User',   // TODO: Part 2 완료 후 실제 사용자 정보로 교체
-          color: '#3B82F6',
-        },
-      }),
     ],
     editorProps: {
       attributes: {
@@ -161,7 +142,27 @@ export function DocumentEditorPage() {
     },
     onUpdate: ({ editor: ed }) => {
       setSaveStatus('unsaved')
-      // 슬래시 커맨드 쿼리 업데이트
+
+      // debounce 자동저장 — 1.5초 동안 추가 변경 없으면 저장
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(async () => {
+        setSaveStatus('saving')
+        try {
+          const token = localStorage.getItem('accessToken')
+          const res = await fetch(`/api/document/${pageId ?? 'unknown'}/content`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            },
+            body: JSON.stringify({ content: ed.getHTML() }),
+          })
+          setSaveStatus(res.ok ? 'saved' : 'error')
+        } catch {
+          setSaveStatus('error')
+        }
+      }, 1500)
+
       if (slashMenuOpen && ed) {
         const { $from } = ed.state.selection
         const text = $from.parent.textContent.slice(0, $from.parentOffset)
@@ -176,55 +177,12 @@ export function DocumentEditorPage() {
     },
   })
 
-  // Hocuspocus provider 이벤트 연결
+  // 언마운트 시 진행 중인 자동저장 타이머 정리
   useEffect(() => {
-    const provider = providerRef.current
-
-    // 로컬 사용자 등록 (awareness)
-    // TODO: Part 2 완료 후 실제 사용자 정보로 교체
-    provider.awareness.setLocalStateField('user', {
-      id: 'dev-user-1',
-      name: 'Dev User',
-      color: '#3B82F6',
-    })
-
-    // 접속자 목록 갱신
-    const handleAwarenessChange = () => {
-      const states = provider.awareness.getStates()
-      const users: { id: string; name: string; color: string }[] = []
-      states.forEach((state, clientId) => {
-        if (clientId !== provider.awareness.clientID && state.user) {
-          users.push(state.user as { id: string; name: string; color: string })
-        }
-      })
-      setOnlineUsers(users)
-    }
-    provider.awareness.on('change', handleAwarenessChange)
-
-    // 연결 상태 → saveStatus 반영
-    const handleStatus = ({ status }: { status: string }) => {
-      if (status === 'disconnected') setSaveStatus('error')
-      else if (status === 'connected') setSaveStatus((prev) => (prev === 'error' ? 'saved' : prev))
-    }
-    provider.on('status', handleStatus)
-
     return () => {
-      provider.awareness.off('change', handleAwarenessChange)
-      provider.off('status', handleStatus)
-      provider.destroy()
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
     }
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // 변경 감지 후 1.5초 디바운싱 → 저장 완료 표시
-  // (실제 DB 저장은 Hocuspocus 서버 onStoreDocument에서 동일 간격으로 처리)
-  useEffect(() => {
-    if (saveStatus !== 'unsaved') return
-    const timer = setTimeout(() => {
-      setSaveStatus('saving')
-      setTimeout(() => setSaveStatus('saved'), 800)
-    }, 1500)
-    return () => clearTimeout(timer)
-  }, [saveStatus])
+  }, [])
 
   const handleInsertTable = useCallback((rows: number, cols: number) => {
     editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
@@ -302,23 +260,6 @@ export function DocumentEditorPage() {
                 저장 실패
               </span>
             )}
-          </div>
-
-          {/* 온라인 사용자 */}
-          <div className="flex items-center gap-1 ml-2">
-            <Users size={14} className="text-neutral-400" />
-            <div className="flex -space-x-1.5">
-              {onlineUsers.map((u) => (
-                <div
-                  key={u.id}
-                  className="h-6 w-6 rounded-full flex items-center justify-center text-[10px] font-medium text-white ring-2 ring-surface dark:ring-surface-dark-elevated"
-                  style={{ backgroundColor: u.color }}
-                  title={u.name}
-                >
-                  {u.name[0]}
-                </div>
-              ))}
-            </div>
           </div>
 
           <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-700" />

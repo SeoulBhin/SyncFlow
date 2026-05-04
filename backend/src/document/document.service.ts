@@ -68,4 +68,26 @@ export class DocumentService implements OnModuleInit {
       take: 20,
     });
   }
+
+  async saveContent(pageId: string, content: string) {
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+    // mock ID('pg1' 등)는 Postgres UUID 컬럼에 넣으면 오류 — 조용히 스킵
+    if (!UUID_RE.test(pageId)) return { ok: true, skipped: true };
+
+    await this.pageRepository.update(pageId, { content });
+
+    // 버전 스냅샷 — 실패해도 저장 응답을 깨뜨리지 않음
+    try {
+      await this.pageVersionRepository.save({
+        page: { id: pageId },
+        content,
+      });
+    } catch {
+      // 페이지가 DB에 없는 경우 버전만 건너뜀
+    }
+
+    return { ok: true };
+  }
 }

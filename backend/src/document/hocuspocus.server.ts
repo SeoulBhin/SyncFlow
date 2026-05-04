@@ -3,6 +3,7 @@
 import { Server } from '@hocuspocus/server'
 import { JwtService } from '@nestjs/jwt'
 import { Repository } from 'typeorm'
+import * as Y from 'yjs'
 import { Page } from './entities/page.entity'
 import { PageVersion } from './entities/page-version.entity'
 
@@ -22,18 +23,40 @@ export function createHocuspocusServer(
     },
 
     async onAuthenticate(data) {
-      const token = data.token
+      const { token, socketId } = data
+
+      // 개발 모드: 토큰 유무·유효성 관계없이 전부 허용 — JwtAuthGuard x-user-id 패턴과 동일.
+      // process.env.NODE_ENV 는 ConfigModule 이 .env 를 로드한 뒤 설정되므로 신뢰 가능.
+      if (process.env.NODE_ENV === 'development') {
+        let userId = 'dev-user'
+        if (token) {
+          try {
+            const payload = jwtService.verify(token) as { sub: string }
+            userId = payload.sub
+          } catch {
+            // 개발 모드: 검증 실패해도 dev-user 로 허용
+          }
+        }
+        console.log(`[dev] 인증 통과 userId=${userId} (socket: ${socketId})`)
+        return { userId }
+      }
+
+      // 프로덕션: 엄격한 JWT 검증
       if (!token) throw new Error('토큰이 없습니다. 로그인하세요.')
       try {
-        const payload = jwtService.verify(token)
+        const payload = jwtService.verify(token) as { sub: string }
         return { userId: payload.sub }
-      } catch {
+      } catch (err) {
+        console.error(
+          `[onAuthenticate] 토큰 검증 실패 (socket: ${socketId}): ${(err as Error).message}`,
+        )
         throw new Error('유효하지 않은 토큰입니다.')
       }
     },
 
     async onStoreDocument(data) {
-      const content = JSON.stringify(data.document.toJSON())
+      // Y.encodeStateAsUpdate: toJSON() deprecated 대체 — 바이너리 상태를 base64로 저장
+      const content = Buffer.from(Y.encodeStateAsUpdate(data.document)).toString('base64')
       const existing = saveTimers.get(data.documentName)
       if (existing) clearTimeout(existing)
 

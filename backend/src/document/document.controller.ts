@@ -1,5 +1,5 @@
 // backend/src/document/document.controller.ts
-import { Controller, Post, Get, Param, UploadedFile, UseInterceptors, Body, Res } from '@nestjs/common'
+import { Controller, Post, Put, Get, Param, UploadedFile, UseInterceptors, Body, Res } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { DocumentService } from './document.service'
 import type { Response } from 'express'
@@ -29,6 +29,15 @@ export class DocumentController {
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document')
     res.setHeader('Content-Disposition', 'attachment; filename=document.docx')
     res.send(docxBuffer)
+  }
+
+  // 문서 콘텐츠 자동저장 — debounce 후 프론트에서 호출
+  @Put(':pageId/content')
+  async saveContent(
+    @Param('pageId') pageId: string,
+    @Body() body: { content: string },
+  ) {
+    return this.documentService.saveContent(pageId, body.content)
   }
 
   @Get(':pageId/versions')
