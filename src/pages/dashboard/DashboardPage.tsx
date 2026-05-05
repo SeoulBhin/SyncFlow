@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -63,11 +63,20 @@ export function DashboardPage() {
   const [recentPages, setRecentPages] = useState<any[]>([])
   const [myTasks, setMyTasks] = useState<any[]>([])
   const [meetings, setMeetings] = useState<any[]>([])
+  const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
-  useEffect(() => {
-    api
+  const fetchDashboard = useCallback(() => {
+    if (!user) {
+      setLoading(false)
+      return Promise.resolve()
+    }
+    setLoading(true)
+    setLoadError(null)
+    const qs = activeOrgId ? `?orgId=${encodeURIComponent(activeOrgId)}` : ''
+    return api
       .get<{ groups: any[]; recentPages: any[]; myTasks: any[]; upcomingMeetings: any[] }>(
-        '/dashboard',
+        `/dashboard${qs}`,
       )
       .then((data) => {
         setChannels(data.groups)
@@ -75,23 +84,46 @@ export function DashboardPage() {
         setMyTasks(data.myTasks)
         setMeetings(data.upcomingMeetings)
       })
-      .catch(() => {}) // 로그인 전이면 무시
-  }, [activeOrgId])
+      .catch((e) => {
+        setLoadError(e instanceof Error ? e.message : '대시보드를 불러올 수 없습니다.')
+      })
+      .finally(() => setLoading(false))
+  }, [activeOrgId, user])
+
+  useEffect(() => {
+    fetchDashboard()
+  }, [fetchDashboard])
 
   const scheduledMeetings = meetings.filter((m) => m.status === 'scheduled')
   const recentMeetings = meetings.filter((m) => m.status === 'ended').slice(0, 3)
 
-  const handleJoinGroup = () => {
-    if (!inviteCode.trim()) {
+  const [joining, setJoining] = useState(false)
+
+  const handleJoinGroup = async () => {
+    const trimmed = inviteCode.trim().toUpperCase()
+    if (!trimmed) {
       addToast('error', '초대 코드를 입력해주세요.')
       return
     }
-    if (inviteCode.trim().length < 6) {
+    if (trimmed.length !== 6) {
       addToast('error', '초대 코드는 6자리입니다.')
       return
     }
-    addToast('success', '채널에 참여했습니다! (목업)')
-    setInviteCode('')
+    setJoining(true)
+    try {
+      const channel = await api.post<{ id: string; name: string }>(
+        '/channels/join-by-code',
+        { code: trimmed },
+      )
+      addToast('success', `"${channel.name}" 채널에 참여했습니다.`)
+      setInviteCode('')
+      fetchDashboard()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '참여 실패'
+      addToast('error', msg)
+    } finally {
+      setJoining(false)
+    }
   }
 
   const handleQuickMeeting = async () => {
@@ -145,6 +177,40 @@ export function DashboardPage() {
                 </Button>
               </div>
             </div>
+            {loadError && (
+              <Card className="mb-3 border-red-200 bg-red-50/60 dark:border-red-900/40 dark:bg-red-900/10">
+                <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
+                <Button variant="ghost" size="sm" onClick={fetchDashboard} className="mt-2">
+                  다시 시도
+                </Button>
+              </Card>
+            )}
+            {!loading && !loadError && channels.length === 0 && (
+              <Card className="border-dashed border-primary-200 bg-primary-50/40 dark:border-primary-900/40 dark:bg-primary-900/10">
+                <div className="flex flex-col items-center gap-3 py-6 text-center">
+                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">
+                    <Plus size={22} />
+                  </div>
+                  <div>
+                    <p className="text-base font-semibold text-neutral-800 dark:text-neutral-100">
+                      첫 채널을 만들어 시작하세요
+                    </p>
+                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
+                      채널을 만들거나 초대 코드로 기존 채널에 참여할 수 있어요.
+                    </p>
+                  </div>
+                  <div className="flex gap-2">
+                    <Button size="sm" onClick={() => setShowCreateGroup(true)}>
+                      <Plus size={14} />새 채널 만들기
+                    </Button>
+                    <Button variant="ghost" size="sm" onClick={() => setShowJoinGroup(true)}>
+                      <UserPlus size={14} />
+                      초대 코드로 참여
+                    </Button>
+                  </div>
+                </div>
+              </Card>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               {channels.map((channel) => (
                 <Card
@@ -300,8 +366,8 @@ export function DashboardPage() {
                 <p className="px-3 py-2 text-sm text-neutral-400">배정된 할 일이 없습니다.</p>
               )}
               {myTasks.map((task) => {
-                const priority = priorityConfig[task.priority]
-                const status = statusConfig[task.status]
+                const priority = priorityConfig[task.priority as TaskPriority]
+                const status = statusConfig[task.status as TaskStatus]
                 const StatusIcon = status.icon
                 const isDone = task.status === 'done'
 
@@ -356,9 +422,10 @@ export function DashboardPage() {
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                   placeholder="초대 코드 6자리"
                   maxLength={6}
+                  disabled={joining}
                   className="flex-1 rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm uppercase tracking-widest outline-none transition placeholder:normal-case placeholder:tracking-normal focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
                 />
-                <Button size="sm" onClick={handleJoinGroup}>
+                <Button size="sm" onClick={handleJoinGroup} disabled={joining}>
                   <ArrowRight size={16} />
                 </Button>
               </div>
@@ -368,8 +435,16 @@ export function DashboardPage() {
       </div>
 
       {/* 모달 */}
-      <CreateGroupModal isOpen={showCreateGroup} onClose={() => setShowCreateGroup(false)} />
-      <JoinGroupModal isOpen={showJoinGroup} onClose={() => setShowJoinGroup(false)} />
+      <CreateGroupModal
+        isOpen={showCreateGroup}
+        onClose={() => setShowCreateGroup(false)}
+        onCreated={fetchDashboard}
+      />
+      <JoinGroupModal
+        isOpen={showJoinGroup}
+        onClose={() => setShowJoinGroup(false)}
+        onJoined={fetchDashboard}
+      />
     </div>
   )
 }

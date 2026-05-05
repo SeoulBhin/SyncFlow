@@ -1,21 +1,25 @@
 // backend/src/document/document.service.ts
 
-import { Injectable, OnModuleInit } from '@nestjs/common';
+import { Injectable, OnModuleInit, NotFoundException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository } from 'typeorm';
+import { DataSource, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
 import { createHocuspocusServer } from './hocuspocus.server';
 import { Page } from './entities/page.entity';
 import { PageVersion } from './entities/page-version.entity';
+import { Attachment } from './entities/attachment.entity';
 import { Storage } from '@google-cloud/storage'; // 이미 package.json에 있음
 
 @Injectable()
 export class DocumentService implements OnModuleInit {
   constructor(
     private jwtService: JwtService,
+    private dataSource: DataSource,
     @InjectRepository(Page) private pageRepository: Repository<Page>,
     @InjectRepository(PageVersion)
     private pageVersionRepository: Repository<PageVersion>,
+    @InjectRepository(Attachment)
+    private attachmentRepository: Repository<Attachment>,
   ) {}
 
   onModuleInit() {
@@ -61,12 +65,69 @@ export class DocumentService implements OnModuleInit {
     return await Packer.toBuffer(doc);
   }
 
+  async getPage(pageId: string) {
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    if (!UUID_RE.test(pageId)) return null
+    return this.pageRepository.findOne({ where: { id: pageId } })
+  }
+
   async getVersions(pageId: string) {
     return this.pageVersionRepository.find({
       where: { page: { id: pageId } },
       order: { createdAt: 'DESC' },
       take: 20,
     });
+  }
+
+  // ── 첨부 파일 ──────────────────────────────────────────────
+
+  private readonly UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  async uploadAttachment(
+    pageId: string,
+    file: Express.Multer.File,
+    uploadedBy: string | null,
+  ): Promise<Attachment> {
+    if (!this.UUID_RE.test(pageId)) {
+      throw new NotFoundException('유효하지 않은 페이지 ID 입니다.')
+    }
+
+    // GCS 업로드 → DB 저장을 단일 트랜잭션으로. GCS 실패 시 DB 미반영, DB 실패 시 GCS는 보존(soft 정책).
+    const url = await this.uploadToGCS(file)
+
+    return await this.dataSource.transaction(async (manager) => {
+      const repo = manager.getRepository(Attachment)
+      const entity = repo.create({
+        pageId,
+        filename: file.originalname,
+        url,
+        mimeType: file.mimetype ?? null,
+        size: String(file.size),
+        uploadedBy,
+      })
+      return await repo.save(entity)
+    })
+  }
+
+  async getAttachments(pageId: string): Promise<Attachment[]> {
+    if (!this.UUID_RE.test(pageId)) return []
+    return this.attachmentRepository.find({
+      where: { pageId },
+      order: { createdAt: 'DESC' },
+    })
+  }
+
+  async deleteAttachment(attachmentId: string): Promise<{ ok: true }> {
+    if (!this.UUID_RE.test(attachmentId)) {
+      throw new NotFoundException('유효하지 않은 첨부 ID 입니다.')
+    }
+    const result = await this.attachmentRepository.softDelete({ id: attachmentId })
+    if (!result.affected) {
+      throw new NotFoundException('첨부 파일을 찾을 수 없습니다.')
+    }
+    return { ok: true }
   }
 
   async saveContent(pageId: string, content: string) {

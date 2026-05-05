@@ -36,7 +36,35 @@ import { CalloutBlock } from '@/components/editor/extensions/CalloutBlock'
 import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
 import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
 import { useToastStore } from '@/stores/useToastStore'
-import { MOCK_PAGES, MOCK_PROJECTS, MOCK_ATTACHMENTS } from '@/constants'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { api } from '@/utils/api'
+import { MOCK_PROJECTS } from '@/constants'
+
+interface PageData {
+  id: string
+  name: string | null
+  channelId: string | null
+  content: string | null
+}
+
+interface AttachmentData {
+  id: string
+  pageId: string
+  filename: string
+  url: string
+  mimeType: string | null
+  size: string // bigint serialized as string
+  uploadedBy: string | null
+  createdAt: string
+}
+
+const FIFTY_MB = 50 * 1024 * 1024
+
+function formatFileSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes}B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)}KB`
+  return `${(bytes / (1024 * 1024)).toFixed(1)}MB`
+}
 
 // TextAlign 커스텀 Extension (data-align 속성 기반)
 const TextAlignClass = Extension.create({
@@ -80,14 +108,46 @@ export function DocumentEditorPage() {
   const { pageId } = useParams()
   const navigate = useNavigate()
   const addToast = useToastStore((s) => s.addToast)
+  const currentUser = useAuthStore((s) => s.user)
 
-  const page = MOCK_PAGES.find((p) => p.id === pageId) ?? {
-    id: pageId ?? 'unknown',
-    name: '새 문서',
-    type: 'doc' as const,
-    projectId: 'p1',
-  }
-  const project = MOCK_PROJECTS.find((p) => p.id === page.projectId)
+  const [page, setPage] = useState<{ id: string; name: string; channelId: string | null; content: string | null } | null>(null)
+  const [pageLoading, setPageLoading] = useState(true)
+  const [pageError, setPageError] = useState<string | null>(null)
+
+  // 백엔드 Page는 channelId를 사용하지만, MOCK_PROJECTS는 projectId 기반 — 현재 매핑이 없으므로 표시 보류
+  const project = MOCK_PROJECTS.find((p) => p.id === page?.channelId) ?? null
+
+  useEffect(() => {
+    if (!pageId) {
+      setPageLoading(false)
+      setPageError('페이지 ID가 없습니다.')
+      return
+    }
+    let cancelled = false
+    setPageLoading(true)
+    setPageError(null)
+    api
+      .get<PageData>(`/document/${pageId}`)
+      .then((data) => {
+        if (cancelled) return
+        setPage({
+          id: data.id,
+          name: data.name ?? '제목 없음',
+          channelId: data.channelId,
+          content: data.content,
+        })
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setPageError(err.message ?? '문서를 불러오지 못했습니다.')
+      })
+      .finally(() => {
+        if (!cancelled) setPageLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [pageId])
 
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   // 자동저장 debounce 타이머
@@ -184,6 +244,85 @@ export function DocumentEditorPage() {
     }
   }, [])
 
+  // 페이지 로드 완료 시 에디터에 콘텐츠 주입 (한번만)
+  const contentLoadedRef = useRef(false)
+  useEffect(() => {
+    if (!editor || !page || contentLoadedRef.current) return
+    if (page.content) {
+      editor.commands.setContent(page.content, { emitUpdate: false })
+    }
+    contentLoadedRef.current = true
+  }, [editor, page])
+
+  // ── 첨부 파일 ──────────────────────────────────────────────
+  const [attachments, setAttachments] = useState<AttachmentData[]>([])
+  const [attachmentsLoading, setAttachmentsLoading] = useState(false)
+  const [uploading, setUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+
+  // 페이지 진입 시 첨부 목록 로드
+  useEffect(() => {
+    if (!pageId) return
+    let cancelled = false
+    setAttachmentsLoading(true)
+    api
+      .get<AttachmentData[]>(`/document/${pageId}/attachments`)
+      .then((data) => {
+        if (!cancelled) setAttachments(data)
+      })
+      .catch(() => {
+        // 첨부 조회 실패는 본문 로딩을 막지 않음 — 조용히 빈 목록 처리
+        if (!cancelled) setAttachments([])
+      })
+      .finally(() => {
+        if (!cancelled) setAttachmentsLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [pageId])
+
+  const handleFileSelected = useCallback(
+    async (e: React.ChangeEvent<HTMLInputElement>) => {
+      const file = e.target.files?.[0]
+      // input 재선택 가능하도록 즉시 초기화
+      e.target.value = ''
+      if (!file || !pageId) return
+
+      if (file.size > FIFTY_MB) {
+        addToast('error', `파일 크기는 50MB를 초과할 수 없습니다. (현재 ${formatFileSize(file.size)})`)
+        return
+      }
+
+      setUploading(true)
+      try {
+        const token = localStorage.getItem('accessToken')
+        const formData = new FormData()
+        formData.append('file', file)
+        const res = await fetch(`/api/document/${pageId}/attachments`, {
+          method: 'POST',
+          headers: {
+            ...(token ? { Authorization: `Bearer ${token}` } : {}),
+            ...(currentUser ? { 'x-user-id': currentUser.id } : {}),
+          },
+          body: formData,
+        })
+        if (!res.ok) {
+          const err = await res.json().catch(() => ({ message: '업로드 실패' }))
+          throw new Error(err.message ?? '업로드 실패')
+        }
+        const created = (await res.json()) as AttachmentData
+        setAttachments((prev) => [created, ...prev])
+        addToast('success', `${file.name} 업로드 완료`)
+      } catch (err) {
+        addToast('error', (err as Error).message)
+      } finally {
+        setUploading(false)
+      }
+    },
+    [pageId, currentUser, addToast],
+  )
+
   const handleInsertTable = useCallback((rows: number, cols: number) => {
     editor?.chain().focus().insertTable({ rows, cols, withHeaderRow: true }).run()
   }, [editor])
@@ -200,8 +339,25 @@ export function DocumentEditorPage() {
   )
 
   const handleAttachFile = useCallback(() => {
-    addToast('info', '파일 첨부 기능은 백엔드 연동 후 사용 가능합니다. (목업)')
-  }, [addToast])
+    if (!pageId) {
+      addToast('warning', '페이지가 준비되지 않았습니다.')
+      return
+    }
+    fileInputRef.current?.click()
+  }, [pageId, addToast])
+
+  const handleDeleteAttachment = useCallback(
+    async (attachmentId: string) => {
+      try {
+        await api.delete(`/document/attachments/${attachmentId}`)
+        setAttachments((prev) => prev.filter((a) => a.id !== attachmentId))
+        addToast('success', '첨부를 삭제했습니다.')
+      } catch (err) {
+        addToast('error', (err as Error).message ?? '삭제 실패')
+      }
+    },
+    [addToast],
+  )
 
   const handleManualSave = useCallback(() => {
     setSaveStatus('saving')
@@ -225,7 +381,7 @@ export function DocumentEditorPage() {
           </button>
           <div>
             <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-              {page.name}
+              {pageLoading ? '불러오는 중…' : pageError ? '문서를 찾을 수 없습니다' : (page?.name ?? '새 문서')}
             </h1>
             {project && (
               <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{project.name}</p>
@@ -325,10 +481,32 @@ export function DocumentEditorPage() {
           {/* 라이브 커서 오버레이 */}
           <LiveCursors />
 
+          {pageLoading && (
+            <div className="flex h-full items-center justify-center">
+              <Loader size={20} className="animate-spin text-primary-500" />
+              <span className="ml-2 text-sm text-neutral-500">문서를 불러오는 중…</span>
+            </div>
+          )}
+
+          {!pageLoading && pageError && (
+            <div className="flex h-full flex-col items-center justify-center gap-3 px-6 text-center">
+              <CloudOff size={32} className="text-neutral-400" />
+              <p className="text-sm text-neutral-600 dark:text-neutral-300">{pageError}</p>
+              <button
+                onClick={() => navigate(-1)}
+                className="rounded bg-primary-500 px-4 py-1.5 text-xs text-white hover:bg-primary-600"
+              >
+                돌아가기
+              </button>
+            </div>
+          )}
+
           {/* TipTap 에디터 */}
-          <div className="mx-auto max-w-4xl">
-            <EditorContent editor={editor} />
-          </div>
+          {!pageLoading && !pageError && (
+            <div className="mx-auto max-w-4xl">
+              <EditorContent editor={editor} />
+            </div>
+          )}
 
           {/* 첨부 파일 영역 */}
           <div className="mx-auto max-w-4xl border-t border-neutral-100 px-12 py-4 dark:border-neutral-800">
@@ -337,17 +515,43 @@ export function DocumentEditorPage() {
               <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 첨부 파일
               </span>
+              {uploading && (
+                <span className="flex items-center gap-1 text-[11px] text-primary-500">
+                  <Loader size={11} className="animate-spin" />
+                  업로드 중…
+                </span>
+              )}
             </div>
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileSelected}
+            />
             <div className="flex flex-wrap gap-2">
-              {MOCK_ATTACHMENTS.map((file) => (
+              {!attachmentsLoading && attachments.length === 0 && (
+                <span className="text-xs text-neutral-400">첨부된 파일이 없습니다.</span>
+              )}
+              {attachments.map((file) => (
                 <div
                   key={file.id}
                   className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-1.5 text-xs dark:border-neutral-700 dark:bg-neutral-800"
                 >
-                  <DownloadIcon size={12} className="text-neutral-400" />
-                  <span className="text-neutral-700 dark:text-neutral-200">{file.name}</span>
-                  <span className="text-neutral-400">{file.size}</span>
-                  <button className="rounded p-0.5 text-neutral-400 hover:text-error">
+                  <a
+                    href={file.url}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="flex items-center gap-2 hover:text-primary-600"
+                  >
+                    <DownloadIcon size={12} className="text-neutral-400" />
+                    <span className="text-neutral-700 dark:text-neutral-200">{file.filename}</span>
+                    <span className="text-neutral-400">{formatFileSize(Number(file.size))}</span>
+                  </a>
+                  <button
+                    onClick={() => handleDeleteAttachment(file.id)}
+                    className="rounded p-0.5 text-neutral-400 hover:text-error"
+                    title="삭제"
+                  >
                     <X size={12} />
                   </button>
                 </div>

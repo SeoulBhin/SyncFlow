@@ -5,10 +5,14 @@ import {
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
+import { customAlphabet } from 'nanoid';
 import { Channel } from './entities/channel.entity';
 import { ChannelMember } from './entities/channel-member.entity';
 import { Message } from '../messages/entities/message.entity';
 import { CreateChannelDto } from './dto/create-channel.dto';
+
+/** 6자리 대문자 영숫자 초대 코드 발급기 (혼동 가능 문자 0/O, 1/I 제외) */
+const generateInviteCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
 
 export interface ChannelWithUnread extends Channel {
   unreadCount: number;
@@ -73,11 +77,16 @@ export class ChannelsService {
     userId: string,
     userName: string,
   ): Promise<Channel> {
+    const type = dto.type ?? 'channel';
+    // 일반 채널만 초대 코드 발급. DM/프로젝트는 null.
+    const inviteCode = type === 'channel' ? await this.issueUniqueInviteCode() : null;
+
     const channel = this.channelRepo.create({
       groupId: dto.groupId,
-      type: dto.type ?? 'channel',
+      type,
       name: dto.name,
       description: dto.description ?? null,
+      inviteCode,
     });
     const saved = await this.channelRepo.save(channel);
 
@@ -145,5 +154,32 @@ export class ChannelsService {
     const ch = await this.channelRepo.findOne({ where: { id } });
     if (!ch) throw new NotFoundException('채널을 찾을 수 없습니다');
     return ch;
+  }
+
+  /** 초대 코드로 채널 참여. 잘못된 코드면 NotFoundException. */
+  async joinByCode(
+    code: string,
+    userId: string,
+    userName: string,
+  ): Promise<Channel> {
+    const normalized = code.trim().toUpperCase();
+    const channel = await this.channelRepo.findOne({
+      where: { inviteCode: normalized },
+    });
+    if (!channel) {
+      throw new NotFoundException('잘못된 초대 코드입니다');
+    }
+    await this.joinChannel(channel.id, userId, userName);
+    return channel;
+  }
+
+  /** 충돌 회피하면서 6자리 초대 코드 발급. 최대 5회 재시도. */
+  private async issueUniqueInviteCode(): Promise<string> {
+    for (let i = 0; i < 5; i++) {
+      const code = generateInviteCode();
+      const exists = await this.channelRepo.exist({ where: { inviteCode: code } });
+      if (!exists) return code;
+    }
+    throw new Error('초대 코드 발급에 실패했습니다');
   }
 }

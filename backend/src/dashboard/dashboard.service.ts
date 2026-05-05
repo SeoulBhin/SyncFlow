@@ -18,11 +18,15 @@ export class DashboardService {
     @InjectRepository(Page) private pageRepo: Repository<Page>,
   ) {}
 
-  async getDashboard(userId: string) {
+  async getDashboard(userId: string, orgId?: string) {
+    // 조직 컨텍스트가 주어지면 해당 조직 채널 ID 화이트리스트를 한 번만 계산해서
+    // 페이지/회의 쿼리에 재사용한다 (N+1 / 중복 조회 방지).
+    const orgChannelIds = orgId ? await this.getChannelIdsByOrg(orgId) : null;
+
     const [groups, recentPages, upcomingMeetings] = await Promise.all([
-      this.getMyChannels(userId),
-      this.getRecentPages(userId),
-      this.getMyMeetings(userId),
+      this.getMyChannels(userId, orgId),
+      this.getRecentPages(userId, orgChannelIds),
+      this.getMyMeetings(userId, orgChannelIds),
     ]);
 
     return {
@@ -33,15 +37,28 @@ export class DashboardService {
     };
   }
 
-  private async getMyChannels(userId: string) {
+  private async getChannelIdsByOrg(orgId: string): Promise<string[]> {
+    const channels = await this.channelRepo.find({
+      where: { groupId: orgId },
+      select: ['id'],
+    });
+    return channels.map((c) => c.id);
+  }
+
+  private async getMyChannels(userId: string, orgId?: string) {
     const memberships = await this.memberRepo.find({
       where: { userId },
       relations: ['channel'],
     });
 
-    const channelIds = memberships
-      .filter((m) => m.channel != null)
-      .map((m) => m.channelId);
+    // 조직 격리 — orgId 가 주어지면 해당 워크스페이스 채널만 노출.
+    const scoped = memberships.filter((m) => {
+      if (m.channel == null) return false;
+      if (orgId && m.channel.groupId !== orgId) return false;
+      return true;
+    });
+
+    const channelIds = scoped.map((m) => m.channelId);
 
     const latestMessages =
       channelIds.length > 0
@@ -55,31 +72,44 @@ export class DashboardService {
         : [];
     const lastMap = new Map(latestMessages.map((r) => [r.channelId, r.lastAt]));
 
-    return Promise.all(
-      memberships
-        .filter((m) => m.channel != null)
-        .map(async (m) => {
-          const memberCount = await this.memberRepo.count({
-            where: { channelId: m.channelId },
-          });
-          const lastAt = lastMap.get(m.channelId) ?? m.channel.createdAt;
-          return {
-            id: m.channelId,
-            name: m.channel.name,
-            description: m.channel.description ?? '',
-            memberCount,
-            lastActivity: this.formatDate(lastAt),
-            isExternal: false,
-          };
-        }),
+    // memberCount N+1 회피 — 한 번의 GROUP BY 로 일괄 집계.
+    const memberCountRows =
+      channelIds.length > 0
+        ? await this.memberRepo
+            .createQueryBuilder('cm')
+            .select('cm.channelId', 'channelId')
+            .addSelect('COUNT(*)', 'cnt')
+            .where('cm.channelId IN (:...ids)', { ids: channelIds })
+            .groupBy('cm.channelId')
+            .getRawMany<{ channelId: string; cnt: string }>()
+        : [];
+    const countMap = new Map(
+      memberCountRows.map((r) => [r.channelId, Number(r.cnt)]),
     );
+
+    return scoped.map((m) => {
+      const lastAt = lastMap.get(m.channelId) ?? m.channel.createdAt;
+      return {
+        id: m.channelId,
+        name: m.channel.name,
+        description: m.channel.description ?? '',
+        memberCount: countMap.get(m.channelId) ?? 1,
+        lastActivity: this.formatDate(lastAt),
+        isExternal: false,
+      };
+    });
   }
 
-  private async getRecentPages(userId: string) {
+  private async getRecentPages(userId: string, orgChannelIds: string[] | null) {
+    if (orgChannelIds && orgChannelIds.length === 0) return [];
+
+    const where: Record<string, unknown> = { createdBy: userId };
+    if (orgChannelIds) where.channelId = In(orgChannelIds);
+
     const pages = await this.pageRepo.find({
-      where: { createdBy: userId },
+      where,
       order: { updatedAt: 'DESC' },
-      take: 5,
+      take: 7,
     });
 
     const channelIds = [
@@ -101,23 +131,42 @@ export class DashboardService {
     }));
   }
 
-  private async getMyMeetings(userId: string) {
+  private async getMyMeetings(userId: string, orgChannelIds: string[] | null) {
+    if (orgChannelIds && orgChannelIds.length === 0) return [];
+
+    const baseWhere: Record<string, unknown> = { hostId: userId };
+    if (orgChannelIds) baseWhere.groupId = In(orgChannelIds);
+
     const [scheduled, ended] = await Promise.all([
       this.meetingRepo.find({
-        where: { hostId: userId, status: In(['scheduled', 'in-progress']) },
+        where: { ...baseWhere, status: In(['scheduled', 'in-progress']) },
         order: { createdAt: 'DESC' },
       }),
       this.meetingRepo.find({
-        where: { hostId: userId, status: 'ended' },
+        where: { ...baseWhere, status: 'ended' },
         order: { endedAt: 'DESC' },
         take: 3,
       }),
     ]);
 
+    // 회의 → 채널명 매핑 (하나의 쿼리로 일괄 조회)
+    const meetingChannelIds = [
+      ...new Set(
+        [...scheduled, ...ended].map((m) => m.groupId).filter(Boolean) as string[],
+      ),
+    ];
+    const channels =
+      meetingChannelIds.length > 0
+        ? await this.channelRepo.find({
+            where: { id: In(meetingChannelIds) },
+          })
+        : [];
+    const channelNameMap = new Map(channels.map((c) => [c.id, c.name]));
+
     return [...scheduled, ...ended].map((m) => ({
       id: m.id,
       title: m.title,
-      channelName: '',
+      channelName: m.groupId ? (channelNameMap.get(m.groupId) ?? '') : '',
       status: m.status,
       scheduledAt: this.formatDate(m.startedAt ?? m.createdAt),
       duration: this.calcDuration(m.startedAt, m.endedAt),

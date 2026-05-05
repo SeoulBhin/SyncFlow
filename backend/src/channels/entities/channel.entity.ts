@@ -29,6 +29,10 @@ export class Channel {
   @Column({ nullable: true, type: 'varchar' })
   description: string | null;
 
+  /** 6자리 초대 코드 (대문자 영숫자). DM/프로젝트 채널은 null. */
+  @Column({ nullable: true, type: 'varchar', length: 6, unique: true })
+  inviteCode: string | null;
+
   @CreateDateColumn()
   createdAt: Date;
 

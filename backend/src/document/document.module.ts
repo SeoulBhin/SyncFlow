@@ -8,10 +8,11 @@ import { DocumentService } from './document.service'
 import { DocumentController } from './document.controller'
 import { Page } from './entities/page.entity'
 import { PageVersion } from './entities/page-version.entity'
+import { Attachment } from './entities/attachment.entity'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Page, PageVersion]),
+    TypeOrmModule.forFeature([Page, PageVersion, Attachment]),
     JwtModule.registerAsync({
       imports: [ConfigModule],
       inject: [ConfigService],

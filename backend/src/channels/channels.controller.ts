@@ -1,4 +1,5 @@
 import { Controller, Get, Post, Put, Param, Body, UseGuards, HttpCode } from '@nestjs/common';
+import { IsNotEmpty, IsString, Length } from 'class-validator';
 import { ChannelsService } from './channels.service';
 import { CreateChannelDto } from './dto/create-channel.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -6,6 +7,13 @@ import {
   CurrentUser,
   type CurrentUserPayload,
 } from '../auth/decorators/current-user.decorator';
+
+class JoinByCodeDto {
+  @IsString()
+  @IsNotEmpty()
+  @Length(6, 6)
+  code: string;
+}
 
 @UseGuards(JwtAuthGuard)
 @Controller()
@@ -39,6 +47,16 @@ export class ChannelsController {
   ) {
     await this.channelsService.joinChannel(channelId, user.userId, user.userName);
     return { ok: true };
+  }
+
+  /** POST /api/channels/join-by-code */
+  @Post('channels/join-by-code')
+  @HttpCode(200)
+  joinByCode(
+    @Body() dto: JoinByCodeDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.channelsService.joinByCode(dto.code, user.userId, user.userName);
   }
 
   /** PUT /api/channels/:channelId/read */

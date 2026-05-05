@@ -2,31 +2,51 @@ import { useState } from 'react'
 import { X } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { useToastStore } from '@/stores/useToastStore'
+import { api } from '@/utils/api'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
+  onJoined?: () => void
 }
 
-export function JoinGroupModal({ isOpen, onClose }: Props) {
+interface JoinedChannel {
+  id: string
+  name: string
+}
+
+export function JoinGroupModal({ isOpen, onClose, onJoined }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const [code, setCode] = useState('')
   const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
 
   if (!isOpen) return null
 
-  const handleJoin = () => {
-    const trimmed = code.trim()
+  const handleJoin = async () => {
+    const trimmed = code.trim().toUpperCase()
     if (!trimmed) {
       setError('초대 코드를 입력해주세요.')
       return
     }
-    if (trimmed.length < 6) {
+    if (trimmed.length !== 6) {
       setError('초대 코드는 6자리입니다.')
       return
     }
-    addToast('success', '채널에 참여했습니다! (목업)')
-    handleClose()
+    setSubmitting(true)
+    try {
+      const channel = await api.post<JoinedChannel>('/channels/join-by-code', {
+        code: trimmed,
+      })
+      addToast('success', `"${channel.name}" 채널에 참여했습니다.`)
+      onJoined?.()
+      handleClose()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '참여 실패'
+      setError(msg)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleClose = () => {
@@ -63,8 +83,8 @@ export function JoinGroupModal({ isOpen, onClose }: Props) {
             {error && <p className="mt-1 text-xs text-error">{error}</p>}
           </div>
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" size="sm" onClick={handleClose}>취소</Button>
-            <Button size="sm" onClick={handleJoin}>참여</Button>
+            <Button variant="ghost" size="sm" onClick={handleClose} disabled={submitting}>취소</Button>
+            <Button size="sm" onClick={handleJoin} disabled={submitting}>{submitting ? '참여 중...' : '참여'}</Button>
           </div>
         </div>
       </div>
