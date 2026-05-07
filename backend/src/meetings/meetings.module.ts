@@ -10,6 +10,7 @@ import { MeetingTranscript } from './entities/meeting-transcript.entity'
 import { MeetingSummary } from './entities/meeting-summary.entity'
 import { MeetingActionItem } from './entities/meeting-action-item.entity'
 import { Task } from '../tasks/entities/task.entity'
+import { AuthModule } from '../auth/auth.module'
 
 @Module({
   imports: [
@@ -20,6 +21,8 @@ import { Task } from '../tasks/entities/task.entity'
       MeetingActionItem,
       Task,
     ]),
+    // Gateway 에서 JwtService 로 WS 핸드셰이크 토큰 검증
+    AuthModule,
   ],
   controllers: [MeetingsController],
   providers: [MeetingsService, SttService, SummaryService, MeetingsGateway],

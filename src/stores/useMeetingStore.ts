@@ -373,9 +373,12 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
         body: JSON.stringify({ actionItemIds }),
       },
     )
-    const confirmedIds = new Set(confirmed.map((a) => a.id))
+    // 백엔드는 "이 회의의 confirmed=true 항목 전체"를 반환 (taskId 포함).
+    // 따라서 ID 매칭으로 기존 항목을 백엔드 응답으로 교체하고
+    // 매칭되지 않은 항목(아직 unconfirmed)은 그대로 보존 — 절대 삭제하지 않음.
+    const byId = new Map(confirmed.map((a) => [a.id, a] as const))
     const next = get().currentActionItems.map((a) =>
-      confirmedIds.has(a.id) ? { ...a, confirmed: true } : a,
+      byId.has(a.id) ? byId.get(a.id)! : a,
     )
     set({
       currentActionItems: next,

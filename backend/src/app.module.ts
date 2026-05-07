@@ -11,6 +11,7 @@ import { DocumentModule } from './document/document.module';
 import { UploadModule } from './upload/upload.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { DashboardModule } from './dashboard/dashboard.module';
+import { TasksModule } from './tasks/tasks.module';
 
 @Module({
   imports: [
@@ -45,6 +46,7 @@ import { DashboardModule } from './dashboard/dashboard.module';
     UploadModule,
     MeetingsModule,
     DashboardModule,
+    TasksModule,
   ],
   controllers: [AppController],
   providers: [AppService],

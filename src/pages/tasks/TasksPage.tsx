@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useEffect } from 'react'
 import {
   ListTodo, Columns3, Calendar, BarChart3, List, Plus, Users,
 } from 'lucide-react'
@@ -9,8 +9,11 @@ import { KanbanBoard } from '@/components/tasks/KanbanBoard'
 import { CalendarView } from '@/components/tasks/CalendarView'
 import { GanttChart } from '@/components/tasks/GanttChart'
 import { ListView } from '@/components/tasks/ListView'
-import { MOCK_TASKS, MOCK_MILESTONES } from '@/constants'
+import { MOCK_MILESTONES, MOCK_USERS, MOCK_MEETINGS } from '@/constants'
 import type { MockTask, TaskStatus } from '@/constants'
+import { useTasksStore } from '@/stores/useTasksStore'
+import { useToastStore } from '@/stores/useToastStore'
+import type { ApiTask, ApiTaskStatus } from '@/types'
 
 type ViewTab = 'kanban' | 'calendar' | 'gantt' | 'list'
 
@@ -21,14 +24,56 @@ const VIEW_TABS: { value: ViewTab; label: string; icon: typeof Columns3 }[] = [
   { value: 'list', label: '리스트', icon: List },
 ]
 
+// 백엔드 ApiTask → 기존 UI 컴포넌트가 사용하는 MockTask 형태로 어댑팅.
+// description / priority / assigneeIds / projectName 등 UI 전용 메타는
+// 백엔드 스키마에 없으므로 합리적인 기본값으로 채움.
+// 회의에서 생성된 Task(sourceMeetingId)는 fromMeeting + groupName="회의 액션아이템"
+// 으로 표시되어 칸반 보드에서 한눈에 식별 가능.
+function adaptApiTask(t: ApiTask): MockTask {
+  const member = t.assignee
+    ? MOCK_USERS.find((u) => u.name === t.assignee)
+    : undefined
+  const meeting = t.sourceMeetingId
+    ? MOCK_MEETINGS.find((m) => m.id === t.sourceMeetingId)
+    : undefined
+  return {
+    id: t.id,
+    title: t.title,
+    description: '',
+    status: (t.status as TaskStatus) ?? 'todo',
+    priority: 'normal',
+    assigneeId: member?.id ?? 'u1',
+    assigneeName: t.assignee ?? '미지정',
+    dueDate: t.dueDate ?? t.createdAt.slice(0, 10),
+    startDate: t.createdAt.slice(0, 10),
+    projectName: meeting ? '회의 액션아이템' : '일반',
+    groupName: meeting ? '회의 액션아이템' : '일반',
+    fromMeeting: meeting?.title ?? (t.sourceMeetingId ?? undefined),
+  }
+}
+
 export function TasksPage() {
   const [view, setView] = useState<ViewTab>('kanban')
-  const [tasks, setTasks] = useState<MockTask[]>(MOCK_TASKS)
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<MockTask | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<string>('all')
 
-  // 그룹 목록 추출
+  const apiTasks = useTasksStore((s) => s.tasks)
+  const isLoading = useTasksStore((s) => s.isLoading)
+  const error = useTasksStore((s) => s.error)
+  const loadAll = useTasksStore((s) => s.loadAll)
+  const createTask = useTasksStore((s) => s.createTask)
+  const updateTaskApi = useTasksStore((s) => s.updateTask)
+  const removeTask = useTasksStore((s) => s.removeTask)
+  const addToast = useToastStore((s) => s.addToast)
+
+  useEffect(() => {
+    void loadAll()
+  }, [loadAll])
+
+  const tasks = useMemo<MockTask[]>(() => apiTasks.map(adaptApiTask), [apiTasks])
+
+  // 그룹 목록 추출 — 백엔드 데이터에서는 "회의 액션아이템" / "일반" 두 종류로 단순화
   const groupNames = useMemo(() => {
     const names = new Set(tasks.map((t) => t.groupName))
     return Array.from(names).sort()
@@ -50,36 +95,87 @@ export function TasksPage() {
     setModalOpen(true)
   }, [])
 
-  const handleSave = useCallback((data: Omit<MockTask, 'id'> & { id?: string }) => {
-    if (data.id) {
-      setTasks((prev) => prev.map((t) => (t.id === data.id ? { ...t, ...data, id: t.id } : t)))
-    } else {
-      const newTask: MockTask = {
-        ...data,
-        id: `t${Date.now()}`,
+  const handleSave = useCallback(
+    async (data: Omit<MockTask, 'id'> & { id?: string }) => {
+      try {
+        if (data.id) {
+          await updateTaskApi(data.id, {
+            title: data.title,
+            assignee: data.assigneeName || null,
+            dueDate: data.dueDate || null,
+            status: data.status as ApiTaskStatus,
+          })
+        } else {
+          await createTask({
+            title: data.title,
+            assignee: data.assigneeName || null,
+            dueDate: data.dueDate || null,
+            status: (data.status as ApiTaskStatus) ?? 'todo',
+          })
+        }
+      } catch (err) {
+        addToast(
+          'error',
+          err instanceof Error ? err.message : '작업 저장 중 오류가 발생했습니다',
+        )
       }
-      setTasks((prev) => [...prev, newTask])
-    }
-  }, [])
+    },
+    [createTask, updateTaskApi, addToast],
+  )
 
-  const handleDelete = useCallback((id: string) => {
-    setTasks((prev) => prev.filter((t) => t.id !== id))
-  }, [])
+  const handleDelete = useCallback(
+    async (id: string) => {
+      try {
+        await removeTask(id)
+      } catch (err) {
+        addToast(
+          'error',
+          err instanceof Error ? err.message : '작업 삭제 실패',
+        )
+      }
+    },
+    [removeTask, addToast],
+  )
 
-  const handleStatusChange = useCallback((taskId: string, newStatus: string) => {
-    setTasks((prev) =>
-      prev.map((t) => (t.id === taskId ? { ...t, status: newStatus as TaskStatus } : t)),
-    )
-  }, [])
+  const handleStatusChange = useCallback(
+    async (taskId: string, newStatus: string) => {
+      try {
+        await updateTaskApi(taskId, { status: newStatus as ApiTaskStatus })
+      } catch (err) {
+        addToast(
+          'error',
+          err instanceof Error ? err.message : '상태 변경 실패',
+        )
+      }
+    },
+    [updateTaskApi, addToast],
+  )
 
   const handleDateClick = useCallback((_date: string) => {
     setEditingTask(null)
     setModalOpen(true)
   }, [])
 
-  const handleQuickUpdate = useCallback((taskId: string, updates: Partial<MockTask>) => {
-    setTasks((prev) => prev.map((t) => (t.id === taskId ? { ...t, ...updates } : t)))
-  }, [])
+  const handleQuickUpdate = useCallback(
+    async (taskId: string, updates: Partial<MockTask>) => {
+      // 백엔드 스키마에 매핑 가능한 필드만 추려서 PATCH
+      const patch: Partial<Pick<ApiTask, 'title' | 'assignee' | 'dueDate' | 'status'>> = {}
+      if (updates.title !== undefined) patch.title = updates.title
+      if (updates.assigneeName !== undefined) patch.assignee = updates.assigneeName || null
+      if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate || null
+      if (updates.status !== undefined) patch.status = updates.status as ApiTaskStatus
+      if (Object.keys(patch).length === 0) return
+      try {
+        await updateTaskApi(taskId, patch)
+      } catch (err) {
+        addToast(
+          'error',
+          err instanceof Error ? err.message : '작업 수정 실패',
+        )
+      }
+    },
+    [updateTaskApi, addToast],
+  )
 
   // 통계 (필터 적용)
   const totalTasks = filteredTasks.length
@@ -96,6 +192,7 @@ export function TasksPage() {
             <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">일정 / 할 일</h1>
             <p className="text-xs text-neutral-400">
               전체 {totalTasks}개 &middot; 진행 중 {inProgressTasks}개 &middot; 완료 {doneTasks}개
+              {isLoading && ' · 불러오는 중…'}
             </p>
           </div>
         </div>
@@ -104,6 +201,12 @@ export function TasksPage() {
           새 할 일
         </Button>
       </div>
+
+      {error && (
+        <div className="mb-4 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-600 dark:border-red-900/50 dark:bg-red-900/20 dark:text-red-400">
+          {error}
+        </div>
+      )}
 
       {/* 프로젝트 필터 + 뷰 탭 */}
       <div className="mb-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
@@ -173,9 +276,9 @@ export function TasksPage() {
           <KanbanBoard
             tasks={filteredTasks}
             onTaskClick={openEdit}
-            onStatusChange={handleStatusChange}
+            onStatusChange={(id, st) => void handleStatusChange(id, st)}
             onAddTask={openCreate}
-            onQuickUpdate={handleQuickUpdate}
+            onQuickUpdate={(id, updates) => void handleQuickUpdate(id, updates)}
           />
         )}
 
@@ -208,8 +311,8 @@ export function TasksPage() {
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setEditingTask(null) }}
         task={editingTask}
-        onSave={handleSave}
-        onDelete={handleDelete}
+        onSave={(data) => void handleSave(data)}
+        onDelete={(id) => void handleDelete(id)}
       />
     </div>
   )
