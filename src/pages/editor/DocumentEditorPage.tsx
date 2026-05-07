@@ -27,6 +27,7 @@ import {
   X,
 } from 'lucide-react'
 import { EditorToolbar } from '@/components/editor/EditorToolbar'
+import { PresenceAvatars } from '@/components/editor/PresenceAvatars'
 import { LiveCursors } from '@/components/editor/LiveCursors'
 import { ExportMenu } from '@/components/editor/ExportMenu'
 import { VersionHistoryPanel } from '@/components/editor/VersionHistoryPanel'
@@ -104,6 +105,8 @@ const TextAlignClass = Extension.create({
 
 const lowlight = createLowlight(common)
 
+const PRESENCE_COLORS = ['#958DF1', '#F98181', '#FBBC88', '#70CFF8', '#94FADB', '#B9F18D', '#F9A8D4']
+
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error'
 type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
@@ -166,6 +169,15 @@ export function DocumentEditorPage() {
   // Y.Doc: pageId가 바뀌면 새로 생성
   const ydoc = useMemo(() => new Y.Doc(), [pageId])
   useEffect(() => () => { ydoc.destroy() }, [ydoc])
+
+  // presence 표시용 로컬 사용자 정보 (awareness에 등록)
+  const presenceUser = useMemo(() => {
+    const name = currentUser?.name ?? 'Guest'
+    const color = PRESENCE_COLORS[
+      name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % PRESENCE_COLORS.length
+    ]
+    return { name, color }
+  }, [currentUser])
 
   // HocuspocusProvider: pageId가 바뀌면 새 연결 수립
   const provider = useMemo(() => {
@@ -426,6 +438,9 @@ export function DocumentEditorPage() {
               </span>
             )}
           </div>
+
+          {/* 접속자 presence 아바타 */}
+          <PresenceAvatars provider={provider} localUser={presenceUser} />
 
           <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-700" />
 
