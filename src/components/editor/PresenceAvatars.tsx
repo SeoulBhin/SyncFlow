@@ -17,14 +17,15 @@ export function PresenceAvatars({ provider, localUser }: PresenceAvatarsProps) {
   const [users, setUsers] = useState<PresenceUser[]>([])
 
   useEffect(() => {
-    if (!provider) return
+    const awareness = provider?.awareness
+    if (!awareness) return
 
     // 내 정보를 awareness에 등록
-    provider.awareness.setLocalStateField('user', localUser)
+    awareness.setLocalStateField('user', localUser)
 
     const update = () => {
-      const states = provider.awareness.getStates()
-      const myClientId = provider.awareness.clientID
+      const states = awareness.getStates()
+      const myClientId = awareness.clientID
       const list: PresenceUser[] = []
 
       states.forEach((state, clientId) => {
@@ -40,11 +41,11 @@ export function PresenceAvatars({ provider, localUser }: PresenceAvatarsProps) {
       setUsers(list)
     }
 
-    provider.awareness.on('update', update)
+    awareness.on('update', update)
     update()  // 초기 상태 반영
 
     return () => {
-      provider.awareness.off('update', update)
+      awareness.off('update', update)
     }
   }, [provider, localUser])
 
