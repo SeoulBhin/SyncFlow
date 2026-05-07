@@ -13,34 +13,35 @@
 | [TECH.md](./TECH.md) §6 | API 엔드포인트 전체 목록 | ✅ |
 | [ERD.md](./ERD.md) | DB 스키마 SQL (CREATE TABLE) | ✅ |
 | [PROJECT.md](./PROJECT.md) | 프로젝트 개요, 권한 모델 | 권장 |
+| `README.md` (루트) | 프로젝트 구조, 명령어, 코드 스타일, 진행 현황 | ✅ |
 | `UI.md` (루트) | 프론트 UI 기능 + Mock 데이터 전환 가이드 | 프론트 연동 시 |
-| `CLAUDE.md` (루트) | 프로젝트 구조, 명령어, 코드 스타일 | ✅ |
 
 ---
 
 ## 현재 상태
 
-### 프론트엔드 (99% 완료)
+### 프론트엔드 (UI 100% 완료)
 - React 19 + TypeScript + TailwindCSS v4 + Vite 7.3
 - Zustand 13개 store, React Router v7
 - **모든 UI가 Mock 데이터(`src/constants/index.ts`)로 동작 중**
 - 백엔드 API가 준비되면 Store 내부만 수정하여 연동 (컴포넌트 변경 없음)
 
-### 백엔드 (초기 설정만 완료)
+### 백엔드 (인증 + 설정 완료, 나머지 진행 중)
 - NestJS 11 (`backend/`), TypeScript
 - Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine)
 - Vite 프록시: `/api` → `localhost:3000`, `/socket.io` → ws
-- **14개 모듈 폴더 생성 완료, 전부 비어있음**
-- `app.module.ts`에 ConfigModule + TypeORM만 설정, 기능 모듈 미연결
-- **API 구현 미착수 — Hello World만 응답**
+- **14개 모듈 폴더 생성 완료**
+- **구현 완료**: `auth`(JWT + Google/GitHub/Kakao OAuth + 회원가입 + 토큰 갱신 + 비밀번호 재설정 + 프로필), `settings`(테마/알림/비밀번호 변경)
+- **미착수 (12개 모듈)**: `groups`, `projects`, `pages`, `tasks`, `schedules`, `channels`, `messages`, `ai`, `voice-chat`, `screen-share`, `subscriptions`, `common`
 
 ### 백엔드 폴더 구조
 ```
 backend/src/
-├── main.ts                    # NestFactory, /api 프리픽스, CORS, ValidationPipe
-├── app.module.ts              # ConfigModule + TypeORM (기능 모듈 추가 필요)
+├── main.ts                    # NestFactory, /api 프리픽스, CORS, ValidationPipe, cookie-parser
+├── app.module.ts              # ConfigModule + TypeORM (auth, settings 등록 완료)
 ├── app.controller.ts          # Hello World (제거 가능)
-├── auth/                      # 빈 폴더
+├── auth/                      # ✅ 구현 완료 (JWT + Google/GitHub/Kakao OAuth)
+├── settings/                  # ✅ 구현 완료 (테마/알림/비밀번호)
 ├── groups/                    # 빈 폴더
 ├── projects/                  # 빈 폴더
 ├── pages/                     # 빈 폴더
@@ -52,7 +53,6 @@ backend/src/
 ├── voice-chat/                # 빈 폴더
 ├── screen-share/              # 빈 폴더
 ├── subscriptions/             # 빈 폴더
-├── settings/                  # 빈 폴더
 └── common/
     ├── decorators/            # 빈 폴더
     ├── entities/              # 빈 폴더
@@ -205,9 +205,11 @@ Part 1 (DB 마이그레이션)
 
 ---
 
-## Part 2. 인증 시스템
+## Part 2. 인증 시스템 ✅ 구현 완료
 
 > P0 — 모든 보호 API의 기반. 이것 없으면 다른 파트 개발 불가.
+>
+> **구현 완료**: 회원가입, JWT 로그인/갱신/로그아웃, Google/GitHub/Kakao OAuth, 비밀번호 재설정, 프로필 수정. `backend/src/auth/` 참조.
 
 ### 생성할 파일
 ```
@@ -819,9 +821,11 @@ GET    /api/payments                   결제 내역
 
 ---
 
-## Part 13. 설정/프로필
+## Part 13. 설정/프로필 ✅ 구현 완료
 
 > P1~P2 — Part 2 이후 독립 가능
+>
+> **구현 완료**: 테마(light/dark/system), 알림 설정, 비밀번호 변경. `backend/src/settings/` 참조.
 
 ### API
 ```
@@ -940,10 +944,11 @@ createTask: async (task: CreateTaskDto) => {
 | [PROJECT.md](./PROJECT.md) | 프로젝트 개요, 경쟁 포지셔닝, **가시성 & 권한 모델** |
 | [TECH.md](./TECH.md) | 기술 사양, **API 엔드포인트 전체 목록 (§6)**, Socket.IO 이벤트 (§7) |
 | [ERD.md](./ERD.md) | **DB 스키마 SQL** (29개 테이블), 관계도 |
-| [checklist.md](./checklist.md) | 기능 체크리스트 (UI 84항목 + 백엔드 항목) |
+| [UIplan.md](./UIplan.md) | UI 설계/리팩토링 플랜 |
+| [checklist.md](./checklist.md) | 기능 체크리스트 |
+| `README.md` (루트) | 설치, 실행, 프로젝트 구조, 진행 현황, 개발 일지 |
 | `UI.md` (루트) | 프론트 UI 기능 목록, **Mock 데이터 전환 가이드** |
-| `CLAUDE.md` (루트) | 프로젝트 구조, 명령어, 코드 스타일 |
 
 ---
 
-*마지막 업데이트: 2026-03-18*
+*마지막 업데이트: 2026-05-07*
