@@ -12,11 +12,14 @@ import {
   Globe,
   Star,
   X,
+  Plus,
+  LogIn,
 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { useToastStore } from '@/stores/useToastStore'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { SidebarProjectList } from './SidebarProjectList'
 import {
@@ -64,6 +67,7 @@ function CollapsibleSection({
 /* ── 조직 전환 드롭다운 ── */
 function OrgSwitcherDropdown({ onClose }: { onClose: () => void }) {
   const { activeOrgId, setActiveOrg, setActiveGroup } = useGroupContextStore()
+  const addToast = useToastStore((s) => s.addToast)
   const ref = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -78,6 +82,18 @@ function OrgSwitcherDropdown({ onClose }: { onClose: () => void }) {
     setActiveOrg(orgId, orgName)
     const firstChannel = MOCK_CHANNELS.find((c) => c.orgId === orgId)
     if (firstChannel) setActiveGroup(firstChannel.id, firstChannel.name)
+    onClose()
+  }
+
+  // 조직 만들기 — 백엔드 연동 전 mock 토스트로 처리
+  const handleCreateOrg = () => {
+    addToast('info', '조직 만들기는 곧 제공됩니다. (목업)')
+    onClose()
+  }
+
+  // 조직 참여 — 백엔드 연동 전 mock 토스트로 처리
+  const handleJoinOrg = () => {
+    addToast('info', '조직 참여는 곧 제공됩니다. (목업)')
     onClose()
   }
 
@@ -112,6 +128,28 @@ function OrgSwitcherDropdown({ onClose }: { onClose: () => void }) {
           {activeOrgId === org.id && <Check size={14} className="text-primary-500" />}
         </button>
       ))}
+
+      {/* 조직 액션 — 목록 하단에 추가/참여 진입점을 노출한다 */}
+      <div className="mt-1 border-t border-neutral-200 pt-1 dark:border-neutral-700">
+        <button
+          onClick={handleCreateOrg}
+          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
+            <Plus size={16} />
+          </div>
+          <span className="flex-1 text-left text-xs font-medium">조직 만들기</span>
+        </button>
+        <button
+          onClick={handleJoinOrg}
+          className="flex w-full items-center gap-2 px-3 py-2 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
+        >
+          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300">
+            <LogIn size={15} />
+          </div>
+          <span className="flex-1 text-left text-xs font-medium">조직 참여</span>
+        </button>
+      </div>
     </div>
   )
 }
