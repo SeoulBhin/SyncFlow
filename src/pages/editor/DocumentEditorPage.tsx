@@ -1,8 +1,7 @@
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
-import Underline from '@tiptap/extension-underline'
 import { Table as TipTapTable } from '@tiptap/extension-table'
 import { TableRow } from '@tiptap/extension-table-row'
 import { TableCell } from '@tiptap/extension-table-cell'
@@ -11,6 +10,9 @@ import { Image as TipTapImage } from '@tiptap/extension-image'
 import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Extension } from '@tiptap/core'
+import Collaboration from '@tiptap/extension-collaboration'
+import * as Y from 'yjs'
+import { HocuspocusProvider } from '@hocuspocus/provider'
 import { common, createLowlight } from 'lowlight'
 import {
   ArrowLeft,
@@ -103,6 +105,7 @@ const TextAlignClass = Extension.create({
 const lowlight = createLowlight(common)
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error'
+type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 
 export function DocumentEditorPage() {
   const { pageId } = useParams()
@@ -149,9 +152,45 @@ export function DocumentEditorPage() {
     }
   }, [pageId])
 
-  const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
-  // 자동저장 debounce 타이머
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // ── Hocuspocus 실시간 협업 설정 ──────────────────────────────
+  const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
+  const [isSynced, setIsSynced] = useState(false)
+  const hasMigratedRef = useRef(false)
+
+  // pageId 변경 시 sync/migration 상태 초기화
+  useEffect(() => {
+    setIsSynced(false)
+    hasMigratedRef.current = false
+  }, [pageId])
+
+  // Y.Doc: pageId가 바뀌면 새로 생성
+  const ydoc = useMemo(() => new Y.Doc(), [pageId])
+  useEffect(() => () => { ydoc.destroy() }, [ydoc])
+
+  // HocuspocusProvider: pageId가 바뀌면 새 연결 수립
+  const provider = useMemo(() => {
+    if (!pageId) return null
+    const token = localStorage.getItem('accessToken') ?? ''
+    const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:1234'
+
+    return new HocuspocusProvider({
+      url: wsUrl,
+      name: pageId,        // documentName = pageId (UUID)
+      document: ydoc,
+      token,               // onAuthenticate에서 data.token으로 수신
+      onConnect: () => setConnStatus('connected'),
+      onDisconnect: () => setConnStatus('disconnected'),
+      onAuthenticationFailed: () => setConnStatus('error'),
+      onSynced: () => setIsSynced(true),
+    })
+  }, [pageId, ydoc])
+  useEffect(() => () => { provider?.destroy() }, [provider])
+
+  // 연결 상태 → 저장 상태 표시로 매핑
+  const saveStatus: SaveStatus =
+    connStatus === 'connected' ? 'saved' :
+    connStatus === 'connecting' ? 'saving' :
+    connStatus === 'error' ? 'error' : 'unsaved'
 
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showTOC, setShowTOC] = useState(false)
@@ -174,9 +213,8 @@ export function DocumentEditorPage() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
-        underline: false,
+        // TipTap v3 StarterKit은 History·Underline 내장 — 별도 추가 불필요
       }),
-      Underline,
       TipTapTable.configure({ resizable: true }),
       TableRow,
       TableCell,
@@ -192,6 +230,9 @@ export function DocumentEditorPage() {
           slashCallbackRef.current.onSlashCommand(props),
         onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
       }),
+      // Hocuspocus 실시간 협업: Y.Doc ↔ TipTap 바인딩
+      // CollaborationCursor(v3.0.0)는 Collaboration(v3.22.1)과 버전 불일치로 비활성화
+      Collaboration.configure({ document: ydoc }),
     ],
     editorProps: {
       attributes: {
@@ -200,28 +241,8 @@ export function DocumentEditorPage() {
       },
     },
     onUpdate: ({ editor: ed }) => {
-      setSaveStatus('unsaved')
-
-      // debounce 자동저장 — 1.5초 동안 추가 변경 없으면 저장
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-      saveTimerRef.current = setTimeout(async () => {
-        setSaveStatus('saving')
-        try {
-          const token = localStorage.getItem('accessToken')
-          const res = await fetch(`/api/document/${pageId ?? 'unknown'}/content`, {
-            method: 'PUT',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {}),
-            },
-            body: JSON.stringify({ content: ed.getHTML() }),
-          })
-          setSaveStatus(res.ok ? 'saved' : 'error')
-        } catch {
-          setSaveStatus('error')
-        }
-      }, 1500)
-
+      // Hocuspocus onStoreDocument가 자동 저장 — REST API PUT 호출 불필요
+      // 슬래시 커맨드 쿼리 업데이트만 처리
       if (slashMenuOpen && ed) {
         const { $from } = ed.state.selection
         const text = $from.parent.textContent.slice(0, $from.parentOffset)
@@ -234,24 +255,18 @@ export function DocumentEditorPage() {
         }
       }
     },
-  })
+  }, [ydoc, provider]) // pageId 변경 시 editor 재생성
 
-  // 언마운트 시 진행 중인 자동저장 타이머 정리
+  // 기존 HTML 문서 1회 마이그레이션:
+  // Hocuspocus 동기화 완료 후 Y.Doc가 비어있고 pages.content가 HTML이면
+  // TipTap에 주입 → Collaboration이 Y.Doc 업데이트 → onStoreDocument가 Yjs 형식으로 재저장
   useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    if (!isSynced || !editor || !page || hasMigratedRef.current) return
+    if (editor.isEmpty && page.content && page.content.trimStart().startsWith('<')) {
+      hasMigratedRef.current = true
+      editor.commands.setContent(page.content)
     }
-  }, [])
-
-  // 페이지 로드 완료 시 에디터에 콘텐츠 주입 (한번만)
-  const contentLoadedRef = useRef(false)
-  useEffect(() => {
-    if (!editor || !page || contentLoadedRef.current) return
-    if (page.content) {
-      editor.commands.setContent(page.content, { emitUpdate: false })
-    }
-    contentLoadedRef.current = true
-  }, [editor, page])
+  }, [isSynced, editor, page]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── 첨부 파일 ──────────────────────────────────────────────
   const [attachments, setAttachments] = useState<AttachmentData[]>([])
@@ -270,7 +285,6 @@ export function DocumentEditorPage() {
         if (!cancelled) setAttachments(data)
       })
       .catch(() => {
-        // 첨부 조회 실패는 본문 로딩을 막지 않음 — 조용히 빈 목록 처리
         if (!cancelled) setAttachments([])
       })
       .finally(() => {
@@ -284,7 +298,6 @@ export function DocumentEditorPage() {
   const handleFileSelected = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0]
-      // input 재선택 가능하도록 즉시 초기화
       e.target.value = ''
       if (!file || !pageId) return
 
@@ -358,12 +371,9 @@ export function DocumentEditorPage() {
     [addToast],
   )
 
+  // Hocuspocus가 자동 저장 처리 — 수동 저장 버튼은 안내 toast만 표시
   const handleManualSave = useCallback(() => {
-    setSaveStatus('saving')
-    setTimeout(() => {
-      setSaveStatus('saved')
-      addToast('success', '문서가 저장되었습니다.')
-    }, 500)
+    addToast('info', '변경 사항이 실시간으로 자동 저장됩니다.')
   }, [addToast])
 
   return (
@@ -389,41 +399,41 @@ export function DocumentEditorPage() {
         </div>
 
         <div className="flex items-center gap-2">
-          {/* 저장 상태 */}
+          {/* 저장 / 연결 상태 */}
           <div className="flex items-center gap-1.5 text-xs">
             {saveStatus === 'saved' && (
               <span className="flex items-center gap-1 text-success">
                 <Cloud size={14} />
-                저장 완료
+                자동 저장 중
               </span>
             )}
             {saveStatus === 'saving' && (
               <span className="flex items-center gap-1 text-primary-500">
                 <Loader size={14} className="animate-spin" />
-                저장 중...
+                연결 중...
               </span>
             )}
             {saveStatus === 'unsaved' && (
               <span className="flex items-center gap-1 text-warning">
                 <CloudOff size={14} />
-                변경 사항 있음
+                오프라인
               </span>
             )}
             {saveStatus === 'error' && (
               <span className="flex items-center gap-1 text-error">
                 <CloudOff size={14} />
-                저장 실패
+                인증 실패
               </span>
             )}
           </div>
 
           <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-700" />
 
-          {/* 수동 저장 */}
+          {/* 저장 버튼 (자동 저장 안내) */}
           <button
             onClick={handleManualSave}
             className="rounded p-1.5 text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-            title="저장 (Ctrl+S)"
+            title="자동 저장 중 (Hocuspocus)"
           >
             <Save size={16} />
           </button>
@@ -477,7 +487,7 @@ export function DocumentEditorPage() {
       <div className="flex flex-1 overflow-hidden">
         {/* 에디터 본문 */}
         <div className="relative flex-1 overflow-y-auto bg-surface dark:bg-surface-dark">
-          {/* 라이브 커서 오버레이 */}
+          {/* 라이브 커서 오버레이 (CollaborationCursor extension이 ProseMirror 내부에 직접 렌더링) */}
           <LiveCursors />
 
           {pageLoading && (
@@ -500,7 +510,7 @@ export function DocumentEditorPage() {
             </div>
           )}
 
-          {/* TipTap 에디터 */}
+          {/* TipTap 에디터 — Hocuspocus 연결 후 Y.Doc 내용 자동 표시 */}
           {!pageLoading && !pageError && (
             <div className="mx-auto max-w-4xl">
               <EditorContent editor={editor} />

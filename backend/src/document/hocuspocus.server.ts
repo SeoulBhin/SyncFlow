@@ -22,6 +22,24 @@ export function createHocuspocusServer(
       console.log('누군가 접속했습니다:', data.socketId)
     },
 
+    async onLoadDocument({ document, documentName }) {
+      const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+      if (!UUID_RE.test(documentName)) return
+
+      try {
+        const page = await pageRepository.findOne({ where: { id: documentName } })
+        if (!page?.content) return
+
+        // base64 Yjs 바이너리 상태를 Y.Doc에 복원
+        const update = Buffer.from(page.content, 'base64')
+        Y.applyUpdate(document, update)
+        console.log(`[hocuspocus] 문서 로드 완료: ${documentName}`)
+      } catch {
+        // HTML 상태이거나 손상된 경우 → 빈 문서로 시작
+        console.log(`[hocuspocus] 문서 로드 스킵 (새 문서 또는 HTML 상태): ${documentName}`)
+      }
+    },
+
     async onAuthenticate(data) {
       const { token, socketId } = data
 

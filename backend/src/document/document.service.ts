@@ -23,6 +23,12 @@ export class DocumentService implements OnModuleInit {
   ) {}
 
   onModuleInit() {
+    // ⚠️  포트 충돌 주의 (EADDRINUSE 방지):
+    //   - Hocuspocus는 기본 포트 1234를 사용합니다.
+    //   - 백엔드를 동시에 여러 인스턴스로 실행하면 EADDRINUSE 에러가 발생합니다.
+    //   - 로컬 개발 시 백엔드(nest start:dev)는 단일 인스턴스만 실행할 것.
+    //   - PM2 cluster / Docker replica 환경에서는 Hocuspocus를 별도 프로세스로 분리하거나
+    //     HOCUSPOCUS_PORT env 변수로 인스턴스마다 포트를 다르게 지정해야 합니다.
     const server = createHocuspocusServer(
       this.jwtService,
       this.pageRepository,

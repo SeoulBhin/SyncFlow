@@ -50,7 +50,7 @@ export function VersionHistoryPanel({ isOpen, onClose, pageId, editor }: Version
         throw new Error(err.message ?? '복원 실패')
       }
       // emitUpdate: false — 복원 직후 자동저장 debounce 재트리거 방지
-      editor.commands.setContent(version.content, false)
+      editor.commands.setContent(version.content, { emitUpdate: false })
       addToast('success', '해당 버전으로 복원되었습니다.')
       onClose()
     } catch (err) {
