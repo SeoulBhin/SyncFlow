@@ -346,7 +346,9 @@ export function MeetingRoomPage() {
     audioStreamRef.current = stream
 
     const token = localStorage.getItem('accessToken')
-    const socket: Socket = io('/meetings', {
+    // Vite proxy WebSocket이 Windows에서 불안정 → 백엔드로 직접 연결
+    const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
+    const socket: Socket = io(`${backendUrl}/meetings`, {
       path: '/socket.io',
       auth: token ? { token } : undefined,
     })

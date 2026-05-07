@@ -172,10 +172,17 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
 
         const { token, url } = await fetchToken(roomName, identity, name)
         await room.connect(url, token)
-        await room.localParticipant.setMicrophoneEnabled(true)
+
+        // 마이크 권한이 없으면 음소거 상태로 입장 (permission denied여도 연결 유지)
+        let joinedMuted = false
+        try {
+          await room.localParticipant.setMicrophoneEnabled(true)
+        } catch {
+          joinedMuted = true
+        }
 
         set({
-          status: 'connected',
+          status: joinedMuted ? 'muted' : 'connected',
           participants: collectParticipants(),
           showPanel: true,
           connectedGroupId: groupId,
