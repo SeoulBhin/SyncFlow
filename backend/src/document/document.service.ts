@@ -65,6 +65,11 @@ export class DocumentService implements OnModuleInit {
     return await Packer.toBuffer(doc);
   }
 
+  async createPage(name: string, type: string): Promise<Page> {
+    const page = this.pageRepository.create({ name, type: type || 'doc' })
+    return this.pageRepository.save(page)
+  }
+
   async getPage(pageId: string) {
     const UUID_RE =
       /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i

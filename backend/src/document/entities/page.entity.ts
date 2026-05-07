@@ -16,6 +16,9 @@ export class Page {
   @Column({ nullable: true, type: 'uuid' })
   createdBy: string | null  // 작성자 userId
 
+  @Column({ nullable: true, type: 'varchar', length: 20, default: 'doc' })
+  type: string | null  // 'doc' | 'code'
+
   @Column({ nullable: true, type: 'text' })
   content: string | null   // 문서 내용 (JSON 형태로 저장)
 

@@ -20,6 +20,7 @@ export function VersionHistoryPanel({ isOpen, onClose, pageId, editor }: Version
   const addToast = useToastStore((s) => s.addToast)
   const [versions, setVersions] = useState<Version[]>([])
   const [loading, setLoading] = useState(false)
+  const [restoringId, setRestoringId] = useState<string | null>(null)
 
   useEffect(() => {
     if (!isOpen || !pageId) return
@@ -31,16 +32,52 @@ export function VersionHistoryPanel({ isOpen, onClose, pageId, editor }: Version
       .finally(() => setLoading(false))
   }, [isOpen, pageId, addToast])
 
-  const handleRestore = (version: Version) => {
-    if (!editor) return
-    editor.commands.setContent(version.content)
-    addToast('success', '해당 버전으로 복원되었습니다.')
-    onClose()
+  const handleRestore = async (version: Version) => {
+    if (!editor || !pageId) return
+    setRestoringId(version.id)
+    try {
+      const token = localStorage.getItem('accessToken')
+      const res = await fetch(`/api/document/${pageId}/content`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        },
+        body: JSON.stringify({ content: version.content }),
+      })
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ message: '복원 실패' }))
+        throw new Error(err.message ?? '복원 실패')
+      }
+      // emitUpdate: false — 복원 직후 자동저장 debounce 재트리거 방지
+      editor.commands.setContent(version.content, false)
+      addToast('success', '해당 버전으로 복원되었습니다.')
+      onClose()
+    } catch (err) {
+      addToast('error', (err as Error).message ?? '버전 복원에 실패했습니다.')
+    } finally {
+      setRestoringId(null)
+    }
   }
 
-  const formatDate = (dateStr: string) => {
-    const d = new Date(dateStr)
-    return `${d.getMonth() + 1}/${d.getDate()} ${d.getHours().toString().padStart(2, '0')}:${d.getMinutes().toString().padStart(2, '0')}`
+  const formatDate = (dateStr: string | null | undefined): string => {
+    if (!dateStr) return '—'
+
+    // Z·오프셋 없는 문자열은 UTC로 강제 파싱
+    const normalized = /[Zz]$|[+-]\d{2}:\d{2}$/.test(dateStr)
+      ? dateStr
+      : dateStr.replace(' ', 'T') + 'Z'
+
+    const utcMs = Date.parse(normalized)
+    if (isNaN(utcMs)) return '날짜 없음'
+
+    // Intl timeZone 옵션 대신 UTC+9 직접 계산 — 브라우저 ICU 데이터 의존 없음
+    const KST = new Date(utcMs + 9 * 60 * 60 * 1000)
+    const m = KST.getUTCMonth() + 1
+    const d = KST.getUTCDate()
+    const hh = KST.getUTCHours().toString().padStart(2, '0')
+    const mm = KST.getUTCMinutes().toString().padStart(2, '0')
+    return `${m}. ${d}. ${hh}:${mm}`
   }
 
   if (!isOpen) return null
@@ -85,10 +122,15 @@ export function VersionHistoryPanel({ isOpen, onClose, pageId, editor }: Version
                   ) : (
                     <button
                       onClick={() => handleRestore(version)}
-                      className="mt-1.5 flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-primary-600 transition-colors hover:bg-primary-50 dark:text-primary-400 dark:hover:bg-primary-900/30"
+                      disabled={restoringId === version.id}
+                      className="mt-1.5 flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-primary-600 transition-colors hover:bg-primary-50 disabled:opacity-50 dark:text-primary-400 dark:hover:bg-primary-900/30"
                     >
-                      <RotateCcw size={11} />
-                      이 버전으로 복원
+                      {restoringId === version.id ? (
+                        <Loader size={11} className="animate-spin" />
+                      ) : (
+                        <RotateCcw size={11} />
+                      )}
+                      {restoringId === version.id ? '복원 중...' : '이 버전으로 복원'}
                     </button>
                   )}
                 </div>

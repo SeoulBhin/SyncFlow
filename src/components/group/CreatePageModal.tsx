@@ -1,28 +1,45 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { X, FileText, Code } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { cn } from '@/utils/cn'
 import { useToastStore } from '@/stores/useToastStore'
+import { usePageStore } from '@/stores/usePageStore'
+import { api } from '@/utils/api'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
+  projectId: string
 }
 
-export function CreatePageModal({ isOpen, onClose }: Props) {
+export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
   const addToast = useToastStore((s) => s.addToast)
+  const addPage = usePageStore((s) => s.addPage)
+  const navigate = useNavigate()
   const [name, setName] = useState('')
   const [type, setType] = useState<'doc' | 'code'>('doc')
+  const [loading, setLoading] = useState(false)
 
   if (!isOpen) return null
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) {
       addToast('error', '페이지명을 입력해주세요.')
       return
     }
-    addToast('success', `페이지 "${name}"이(가) 생성되었습니다. (목업)`)
-    handleClose()
+    setLoading(true)
+    try {
+      const { id } = await api.post<{ id: string }>('/document', { name: name.trim(), type })
+      addPage({ id, name: name.trim(), type, projectId })
+      addToast('success', `페이지 "${name.trim()}"이(가) 생성되었습니다.`)
+      handleClose()
+      navigate(type === 'code' ? `/app/code/${id}` : `/app/editor/${id}`)
+    } catch {
+      addToast('error', '페이지 생성에 실패했습니다.')
+    } finally {
+      setLoading(false)
+    }
   }
 
   const handleClose = () => {
@@ -85,6 +102,7 @@ export function CreatePageModal({ isOpen, onClose }: Props) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter' && !loading) handleCreate() }}
               placeholder={type === 'doc' ? '예: 프로젝트 개요' : '예: main.py'}
               maxLength={50}
               className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
@@ -92,8 +110,10 @@ export function CreatePageModal({ isOpen, onClose }: Props) {
           </div>
 
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" size="sm" onClick={handleClose}>취소</Button>
-            <Button size="sm" onClick={handleCreate}>생성</Button>
+            <Button variant="ghost" size="sm" onClick={handleClose} disabled={loading}>취소</Button>
+            <Button size="sm" onClick={handleCreate} disabled={loading}>
+              {loading ? '생성 중...' : '생성'}
+            </Button>
           </div>
         </div>
       </div>

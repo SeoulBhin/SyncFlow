@@ -174,7 +174,6 @@ export function DocumentEditorPage() {
     extensions: [
       StarterKit.configure({
         codeBlock: false,
-        // Tiptap v3 StarterKit은 Underline 기본 포함 → 명시적 Underline 중복 방지
         underline: false,
       }),
       Underline,

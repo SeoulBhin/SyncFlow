@@ -10,6 +10,11 @@ const FIFTY_MB = 50 * 1024 * 1024
 export class DocumentController {
   constructor(private documentService: DocumentService) {}
 
+  @Post()
+  async createPage(@Body() body: { name: string; type?: string }) {
+    return this.documentService.createPage(body.name, body.type ?? 'doc')
+  }
+
   @Post('upload')
   @UseInterceptors(FileInterceptor('file'))
   async uploadFile(@UploadedFile() file: Express.Multer.File) {
