@@ -17,23 +17,13 @@ export function JoinGroupModal({ isOpen, onClose }: Props) {
 
   const handleJoin = () => {
     const trimmed = code.trim()
-    if (!trimmed) {
-      setError('초대 코드를 입력해주세요.')
-      return
-    }
-    if (trimmed.length < 6) {
-      setError('초대 코드는 6자리입니다.')
-      return
-    }
+    if (!trimmed) { setError('초대 코드를 입력해주세요.'); return }
+    if (trimmed.length < 6) { setError('초대 코드는 6자리입니다.'); return }
     addToast('success', '채널에 참여했습니다! (목업)')
     handleClose()
   }
 
-  const handleClose = () => {
-    setCode('')
-    setError('')
-    onClose()
-  }
+  const handleClose = () => { setCode(''); setError(''); onClose() }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center">
@@ -45,21 +35,13 @@ export function JoinGroupModal({ isOpen, onClose }: Props) {
             <X size={18} />
           </button>
         </div>
-
         <div className="space-y-4">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">초대 코드</label>
-            <input
-              type="text"
-              value={code}
-              onChange={(e) => {
-                setCode(e.target.value.toUpperCase())
-                setError('')
-              }}
-              placeholder="6자리 초대 코드 입력"
-              maxLength={6}
-              className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2.5 text-center text-lg font-semibold uppercase tracking-[0.3em] outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
-            />
+            <input type="text" value={code}
+              onChange={(e) => { setCode(e.target.value.toUpperCase()); setError('') }}
+              placeholder="6자리 초대 코드 입력" maxLength={6}
+              className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2.5 text-center text-lg font-semibold uppercase tracking-[0.3em] outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900" />
             {error && <p className="mt-1 text-xs text-error">{error}</p>}
           </div>
           <div className="flex justify-end gap-2 pt-2">

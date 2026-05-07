@@ -47,7 +47,7 @@ export function LoginPage() {
 
     const user = MOCK_USERS.find((u) => u.email === v.email)
     if (user && v.password === MOCK_PASSWORD) {
-      login(user)
+      login(user, '')
       addToast('success', `${user.name}님, 환영합니다!`)
       navigate('/app')
     } else {

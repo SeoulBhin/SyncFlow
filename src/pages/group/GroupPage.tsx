@@ -46,7 +46,6 @@ export function GroupPage() {
 
   return (
     <div className="mx-auto max-w-6xl p-6">
-      {/* 헤더 */}
       <div className="mb-6 flex items-start justify-between">
         <div className="flex items-center gap-3">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary-100 dark:bg-primary-900/30">
@@ -63,7 +62,6 @@ export function GroupPage() {
         </Button>
       </div>
 
-      {/* 탭 */}
       <div className="mb-6 flex gap-1 border-b border-neutral-200 dark:border-neutral-700">
         <button
           onClick={() => setTab('projects')}
@@ -89,7 +87,6 @@ export function GroupPage() {
         </button>
       </div>
 
-      {/* 프로젝트 탭 */}
       {tab === 'projects' && (
         <>
           <div className="mb-4 flex items-center justify-between">
@@ -130,22 +127,15 @@ export function GroupPage() {
                     </button>
                   </div>
                   <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">{project.description}</p>
-
-                  {/* 진행률 바 */}
                   <div className="mb-3">
                     <div className="mb-1 flex items-center justify-between text-xs text-neutral-400 dark:text-neutral-500">
                       <span>진행률</span>
                       <span>{project.progress}%</span>
                     </div>
                     <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-700">
-                      <div
-                        className="h-full rounded-full bg-primary-500 transition-all"
-                        style={{ width: `${project.progress}%` }}
-                      />
+                      <div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${project.progress}%` }} />
                     </div>
                   </div>
-
-                  {/* 하단 메타 */}
                   <div className="flex items-center gap-4 text-xs text-neutral-400 dark:text-neutral-500">
                     {project.dueDate && (
                       <span className="flex items-center gap-1">
@@ -169,14 +159,12 @@ export function GroupPage() {
         </>
       )}
 
-      {/* 멤버 탭 */}
       {tab === 'members' && (
         <Card>
           <MemberPanel members={members} />
         </Card>
       )}
 
-      {/* 모달들 */}
       <GroupSettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}

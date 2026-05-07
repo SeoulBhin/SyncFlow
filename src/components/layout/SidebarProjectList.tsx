@@ -46,14 +46,10 @@ export function SidebarProjectList() {
 
           return (
             <div key={project.id}>
-              {/* 프로젝트 행 */}
               {deletingProjectId === project.id ? (
                 <div className="flex items-center gap-1 rounded-lg bg-red-50 px-3 py-1.5 dark:bg-red-900/20">
                   <span className="flex-1 truncate text-xs text-error">"{project.name}" 삭제?</span>
-                  <button
-                    onClick={() => setDeletingProjectId(null)}
-                    className="rounded p-0.5 text-neutral-400 hover:text-neutral-600"
-                  >
+                  <button onClick={() => setDeletingProjectId(null)} className="rounded p-0.5 text-neutral-400 hover:text-neutral-600">
                     <X size={12} />
                   </button>
                   <button
@@ -67,43 +63,39 @@ export function SidebarProjectList() {
                   </button>
                 </div>
               ) : (
-              <div className="group/proj flex items-center">
-                <button
-                  onClick={() => setActiveProject(isExpanded ? null : project.id)}
-                  className={cn(
-                    'flex flex-1 items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
-                    isExpanded
-                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                      : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                  )}
-                >
-                  <ChevronRight
-                    size={12}
-                    className={cn('shrink-0 transition-transform', isExpanded && 'rotate-90')}
-                  />
-                  <Briefcase size={14} className="shrink-0" />
-                  <span className="flex-1 truncate text-left text-xs">{project.name}</span>
-                </button>
-                <span className="hidden items-center group-hover/proj:flex">
+                <div className="group flex items-center">
                   <button
-                    onClick={() => navigate(`/app/group/${activeGroupId}`)}
-                    className="rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                    title="프로젝트 관리"
+                    onClick={() => setActiveProject(isExpanded ? null : project.id)}
+                    className={cn(
+                      'flex flex-1 items-center gap-2 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                      isExpanded
+                        ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                    )}
                   >
-                    <Settings size={11} />
+                    <ChevronRight size={12} className={cn('shrink-0 transition-transform', isExpanded && 'rotate-90')} />
+                    <Briefcase size={14} className="shrink-0" />
+                    <span className="flex-1 truncate text-left text-xs">{project.name}</span>
                   </button>
-                  <button
-                    onClick={() => setDeletingProjectId(project.id)}
-                    className="rounded p-0.5 text-neutral-400 hover:text-error"
-                    title="프로젝트 삭제"
-                  >
-                    <Trash2 size={11} />
-                  </button>
-                </span>
-              </div>
+                  <span className="flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button
+                      onClick={() => navigate(`/app/group/${activeGroupId}`)}
+                      className="rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+                      title="프로젝트 관리"
+                    >
+                      <Settings size={11} />
+                    </button>
+                    <button
+                      onClick={() => setDeletingProjectId(project.id)}
+                      className="rounded p-0.5 text-neutral-400 hover:text-error"
+                      title="프로젝트 삭제"
+                    >
+                      <Trash2 size={11} />
+                    </button>
+                  </span>
+                </div>
               )}
 
-              {/* 펼쳐진 페이지 목록 */}
               {isExpanded && (
                 <div className="ml-5 mt-0.5 space-y-0.5 border-l border-neutral-200 pl-3 dark:border-neutral-700">
                   {pages.map((page) => (
@@ -144,18 +136,10 @@ export function SidebarProjectList() {
                           {page.type === 'doc' ? <FileText size={13} className="shrink-0" /> : <Code size={13} className="shrink-0" />}
                           <span className="flex-1 truncate text-left">{page.name}</span>
                           <span className="hidden items-center gap-0.5 group-hover:flex">
-                            <span
-                              role="button"
-                              onClick={(e) => { e.stopPropagation(); startRename(page.id, page.name) }}
-                              className="rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
-                            >
+                            <span role="button" onClick={(e) => { e.stopPropagation(); startRename(page.id, page.name) }} className="rounded p-0.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200">
                               <Pencil size={11} />
                             </span>
-                            <span
-                              role="button"
-                              onClick={(e) => { e.stopPropagation(); setDeletingId(page.id) }}
-                              className="rounded p-0.5 text-neutral-400 hover:text-error"
-                            >
+                            <span role="button" onClick={(e) => { e.stopPropagation(); setDeletingId(page.id) }} className="rounded p-0.5 text-neutral-400 hover:text-error">
                               <Trash2 size={11} />
                             </span>
                           </span>
@@ -166,7 +150,6 @@ export function SidebarProjectList() {
                   {pages.length === 0 && (
                     <p className="px-2 py-1.5 text-[10px] text-neutral-400">페이지 없음</p>
                   )}
-                  {/* 페이지 추가 버튼 */}
                   <button
                     onClick={() => setShowCreatePage(true)}
                     className="flex w-full items-center gap-1.5 rounded-lg px-2 py-1 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-800"

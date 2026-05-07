@@ -5,6 +5,9 @@ import { AppController } from './app.controller';
 import { AppService } from './app.service';
 import { AuthModule } from './auth/auth.module';
 import { SettingsModule } from './settings/settings.module';
+import { GroupsModule } from './groups/groups.module';
+import { ProjectsModule } from './projects/projects.module';
+import { PagesModule } from './pages/pages.module';
 
 @Module({
   imports: [
@@ -33,6 +36,9 @@ import { SettingsModule } from './settings/settings.module';
 
     AuthModule,
     SettingsModule,
+    GroupsModule,
+    ProjectsModule,
+    PagesModule,
   ],
   controllers: [AppController],
   providers: [AppService],

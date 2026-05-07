@@ -6,6 +6,7 @@ import { LoginPage } from '@/pages/auth/LoginPage'
 import { RegisterPage } from '@/pages/auth/RegisterPage'
 import { ForgotPasswordPage } from '@/pages/auth/ForgotPasswordPage'
 import { ResetPasswordPage } from '@/pages/auth/ResetPasswordPage'
+import { OAuthCallbackPage } from '@/pages/auth/OAuthCallbackPage'
 import { ProfilePage } from '@/pages/auth/ProfilePage'
 import { DashboardPage } from '@/pages/dashboard/DashboardPage'
 import { ChannelView } from '@/pages/channel/ChannelView'
@@ -33,6 +34,7 @@ export const router = createBrowserRouter([
       { path: '/register', element: <RegisterPage /> },
       { path: '/forgot-password', element: <ForgotPasswordPage /> },
       { path: '/reset-password', element: <ResetPasswordPage /> },
+      { path: '/auth/callback', element: <OAuthCallbackPage /> },
     ],
   },
   /* ── App routes (/app prefix) ── */

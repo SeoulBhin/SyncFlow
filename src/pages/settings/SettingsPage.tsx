@@ -1,5 +1,5 @@
-import { useState } from 'react'
-import { Link } from 'react-router-dom'
+import { useState, useEffect } from 'react'
+import { Link, useNavigate } from 'react-router-dom'
 import {
   Settings, Sun, Moon, Monitor, Bell, Lock, Link2, Unlink,
   Trash2, AlertTriangle, Eye, EyeOff, Save, X, Crown, ArrowRight,
@@ -10,7 +10,10 @@ import { Card } from '@/components/common/Card'
 import { Input } from '@/components/auth/Input'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { useAuthStore } from '@/stores/useAuthStore'
 import type { Theme } from '@/types'
+
+const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 /* ─── 테마 선택 ─── */
 
@@ -20,8 +23,20 @@ const THEME_OPTIONS: { value: Theme; label: string; icon: typeof Sun }[] = [
   { value: 'system', label: '시스템', icon: Monitor },
 ]
 
-function ThemeSection() {
+function ThemeSection({ accessToken }: { accessToken: string | null }) {
   const { theme, setTheme } = useThemeStore()
+  const addToast = useToastStore((s) => s.addToast)
+
+  const handleTheme = async (value: Theme) => {
+    setTheme(value)
+    if (!accessToken) return
+    await fetch(`${API_BASE}/api/settings/theme`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      credentials: 'include',
+      body: JSON.stringify({ theme: value }),
+    }).catch(() => addToast('error', '테마 저장 실패'))
+  }
 
   return (
     <Card>
@@ -32,7 +47,7 @@ function ThemeSection() {
         {THEME_OPTIONS.map(({ value, label, icon: Icon }) => (
           <button
             key={value}
-            onClick={() => setTheme(value)}
+            onClick={() => handleTheme(value)}
             className={cn(
               'flex flex-col items-center gap-2 rounded-xl border-2 px-4 py-4 transition-all',
               theme === value
@@ -70,21 +85,46 @@ function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: (v: b
   )
 }
 
-function NotificationSection() {
+function NotificationSection({
+  accessToken,
+  initialNotifications,
+}: {
+  accessToken: string | null
+  initialNotifications: { message: boolean; task: boolean; deadline: boolean; browser: boolean } | null
+}) {
+  const addToast = useToastStore((s) => s.addToast)
   const [notifications, setNotifications] = useState({
     message: true,
-    todo: true,
+    task: true,
     deadline: false,
     browser: true,
   })
 
-  const toggle = (key: keyof typeof notifications) => {
-    setNotifications((s) => ({ ...s, [key]: !s[key] }))
+  useEffect(() => {
+    if (initialNotifications) setNotifications(initialNotifications)
+  }, [initialNotifications])
+
+  const toggle = async (key: keyof typeof notifications) => {
+    const next = !notifications[key]
+    setNotifications((s) => ({ ...s, [key]: next }))
+    if (!accessToken) return
+    const fieldMap: Record<string, string> = {
+      message: 'notifyMessage',
+      task: 'notifyTask',
+      deadline: 'notifyDeadline',
+      browser: 'notifyBrowser',
+    }
+    await fetch(`${API_BASE}/api/settings/notifications`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+      credentials: 'include',
+      body: JSON.stringify({ [fieldMap[key]]: next }),
+    }).catch(() => addToast('error', '알림 설정 저장 실패'))
   }
 
   const items = [
     { key: 'message' as const, label: '새 메시지 알림', desc: '채팅 메시지, @멘션 수신 시 알림' },
-    { key: 'todo' as const, label: '할 일 알림', desc: '할 일 배정, 상태 변경 시 알림' },
+    { key: 'task' as const, label: '할 일 알림', desc: '할 일 배정, 상태 변경 시 알림' },
     { key: 'deadline' as const, label: '마감일 알림', desc: '마감일 24시간 전 미리 알림' },
     { key: 'browser' as const, label: '브라우저 푸시 알림', desc: '백그라운드에서도 알림 수신 (Notification API)' },
   ]
@@ -112,7 +152,7 @@ function NotificationSection() {
 
 /* ─── 비밀번호 변경 ─── */
 
-function PasswordSection() {
+function PasswordSection({ accessToken }: { accessToken: string | null }) {
   const addToast = useToastStore((s) => s.addToast)
   const [form, setForm] = useState({ current: '', newPw: '', confirm: '' })
   const [showPw, setShowPw] = useState({ current: false, newPw: false, confirm: false })
@@ -137,10 +177,22 @@ function PasswordSection() {
   const handleSubmit = async () => {
     if (!validate()) return
     setSaving(true)
-    await new Promise((r) => setTimeout(r, 800))
-    addToast('success', '비밀번호가 변경되었습니다.')
-    setForm({ current: '', newPw: '', confirm: '' })
-    setSaving(false)
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/password`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${accessToken}` },
+        credentials: 'include',
+        body: JSON.stringify({ currentPassword: form.current, newPassword: form.newPw }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message ?? '오류')
+      addToast('success', '비밀번호가 변경되었습니다.')
+      setForm({ current: '', newPw: '', confirm: '' })
+    } catch (e: unknown) {
+      addToast('error', e instanceof Error ? e.message : '비밀번호 변경 실패')
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
@@ -217,18 +269,38 @@ function PasswordSection() {
 
 /* ─── 소셜 계정 연동 ─── */
 
-function SocialSection() {
+function SocialSection({
+  accessToken,
+  initialConnected,
+}: {
+  accessToken: string | null
+  initialConnected: { google: boolean; github: boolean; kakao: boolean } | null
+}) {
   const addToast = useToastStore((s) => s.addToast)
-  const [connected, setConnected] = useState({ google: true, github: false, kakao: false })
+  const [connected, setConnected] = useState({ google: false, github: false, kakao: false })
+
+  useEffect(() => {
+    if (initialConnected) setConnected(initialConnected)
+  }, [initialConnected])
 
   const toggle = async (provider: keyof typeof connected) => {
     const label = { google: 'Google', github: 'GitHub', kakao: '카카오' }[provider]
     if (connected[provider]) {
-      setConnected((s) => ({ ...s, [provider]: false }))
-      addToast('info', `${label} 계정 연동이 해제되었습니다.`)
+      try {
+        const res = await fetch(`${API_BASE}/api/settings/social/${provider}`, {
+          method: 'PUT',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          credentials: 'include',
+        })
+        const data = await res.json()
+        if (!res.ok) throw new Error(data.message ?? '오류')
+        setConnected((s) => ({ ...s, [provider]: false }))
+        addToast('info', `${label} 계정 연동이 해제되었습니다.`)
+      } catch (e: unknown) {
+        addToast('error', e instanceof Error ? e.message : '연동 해제 실패')
+      }
     } else {
-      setConnected((s) => ({ ...s, [provider]: true }))
-      addToast('success', `${label} 계정이 연동되었습니다.`)
+      window.location.href = `${API_BASE}/api/auth/oauth/${provider}`
     }
   }
 
@@ -274,8 +346,10 @@ function SocialSection() {
 
 /* ─── 계정 탈퇴 (위험 영역) ─── */
 
-function DangerZone() {
+function DangerZone({ accessToken }: { accessToken: string | null }) {
   const addToast = useToastStore((s) => s.addToast)
+  const logout = useAuthStore((s) => s.logout)
+  const navigate = useNavigate()
   const [showConfirm, setShowConfirm] = useState(false)
   const [confirmText, setConfirmText] = useState('')
   const [deleting, setDeleting] = useState(false)
@@ -283,11 +357,24 @@ function DangerZone() {
   const handleDelete = async () => {
     if (confirmText !== '탈퇴합니다') return
     setDeleting(true)
-    await new Promise((r) => setTimeout(r, 1000))
-    addToast('info', '계정 탈퇴가 처리되었습니다. (목업)')
-    setDeleting(false)
-    setShowConfirm(false)
-    setConfirmText('')
+    try {
+      const res = await fetch(`${API_BASE}/api/settings/account`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${accessToken}` },
+        credentials: 'include',
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.message ?? '오류')
+      addToast('info', '계정이 삭제되었습니다.')
+      logout()
+      navigate('/')
+    } catch (e: unknown) {
+      addToast('error', e instanceof Error ? e.message : '계정 삭제 실패')
+    } finally {
+      setDeleting(false)
+      setShowConfirm(false)
+      setConfirmText('')
+    }
   }
 
   return (
@@ -348,6 +435,23 @@ function DangerZone() {
 /* ─── 설정 페이지 메인 ─── */
 
 export function SettingsPage() {
+  const accessToken = useAuthStore((s) => s.accessToken)
+  const [settingsData, setSettingsData] = useState<{
+    notifications: { message: boolean; task: boolean; deadline: boolean; browser: boolean }
+    social: { google: boolean; github: boolean; kakao: boolean }
+  } | null>(null)
+
+  useEffect(() => {
+    if (!accessToken) return
+    fetch(`${API_BASE}/api/settings`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      credentials: 'include',
+    })
+      .then((r) => r.json())
+      .then((data) => setSettingsData(data))
+      .catch(() => {})
+  }, [accessToken])
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <div className="mb-6 flex items-center gap-3">
@@ -356,7 +460,6 @@ export function SettingsPage() {
       </div>
 
       <div className="space-y-6">
-        {/* 구독 플랜 바로가기 */}
         <Card className="flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-violet-100 text-violet-600 dark:bg-violet-900/30 dark:text-violet-400">
@@ -374,11 +477,11 @@ export function SettingsPage() {
           </Link>
         </Card>
 
-        <ThemeSection />
-        <NotificationSection />
-        <PasswordSection />
-        <SocialSection />
-        <DangerZone />
+        <ThemeSection accessToken={accessToken} />
+        <NotificationSection accessToken={accessToken} initialNotifications={settingsData?.notifications ?? null} />
+        <PasswordSection accessToken={accessToken} />
+        <SocialSection accessToken={accessToken} initialConnected={settingsData?.social ?? null} />
+        <DangerZone accessToken={accessToken} />
       </div>
     </div>
   )
