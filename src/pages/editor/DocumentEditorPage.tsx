@@ -11,6 +11,7 @@ import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
 import { Placeholder } from '@tiptap/extension-placeholder'
 import { Extension } from '@tiptap/core'
 import Collaboration from '@tiptap/extension-collaboration'
+import { AwarenessCursor } from '@/components/editor/extensions/AwarenessCursor'
 import * as Y from 'yjs'
 import { HocuspocusProvider } from '@hocuspocus/provider'
 import { common, createLowlight } from 'lowlight'
@@ -243,8 +244,9 @@ export function DocumentEditorPage() {
         onSlashDismiss: () => slashCallbackRef.current.onSlashDismiss(),
       }),
       // Hocuspocus 실시간 협업: Y.Doc ↔ TipTap 바인딩
-      // CollaborationCursor(v3.0.0)는 Collaboration(v3.22.1)과 버전 불일치로 비활성화
       Collaboration.configure({ document: ydoc }),
+      // awareness 기반 커서 표시 (priority=50, ySyncPlugin 이후 초기화)
+      AwarenessCursor.configure({ provider }),
     ],
     editorProps: {
       attributes: {
