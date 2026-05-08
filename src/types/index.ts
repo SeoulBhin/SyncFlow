@@ -146,3 +146,18 @@ export interface EndMeetingResponse {
   summary: ApiMeetingSummary | null
   actionItems: ApiMeetingActionItem[]
 }
+
+// ── Task (백엔드 tasks 테이블과 1:1) ──────────────────────────────────────────
+export type ApiTaskStatus = 'todo' | 'in-progress' | 'done'
+
+export interface ApiTask {
+  id: string
+  title: string
+  assignee: string | null
+  dueDate: string | null
+  status: ApiTaskStatus
+  sourceMeetingId: string | null
+  sourceActionItemId: string | null
+  createdAt: string
+  updatedAt: string
+}

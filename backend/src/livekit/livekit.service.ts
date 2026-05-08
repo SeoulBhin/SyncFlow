@@ -23,6 +23,10 @@ export class LiveKitService {
     this.logger.debug(
       `[환경변수] LIVEKIT_URL="${livekitUrl}" API_KEY 설정=${!!apiKey} API_SECRET 설정=${!!apiSecret}`,
     );
+    // 401 디버깅용 — 처음 3자만 노출 (보안). livekit.yaml 의 keys 와 일치해야 함.
+    this.logger.log(
+      `[자격증명 검증] apiKey="${apiKey.slice(0, 3)}…" (len=${apiKey.length}) apiSecret="${apiSecret.slice(0, 3)}…" (len=${apiSecret.length})`,
+    );
 
     if (!apiKey || !apiSecret) {
       this.logger.error(

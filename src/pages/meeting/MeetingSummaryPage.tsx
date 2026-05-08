@@ -17,6 +17,7 @@ import { Card } from '@/components/common/Card'
 import { MOCK_CHANNEL_MEMBERS } from '@/constants'
 import { useToastStore } from '@/stores/useToastStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
+import { useTasksStore } from '@/stores/useTasksStore'
 
 /* ── 액션 아이템 리뷰용 타입 ── */
 type ReviewItem = {
@@ -70,6 +71,7 @@ export function MeetingSummaryPage() {
   const error = useMeetingStore((s) => s.error)
   const loadMeeting = useMeetingStore((s) => s.loadMeeting)
   const confirmActionItems = useMeetingStore((s) => s.confirmActionItems)
+  const refreshTasks = useTasksStore((s) => s.refresh)
 
   const [showReviewModal, setShowReviewModal] = useState(false)
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
@@ -130,6 +132,8 @@ export function MeetingSummaryPage() {
 
     try {
       await confirmActionItems(id, toRegister.map((item) => item.id))
+      // 칸반 보드에 즉시 반영 — 사용자가 /app/tasks 로 이동 시 새 카드가 보여야 함
+      void refreshTasks()
       const newIds = new Set(registeredIds)
       toRegister.forEach((item) => newIds.add(item.id))
       setRegisteredIds(newIds)
@@ -151,6 +155,7 @@ export function MeetingSummaryPage() {
     if (!id) return
     try {
       await confirmActionItems(id, [itemId])
+      void refreshTasks()
       const newIds = new Set(registeredIds)
       newIds.add(itemId)
       setRegisteredIds(newIds)
