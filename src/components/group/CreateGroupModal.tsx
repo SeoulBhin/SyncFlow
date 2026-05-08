@@ -3,16 +3,26 @@ import { X, Copy, Check, Globe, Hash, Shield, Info } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
 import { useToastStore } from '@/stores/useToastStore'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { api } from '@/utils/api'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
+  onCreated?: () => void
 }
 
 type ChannelType = 'internal' | 'external'
 
-export function CreateGroupModal({ isOpen, onClose }: Props) {
+interface CreatedChannel {
+  id: string
+  name: string
+  inviteCode?: string | null
+}
+
+export function CreateGroupModal({ isOpen, onClose, onCreated }: Props) {
   const addToast = useToastStore((s) => s.addToast)
+  const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
   const [step, setStep] = useState<'form' | 'done'>('form')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -20,21 +30,38 @@ export function CreateGroupModal({ isOpen, onClose }: Props) {
   const [externalEmail, setExternalEmail] = useState('')
   const [generatedCode, setGeneratedCode] = useState('')
   const [copied, setCopied] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   if (!isOpen) return null
 
-  const handleCreate = () => {
+  const handleCreate = async () => {
     if (!name.trim()) {
       addToast('error', '채널명을 입력해주세요.')
       return
     }
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase()
-    setGeneratedCode(code)
-    setStep('done')
-    if (channelType === 'external') {
-      addToast('success', `외부 공유 채널 "${name}"이(가) 생성되었습니다. (목업)`)
-    } else {
-      addToast('success', `채널 "${name}"이(가) 생성되었습니다. (목업)`)
+    if (!activeOrgId) {
+      addToast('error', '조직이 선택되지 않았습니다.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      const channel = await api.post<CreatedChannel>('/channels', {
+        groupId: activeOrgId,
+        type: 'channel',
+        name: name.trim(),
+        description: description.trim() || undefined,
+      })
+      setGeneratedCode(
+        channel.inviteCode ?? Math.random().toString(36).substring(2, 8).toUpperCase(),
+      )
+      setStep('done')
+      addToast('success', `채널 "${channel.name}"이(가) 생성되었습니다.`)
+      onCreated?.()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '채널 생성 실패'
+      addToast('error', msg)
+    } finally {
+      setSubmitting(false)
     }
   }
 
@@ -130,10 +157,10 @@ export function CreateGroupModal({ isOpen, onClose }: Props) {
               </>
             )}
             <div className="flex justify-end gap-2 pt-2">
-              <Button variant="ghost" size="sm" onClick={handleClose}>취소</Button>
-              <Button size="sm" onClick={handleCreate}>
+              <Button variant="ghost" size="sm" onClick={handleClose} disabled={submitting}>취소</Button>
+              <Button size="sm" onClick={handleCreate} disabled={submitting}>
                 {channelType === 'external' && <Globe size={14} />}
-                생성
+                {submitting ? '생성 중...' : '생성'}
               </Button>
             </div>
           </div>

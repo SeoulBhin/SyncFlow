@@ -162,7 +162,7 @@ export function MessengerPage() {
     if (!message.trim() && attachedFiles.length === 0) return
     const newMsg: MockMessage = {
       id: `m-${Date.now()}`,
-      channelId: activeChannelId,
+      channelId: activeChannelId ?? '',
       userId: 'u1',
       userName: '김민수',
       content: message.trim(),
@@ -191,7 +191,7 @@ export function MessengerPage() {
     if (!threadMessage.trim() || !activeThreadId) return
     const newReply: MockMessage = {
       id: `tm-${Date.now()}`,
-      channelId: activeChannelId,
+      channelId: activeChannelId ?? '',
       userId: 'u1',
       userName: '김민수',
       content: threadMessage.trim(),

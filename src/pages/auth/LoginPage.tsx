@@ -8,7 +8,7 @@ import { SocialLoginButtons } from '@/components/auth/SocialLoginButtons'
 import { useForm } from '@/hooks/useForm'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
-import { MOCK_USERS, MOCK_PASSWORD } from '@/constants'
+import { api } from '@/utils/api'
 
 interface LoginValues {
   email: string
@@ -43,15 +43,26 @@ export function LoginPage() {
 
   const onSubmit = handleSubmit(async (v) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 800))
-
-    const user = MOCK_USERS.find((u) => u.email === v.email)
-    if (user && v.password === MOCK_PASSWORD) {
-      login(user, '')
+    try {
+      const { accessToken } = await api.post<{ accessToken: string }>('/auth/login', {
+        email: v.email,
+        password: v.password,
+      })
+      const user = await (async () => {
+        localStorage.setItem('accessToken', accessToken)
+        return api.get<{ id: string; name: string; email: string; avatarUrl?: string }>('/auth/me')
+      })()
+      login(
+        { id: user.id, name: user.name, email: user.email, avatar: user.avatarUrl ?? undefined },
+        accessToken,
+      )
       addToast('success', `${user.name}님, 환영합니다!`)
       navigate('/app')
-    } else {
-      addToast('error', '이메일 또는 비밀번호가 올바르지 않습니다.')
+    } catch (e) {
+      addToast(
+        'error',
+        e instanceof Error ? e.message : '이메일 또는 비밀번호가 올바르지 않습니다.',
+      )
     }
     setLoading(false)
   })
@@ -62,9 +73,7 @@ export function LoginPage() {
         {/* 헤더 */}
         <div className="text-center">
           <LogIn size={40} className="mx-auto text-primary-600 dark:text-primary-400" />
-          <h1 className="mt-4 text-2xl font-bold text-neutral-800 dark:text-neutral-100">
-            로그인
-          </h1>
+          <h1 className="mt-4 text-2xl font-bold text-neutral-800 dark:text-neutral-100">로그인</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             SyncFlow에 로그인하고 팀과 함께 시작하세요
           </p>
