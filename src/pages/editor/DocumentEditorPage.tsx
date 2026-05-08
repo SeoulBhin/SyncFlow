@@ -160,6 +160,11 @@ export function DocumentEditorPage() {
   const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
   const hasMigratedRef = useRef(false)
+  // StrictMode double-cleanup 방지용 mount 카운터
+  const _ydocMountRef = useRef(0)
+  const _providerMountRef = useRef(0)
+  // 비로그인 시 창마다 구분 가능한 Guest ID (세션 고정)
+  const guestSuffixRef = useRef(Math.random().toString(36).slice(2, 6).toUpperCase())
 
   // pageId 변경 시 sync/migration 상태 초기화
   useEffect(() => {
@@ -169,11 +174,18 @@ export function DocumentEditorPage() {
 
   // Y.Doc: pageId가 바뀌면 새로 생성
   const ydoc = useMemo(() => new Y.Doc(), [pageId])
-  useEffect(() => () => { ydoc.destroy() }, [ydoc])
+  useEffect(() => {
+    _ydocMountRef.current++
+    const id = _ydocMountRef.current
+    return () => {
+      const doc = ydoc
+      requestAnimationFrame(() => { if (_ydocMountRef.current === id) doc.destroy() })
+    }
+  }, [ydoc])
 
   // presence 표시용 로컬 사용자 정보 (awareness에 등록)
   const presenceUser = useMemo(() => {
-    const name = currentUser?.name ?? 'Guest'
+    const name = currentUser?.name ?? `Guest-${guestSuffixRef.current}`
     const color = PRESENCE_COLORS[
       name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % PRESENCE_COLORS.length
     ]
@@ -197,7 +209,14 @@ export function DocumentEditorPage() {
       onSynced: () => setIsSynced(true),
     })
   }, [pageId, ydoc])
-  useEffect(() => () => { provider?.destroy() }, [provider])
+  useEffect(() => {
+    _providerMountRef.current++
+    const id = _providerMountRef.current
+    return () => {
+      const p = provider
+      requestAnimationFrame(() => { if (_providerMountRef.current === id) p?.destroy() })
+    }
+  }, [provider])
 
   // 연결 상태 → 저장 상태 표시로 매핑
   const saveStatus: SaveStatus =

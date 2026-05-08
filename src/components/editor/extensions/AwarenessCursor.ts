@@ -25,46 +25,52 @@ type AwarenessType = NonNullable<HocuspocusProvider['awareness']>
 //  커서 DOM 생성
 // ────────────────────────────────────────────────────────────────────────────
 
+function hexToRgba(hex: string, alpha: number): string {
+  const r = parseInt(hex.slice(1, 3), 16)
+  const g = parseInt(hex.slice(3, 5), 16)
+  const b = parseInt(hex.slice(5, 7), 16)
+  return `rgba(${r},${g},${b},${alpha})`
+}
+
 function createCursorWidget(user: { name: string; color: string }): HTMLElement {
-  const wrapper = document.createElement('span')
-  wrapper.setAttribute('data-awareness-cursor', 'true')
-  wrapper.style.cssText = 'position:relative;display:inline-block;pointer-events:none;user-select:none;'
-
+  // caret이 루트: 명시적 height + border-left로 세로 막대 보장
   const caret = document.createElement('span')
+  caret.setAttribute('data-awareness-cursor', 'true')
   caret.style.cssText = [
-    'position:absolute',
-    'top:0',
-    'bottom:0',
-    'left:-1px',
-    'width:2px',
-    `background:${user.color}`,
+    'position:relative',
     'display:inline-block',
-    'border-radius:1px',
-  ].join(';')
-
-  const label = document.createElement('span')
-  label.textContent = user.name.slice(0, 16) // 이름이 너무 길면 잘라냄
-  label.style.cssText = [
-    'position:absolute',
-    'bottom:100%',
-    'left:-1px',
-    'margin-bottom:1px',
-    'font-size:11px',
-    'font-weight:600',
-    'line-height:1.4',
-    'color:#fff',
-    `background:${user.color}`,
-    'padding:1px 5px',
-    'border-radius:3px',
-    'white-space:nowrap',
+    'width:0',
+    `border-left:2px solid ${user.color}`,
+    'height:1.2em',
+    'vertical-align:text-bottom',
+    'margin-left:-1px',
     'pointer-events:none',
     'user-select:none',
     'z-index:20',
   ].join(';')
 
-  wrapper.appendChild(caret)
-  wrapper.appendChild(label)
-  return wrapper
+  const label = document.createElement('span')
+  label.textContent = user.name.slice(0, 20)
+  label.style.cssText = [
+    'position:absolute',
+    'bottom:100%',
+    'left:-1px',
+    'margin-bottom:2px',
+    `background:${user.color}`,
+    'color:#fff',
+    'font-size:11px',
+    'font-weight:600',
+    'line-height:1.4',
+    'padding:2px 6px',
+    'border-radius:4px',
+    'white-space:nowrap',
+    'pointer-events:none',
+    'user-select:none',
+    'z-index:21',
+  ].join(';')
+
+  caret.appendChild(label)
+  return caret
 }
 
 // ────────────────────────────────────────────────────────────────────────────
@@ -105,7 +111,7 @@ function buildDecorations(state: EditorState, awareness: AwarenessType): Decorat
       try {
         decorations.push(
           Decoration.inline(from, to, {
-            style: `background-color:${s.user!.color}28; border-radius:2px;`,
+            style: `background-color:${hexToRgba(s.user!.color, 0.25)};border-radius:2px;`,
             class: 'awareness-selection',
           })
         )
@@ -164,29 +170,46 @@ export const AwarenessCursor = Extension.create<AwarenessCursorOptions>({
 
         view: (view: EditorView) => {
           let destroyed = false
+          let rafId: number | null = null
 
+          // RAF 기반 throttle: awareness 업데이트 폭발 시에도 프레임당 1회만 dispatch
           const dispatchUpdate = () => {
-            if (destroyed) return
-            try {
-              view.dispatch(view.state.tr.setMeta(awarenessCursorKey, 'update'))
-            } catch { /* view가 이미 소멸된 경우 — ignore */ }
+            if (destroyed || rafId !== null) return
+            rafId = requestAnimationFrame(() => {
+              rafId = null
+              if (destroyed) return
+              try {
+                view.dispatch(view.state.tr.setMeta(awarenessCursorKey, 'update'))
+              } catch { /* view 소멸 — ignore */ }
+            })
           }
 
           awareness.on('update', dispatchUpdate)
 
+          // 마운트 즉시 내 커서 위치 브로드캐스트 (selection 이동 전에도 상대방에 표시)
+          const { anchor: initAnchor, head: initHead } = view.state.selection
+          awareness.setLocalStateField('cursor', { anchor: initAnchor, head: initHead })
+
+          // ySyncPlugin 초기화 대기 후 이미 연결된 상대방 커서 즉시 렌더링
+          requestAnimationFrame(() => { if (!destroyed) dispatchUpdate() })
+
+          let prevAnchor = initAnchor
+          let prevHead = initHead
+
           return {
-            update: (_view: EditorView, prevState: EditorState) => {
+            update: (_view: EditorView, _prevState: EditorState) => {
               if (destroyed) return
-              // selection이 바뀌었을 때만 awareness에 커서 위치 전송
-              if (!_view.state.selection.eq(prevState.selection)) {
-                const { anchor, head } = _view.state.selection
-                awareness.setLocalStateField('cursor', { anchor, head })
-              }
+              const { anchor, head } = _view.state.selection
+              // 같은 anchor/head면 awareness 업데이트 생략
+              if (anchor === prevAnchor && head === prevHead) return
+              prevAnchor = anchor
+              prevHead = head
+              awareness.setLocalStateField('cursor', { anchor, head })
             },
             destroy: () => {
               destroyed = true
+              if (rafId !== null) { cancelAnimationFrame(rafId); rafId = null }
               awareness.off('update', dispatchUpdate)
-              // 내 커서를 awareness에서 제거
               try { awareness.setLocalStateField('cursor', null) } catch { /* ignore */ }
             },
           }
