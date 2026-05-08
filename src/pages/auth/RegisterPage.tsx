@@ -7,6 +7,7 @@ import { SocialLoginButtons } from '@/components/auth/SocialLoginButtons'
 import { useForm } from '@/hooks/useForm'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { api } from '@/utils/api'
 
 interface RegisterValues {
   name: string
@@ -52,16 +53,20 @@ export function RegisterPage() {
 
   const onSubmit = handleSubmit(async (v) => {
     setLoading(true)
-    await new Promise((r) => setTimeout(r, 800))
-
-    const newUser = {
-      id: `u${Date.now()}`,
-      name: v.name,
-      email: v.email,
+    try {
+      const { accessToken } = await api.post<{ accessToken: string }>('/auth/register', {
+        name: v.name,
+        email: v.email,
+        password: v.password,
+      })
+      localStorage.setItem('accessToken', accessToken)
+      const user = await api.get<{ id: string; name: string; email: string; avatarUrl?: string }>('/auth/me')
+      login({ id: user.id, name: user.name, email: user.email, avatar: user.avatarUrl ?? undefined }, accessToken)
+      addToast('success', '회원가입이 완료되었습니다!')
+      navigate('/app')
+    } catch (e) {
+      addToast('error', e instanceof Error ? e.message : '회원가입에 실패했습니다.')
     }
-    login(newUser)
-    addToast('success', '회원가입이 완료되었습니다!')
-    navigate('/app')
     setLoading(false)
   })
 

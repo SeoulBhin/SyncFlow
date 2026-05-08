@@ -20,7 +20,8 @@ import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
 import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
-import { MOCK_CHANNELS, MOCK_MEETINGS, MOCK_ORGANIZATIONS } from '@/constants'
+import { useToastStore } from '@/stores/useToastStore'
+import { MOCK_CHANNELS, MOCK_ORGANIZATIONS } from '@/constants'
 import { SharedChannelInviteModal } from './SharedChannelInviteModal'
 
 export function ChannelHeader() {
@@ -30,6 +31,7 @@ export function ChannelHeader() {
   const voiceChat = useVoiceChatStore()
   const screenShare = useScreenShareStore()
   const meeting = useMeetingStore()
+  const addToast = useToastStore((s) => s.addToast)
 
   const channel = MOCK_CHANNELS.find((c) => c.id === activeGroupId)
   const isVoiceConnected = voiceChat.status !== 'disconnected'
@@ -64,17 +66,20 @@ export function ChannelHeader() {
     }
   }
 
-  const handleStartMeeting = () => {
-    const scheduled = MOCK_MEETINGS.find(
-      (m) => m.channelId === activeGroupId && m.status === 'scheduled',
-    )
-    if (scheduled) {
-      meeting.startMeeting(scheduled.id, scheduled.title, scheduled.channelName)
-      navigate(`/app/meetings/${scheduled.id}`)
-    } else {
-      const quickId = `mt-quick-${Date.now()}`
-      meeting.startMeeting(quickId, '빠른 회의', activeGroupName ?? '채널')
-      navigate(`/app/meetings/${quickId}`)
+  const handleStartMeeting = async () => {
+    const channelName = activeGroupName ?? '채널'
+    const title = `${channelName} 빠른 회의`
+    try {
+      const created = await meeting.createMeeting(title, {
+        groupId: activeGroupId ?? undefined,
+      })
+      meeting.startMeeting(created.id, title, channelName)
+      navigate(`/app/meetings/${created.id}`)
+    } catch (err) {
+      addToast(
+        'error',
+        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
+      )
     }
   }
 
