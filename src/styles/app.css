@@ -140,31 +140,6 @@ body {
   color: var(--color-neutral-700);
 }
 
-/* 정렬 클래스 */
-.tiptap .align-left,
-.tiptap p.align-left,
-.tiptap h1.align-left,
-.tiptap h2.align-left,
-.tiptap h3.align-left { text-align: left; }
-
-.tiptap .align-center,
-.tiptap p.align-center,
-.tiptap h1.align-center,
-.tiptap h2.align-center,
-.tiptap h3.align-center { text-align: center; }
-
-.tiptap .align-right,
-.tiptap p.align-right,
-.tiptap h1.align-right,
-.tiptap h2.align-right,
-.tiptap h3.align-right { text-align: right; }
-
-.tiptap .align-justify,
-.tiptap p.align-justify,
-.tiptap h1.align-justify,
-.tiptap h2.align-justify,
-.tiptap h3.align-justify { text-align: justify; }
-
 .dark .tiptap p {
   color: var(--color-neutral-300);
 }
@@ -269,7 +244,6 @@ body {
   border-collapse: collapse;
   width: 100%;
   margin: 1em 0;
-  table-layout: fixed;
 }
 
 .tiptap th,
@@ -278,10 +252,6 @@ body {
   padding: 0.5em 0.75em;
   text-align: left;
   font-size: 0.875rem;
-  min-width: 80px;
-  word-break: break-word;
-  white-space: pre-wrap;
-  vertical-align: top;
 }
 
 .dark .tiptap th,
@@ -334,12 +304,6 @@ body {
 
 .tiptap .tableWrapper {
   overflow-x: auto;
-}
-
-/* 블록 전체가 파랗게 되는 것 방지 */
-.tiptap .ProseMirror-selectednode {
-  outline: none !important;
-  background: none !important;
 }
 
 .tiptap .selectedCell::after {

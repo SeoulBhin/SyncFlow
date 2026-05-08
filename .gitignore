@@ -26,9 +26,3 @@ presentation
 *.sw?
 .claude
 /src/generated/prisma
-
-livekit.yaml
-backend/livekit.yaml
-
-# Uploaded user files
-backend/uploads/

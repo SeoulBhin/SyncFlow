@@ -20,8 +20,7 @@ import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useAIStore } from '@/stores/useAIStore'
-import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
-import { useToastStore } from '@/stores/useToastStore'
+import { MOCK_MEETINGS } from '@/constants'
 
 /* 툴바 버튼 공통 컴포넌트 */
 function ToolbarButton({
@@ -82,8 +81,6 @@ export function BottomToolbar() {
   const { activeGroupId, activeGroupName } = useGroupContextStore()
   const meeting = useMeetingStore()
   const { isOpen: isAIOpen, togglePanel: toggleAIPanel } = useAIStore()
-  const { openPanel, togglePanel: toggleDetailPanel } = useDetailPanelStore()
-  const addToast = useToastStore((s) => s.addToast)
 
   /* 회의 타이머 */
   useEffect(() => {
@@ -96,19 +93,17 @@ export function BottomToolbar() {
   const handleVoiceClick = () => {
     if (voiceChat.status === 'disconnected') {
       if (activeGroupId && activeGroupName) {
-        void voiceChat.connect(activeGroupId, activeGroupName).then(() => {
-          openPanel('voice')
-        })
+        voiceChat.connect(activeGroupId, activeGroupName)
       }
     } else {
-      toggleDetailPanel('voice')
+      voiceChat.togglePanel()
     }
   }
 
   /* 음소거 토글 핸들러 */
   const handleMuteClick = () => {
     if (voiceChat.status !== 'disconnected') {
-      void voiceChat.toggleMute()
+      voiceChat.toggleMute()
     }
   }
 
@@ -116,51 +111,35 @@ export function BottomToolbar() {
   const handleScreenShareClick = () => {
     if (!screenShare.sharingUser) {
       if (activeGroupId && activeGroupName) {
-        void screenShare.startSharing(activeGroupId, activeGroupName).then(() => {
-          openPanel('screen-share')
-        })
+        screenShare.startSharing(activeGroupId, activeGroupName)
       }
     } else if (screenShare.isSharing) {
-      void screenShare.stopSharing()
+      screenShare.stopSharing()
     } else {
-      toggleDetailPanel('screen-share')
+      screenShare.togglePanel()
     }
   }
 
-  /* 회의 시작 핸들러 — 백엔드에 회의 레코드 생성 후 회의룸으로 이동 */
-  const handleStartMeeting = async () => {
-    const channelName = activeGroupName ?? '채널'
-    const title = `${channelName} 빠른 회의`
-    try {
-      const created = await meeting.createMeeting(title, {
-        groupId: activeGroupId ?? undefined,
-      })
-      meeting.startMeeting(created.id, title, channelName)
-      navigate(`/app/meetings/${created.id}`)
-    } catch (err) {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
-      )
+  /* 회의 시작 핸들러 */
+  const handleStartMeeting = () => {
+    const scheduled = MOCK_MEETINGS.find(
+      (m) => m.channelId === activeGroupId && m.status === 'scheduled',
+    )
+    if (scheduled) {
+      meeting.startMeeting(scheduled.id, scheduled.title, scheduled.channelName)
+      navigate(`/meetings/${scheduled.id}`)
+    } else {
+      const quickId = `mt-quick-${Date.now()}`
+      meeting.startMeeting(quickId, '빠른 회의', activeGroupName ?? '채널')
+      navigate(`/meetings/${quickId}`)
     }
   }
 
-  /* 회의 종료 핸들러 — 백엔드 종료 API 호출 + 로컬 정리 + 요약 페이지 이동 */
-  const handleEndMeeting = async () => {
+  /* 회의 종료 핸들러 */
+  const handleEndMeeting = () => {
     const id = meeting.activeMeetingId
-    if (!id) {
-      meeting.endMeeting()
-      return
-    }
-    // 백엔드 finalize는 fire-and-forget (Gemini 처리에 시간 소요 → summary 페이지에서 재로드)
-    void meeting.finalizeMeeting(id).catch((err) => {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의 종료 처리 중 오류가 발생했습니다',
-      )
-    })
     meeting.endMeeting()
-    navigate(`/app/meetings/${id}/summary`)
+    if (id) navigate(`/meetings/${id}/summary`)
   }
 
   const isVoiceConnected = voiceChat.status !== 'disconnected'

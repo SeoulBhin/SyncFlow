@@ -175,13 +175,6 @@ export function SlackSidebar() {
 
   const channels = MOCK_CHANNELS.filter((c) => c.orgId === activeOrgId)
 
-  // Auto-select first group channel on initial load or after org switch clears selection
-  useEffect(() => {
-    if (!activeGroupId && channels.length > 0) {
-      setActiveGroup(channels[0].id, channels[0].name)
-    }
-  }, [activeGroupId]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const handleChannelSelect = (channelId: string, channelName: string) => {
     setActiveGroup(channelId, channelName)
     setSidebarGroup(channelId)

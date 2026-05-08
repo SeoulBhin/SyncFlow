@@ -57,13 +57,13 @@ function IconRail({
   ]
 
   return (
-    <div className="flex h-full w-16 shrink-0 flex-col items-center bg-neutral-900 py-3 dark:bg-neutral-950">
+    <div className="flex h-full w-12 shrink-0 flex-col items-center bg-neutral-900 py-2 dark:bg-neutral-950">
       {/* 조직 아이콘 — 클릭 시 조직 전환 패널을 토글한다 */}
       <button
         onClick={() => onRailClick('org')}
         title={activeOrgName ?? '조직 선택'}
         className={cn(
-          'mb-2 flex h-12 w-12 items-center justify-center rounded-2xl text-base font-bold transition-all hover:rounded-xl',
+          'mb-1 flex h-10 w-10 items-center justify-center rounded-2xl text-sm font-bold transition-all hover:rounded-xl',
           activeRail === 'org'
             ? 'rounded-xl bg-primary-500 text-white'
             : 'bg-neutral-700 text-neutral-200 hover:bg-primary-500 hover:text-white',
@@ -88,7 +88,7 @@ function IconRail({
             }}
             title={label}
             className={cn(
-              'relative mb-2 flex h-12 w-12 items-center justify-center rounded-2xl transition-all hover:rounded-xl',
+              'relative mb-1 flex h-10 w-10 items-center justify-center rounded-2xl transition-all hover:rounded-xl',
               active
                 ? 'rounded-xl bg-primary-500 text-white'
                 : 'text-neutral-400 hover:bg-neutral-700 hover:text-neutral-100',
@@ -98,7 +98,7 @@ function IconRail({
             {active && (
               <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />
             )}
-            <Icon size={24} />
+            <Icon size={20} />
           </button>
         )
       })}
@@ -117,7 +117,7 @@ function IconRail({
               onClick={() => onRailClick(`channel-${ch.id}`)}
               title={ch.name}
               className={cn(
-                'relative mb-2 flex h-12 w-12 items-center justify-center rounded-2xl text-xs font-bold transition-all hover:rounded-xl',
+                'relative mb-1 flex h-10 w-10 items-center justify-center rounded-2xl text-xs font-bold transition-all hover:rounded-xl',
                 isActive
                   ? 'rounded-xl bg-primary-500 text-white'
                   : 'bg-neutral-700 text-neutral-300 hover:bg-primary-500/80 hover:text-white',
@@ -128,7 +128,7 @@ function IconRail({
                 <span className="absolute left-0 top-1/2 h-5 w-1 -translate-y-1/2 rounded-r-full bg-white" />
               )}
               {ch.isExternal ? (
-                <Globe size={20} className="text-orange-400" />
+                <Globe size={16} className="text-orange-400" />
               ) : (
                 ch.name[0]
               )}
@@ -145,11 +145,11 @@ function IconRail({
         }}
         title="설정"
         className={cn(
-          'mt-auto flex h-12 w-12 items-center justify-center rounded-2xl text-neutral-400 transition-all hover:rounded-xl hover:bg-neutral-700 hover:text-neutral-100',
+          'mt-auto flex h-10 w-10 items-center justify-center rounded-2xl text-neutral-400 transition-all hover:rounded-xl hover:bg-neutral-700 hover:text-neutral-100',
           location.pathname.startsWith('/settings') && 'rounded-xl bg-primary-500 text-white',
         )}
       >
-        <Settings size={24} />
+        <Settings size={20} />
       </button>
     </div>
   )
@@ -230,10 +230,10 @@ function CollapsibleSection({
       {/* 섹션 헤더 토글 — 클릭 시 해당 섹션을 접거나 펼친다 */}
       <button
         onClick={() => setOpen((v) => !v)}
-        className="flex w-full items-center gap-1 px-3 py-2 text-xs font-semibold uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-300"
+        className="flex w-full items-center gap-1 px-2 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-300"
       >
         <ChevronRight
-          size={14}
+          size={12}
           className={cn('transition-transform', open && 'rotate-90')}
         />
         {title}
@@ -264,10 +264,10 @@ function SidePanel({
   }
 
   return (
-    <div className="flex h-full w-[260px] shrink-0 flex-col border-r border-neutral-200 bg-surface-secondary dark:border-neutral-700 dark:bg-surface-dark-secondary">
+    <div className="flex h-full w-[220px] shrink-0 flex-col border-r border-neutral-200 bg-surface-secondary dark:border-neutral-700 dark:bg-surface-dark-secondary">
       {/* 패널 헤더 — 조직 이름과 닫기 버튼을 표시한다 */}
-      <div className="flex h-16 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
-        <span className="truncate text-base font-semibold text-neutral-700 dark:text-neutral-200">
+      <div className="flex h-14 items-center justify-between border-b border-neutral-200 px-3 dark:border-neutral-700">
+        <span className="truncate text-sm font-semibold text-neutral-700 dark:text-neutral-200">
           {activeOrgName ?? '탐색'}
         </span>
         {/* 패널 닫기 버튼 — 사이드 패널을 접는다 */}
@@ -276,7 +276,7 @@ function SidePanel({
           title="패널 닫기"
           className="rounded-lg p-1.5 text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-700"
         >
-          <PanelLeftClose size={18} />
+          <PanelLeftClose size={16} />
         </button>
       </div>
 
@@ -296,10 +296,10 @@ function SidePanel({
                   if (ch) handleChannelSelect(ch.id, ch.name)
                 }
               }}
-              className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
+              className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
             >
-              <Star size={14} className="shrink-0 text-yellow-500" />
-              <span className="flex-1 truncate text-left text-sm">{fav.name}</span>
+              <Star size={12} className="shrink-0 text-yellow-500" />
+              <span className="flex-1 truncate text-left text-xs">{fav.name}</span>
             </button>
           ))}
         </CollapsibleSection>
@@ -319,18 +319,18 @@ function SidePanel({
                 key={ch.id}
                 onClick={() => handleChannelSelect(ch.id, ch.name)}
                 className={cn(
-                  'flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm transition-colors',
+                  'flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm transition-colors',
                   isActive
                     ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                     : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700',
                 )}
               >
                 {ch.isExternal ? (
-                  <Globe size={16} className="shrink-0 text-orange-500" />
+                  <Globe size={14} className="shrink-0 text-orange-500" />
                 ) : (
-                  <Hash size={16} className="shrink-0" />
+                  <Hash size={14} className="shrink-0" />
                 )}
-                <span className="flex-1 truncate text-left text-sm">{ch.name}</span>
+                <span className="flex-1 truncate text-left text-xs">{ch.name}</span>
                 {/* 읽지 않은 메시지 배지 — 미확인 메시지 수를 표시한다 */}
                 {totalUnread > 0 && (
                   <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
@@ -351,10 +351,10 @@ function SidePanel({
               <button
                 key={dm.id}
                 onClick={() => {}}
-                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
+                className="flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700"
               >
                 {/* 온라인 상태 도트 — 녹색이면 온라인, 회색이면 오프라인이다 */}
-                <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-xs font-bold text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200">
+                <span className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-[10px] font-bold text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200">
                   {dm.dmUser?.[0]}
                   <span
                     className={cn(
@@ -363,7 +363,7 @@ function SidePanel({
                     )}
                   />
                 </span>
-                <span className="flex-1 truncate text-left text-sm">{dm.dmUser}</span>
+                <span className="flex-1 truncate text-left text-xs">{dm.dmUser}</span>
                 {/* 읽지 않은 DM 배지 — 미확인 메시지 수를 표시한다 */}
                 {dm.unread > 0 && (
                   <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
@@ -503,7 +503,7 @@ export function Sidebar() {
     <aside
       className={cn(
         'flex h-full shrink-0 transition-all duration-200',
-        isCollapsed ? 'w-16' : 'w-[340px]',
+        isCollapsed ? 'w-12' : 'w-[268px]',
       )}
     >
       {/* 데스크톱 아이콘 레일 */}

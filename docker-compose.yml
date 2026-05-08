@@ -21,18 +21,6 @@ services:
     volumes:
       - redis_data:/data
 
-  livekit:
-    image: livekit/livekit-server:latest
-    container_name: syncflow-livekit
-    restart: unless-stopped
-    ports:
-      - '7880:7880'   # HTTP / WebSocket
-      - '7881:7881'   # RTC over TCP
-      - '50000-50020:50000-50020/udp'  # RTC over UDP (media) — Windows Docker 안정성 위해 최소 범위
-    command: --config /etc/livekit/livekit.yaml
-    volumes:
-      - ./backend/livekit.yaml:/etc/livekit/livekit.yaml:ro
-
 volumes:
   postgres_data:
   redis_data:

@@ -1,91 +1,27 @@
 import { useState, useRef, useEffect } from 'react'
-import { X, Send, CheckCheck, Loader2, Sparkles } from 'lucide-react'
+import { X, Send, CheckCheck } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useThreadStore } from '@/stores/useThreadStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
-import type { ChatMessage } from '@/types'
-
-// ── Helper ────────────────────────────────────────────────────────────────────
-
-function formatTime(iso: string): string {
-  return new Date(iso).toLocaleTimeString('ko-KR', {
-    hour: 'numeric',
-    minute: '2-digit',
-    hour12: true,
-  })
-}
-
-// ── ReplyItem ─────────────────────────────────────────────────────────────────
-
-function ReplyItem({ reply }: { reply: ChatMessage }) {
-  return (
-    <div className={cn('flex', reply.isOwn ? 'justify-end' : 'justify-start')}>
-      <div className="max-w-[85%]">
-        {!reply.isOwn && (
-          <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-            {reply.isSystem && (
-              <Sparkles size={10} className="text-violet-500" />
-            )}
-            {reply.authorName}
-          </p>
-        )}
-        <div
-          className={cn(
-            'rounded-2xl px-3.5 py-2 text-sm',
-            reply.isOwn
-              ? 'rounded-br-sm bg-primary-500 text-white'
-              : reply.isSystem
-                ? 'rounded-bl-sm border border-violet-200 bg-violet-50 text-neutral-800 dark:border-violet-800 dark:bg-violet-950/30 dark:text-neutral-100'
-                : 'rounded-bl-sm bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100',
-          )}
-        >
-          {reply.content}
-        </div>
-        <div
-          className={cn(
-            'mt-0.5 flex items-center gap-1 text-[10px] text-neutral-400',
-            reply.isOwn ? 'justify-end' : 'justify-start',
-          )}
-        >
-          {reply.isOwn && (
-            <CheckCheck size={10} className="text-primary-400" />
-          )}
-          <span>{formatTime(reply.createdAt)}</span>
-        </div>
-      </div>
-    </div>
-  )
-}
-
-// ── ThreadPanel ───────────────────────────────────────────────────────────────
+import { MOCK_MESSAGES, MOCK_THREAD_REPLIES, type MockMessage } from '@/constants'
 
 export function ThreadPanel() {
-  const {
-    selectedThreadId,
-    parentMessage,
-    replies,
-    isLoading,
-    error,
-    closeThread,
-    sendReply,
-  } = useThreadStore()
+  const { selectedThreadId, closeThread } = useThreadStore()
   const { closePanel } = useDetailPanelStore()
-
   const [replyInput, setReplyInput] = useState('')
+  const [replies, setReplies] = useState<MockMessage[]>(MOCK_THREAD_REPLIES)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
-  const threadReplies = selectedThreadId ? (replies[selectedThreadId] ?? []) : []
+  const parentMessage = MOCK_MESSAGES.find((m) => m.id === selectedThreadId)
+  const threadReplies = replies.filter((r) => r.parentMessageId === selectedThreadId)
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [threadReplies.length])
 
   useEffect(() => {
-    if (selectedThreadId) {
-      inputRef.current?.focus()
-      setReplyInput('')
-    }
+    inputRef.current?.focus()
   }, [selectedThreadId])
 
   const handleClose = () => {
@@ -94,8 +30,23 @@ export function ThreadPanel() {
   }
 
   const handleSend = () => {
-    if (!replyInput.trim() || !selectedThreadId || !parentMessage) return
-    sendReply(parentMessage.channelId, replyInput.trim(), selectedThreadId)
+    if (!replyInput.trim() || !selectedThreadId) return
+    const newReply: MockMessage = {
+      id: `tr-${Date.now()}`,
+      channelId: parentMessage?.channelId ?? '',
+      userId: 'u1',
+      userName: '김민수',
+      content: replyInput.trim(),
+      timestamp: new Date().toLocaleTimeString('ko-KR', {
+        hour: 'numeric',
+        minute: '2-digit',
+        hour12: true,
+      }),
+      isOwn: true,
+      isRead: true,
+      parentMessageId: selectedThreadId,
+    }
+    setReplies((prev) => [...prev, newReply])
     setReplyInput('')
   }
 
@@ -106,19 +57,12 @@ export function ThreadPanel() {
     }
   }
 
-  // ── Empty state ────────────────────────────────────────────────────────────
-
-  if (!selectedThreadId || !parentMessage) {
+  if (!parentMessage) {
     return (
       <div className="flex h-full flex-col">
         <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-700">
-          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-            스레드
-          </span>
-          <button
-            onClick={handleClose}
-            className="rounded p-1.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700"
-          >
+          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">스레드</span>
+          <button onClick={handleClose} className="rounded p-1.5 text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700">
             <X size={16} />
           </button>
         </div>
@@ -128,8 +72,6 @@ export function ThreadPanel() {
       </div>
     )
   }
-
-  // ── Main view ──────────────────────────────────────────────────────────────
 
   return (
     <div className="flex h-full flex-col">
@@ -148,23 +90,18 @@ export function ThreadPanel() {
 
       {/* 메시지 영역 */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        {/* 부모 메시지 */}
+        {/* 부모 메시지 — 강조 스타일 */}
         <div className="mb-4 rounded-xl border border-primary-200 bg-primary-50/50 p-3 dark:border-primary-800 dark:bg-primary-900/10">
-          <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-primary-600 dark:text-primary-400">
-            {parentMessage.isSystem && (
-              <Sparkles size={10} />
-            )}
-            {parentMessage.authorName}
+          <p className="mb-0.5 text-[11px] font-medium text-primary-600 dark:text-primary-400">
+            {parentMessage.userName}
           </p>
           <p className="text-sm text-neutral-800 dark:text-neutral-100">
             {parentMessage.content}
           </p>
-          <p className="mt-1 text-[10px] text-neutral-400">
-            {formatTime(parentMessage.createdAt)}
-          </p>
+          <p className="mt-1 text-[10px] text-neutral-400">{parentMessage.timestamp}</p>
         </div>
 
-        {/* 구분선 */}
+        {/* 답글 구분선 */}
         {threadReplies.length > 0 && (
           <div className="mb-3 flex items-center gap-2">
             <div className="flex-1 border-t border-neutral-200 dark:border-neutral-700" />
@@ -176,20 +113,44 @@ export function ThreadPanel() {
         )}
 
         {/* 답글 목록 */}
-        {isLoading && threadReplies.length === 0 ? (
-          <div className="flex justify-center py-4 text-neutral-400">
-            <Loader2 size={16} className="animate-spin" />
-          </div>
-        ) : error ? (
-          <p className="py-4 text-center text-xs text-red-400">{error}</p>
-        ) : (
-          <div className="space-y-3">
-            {threadReplies.map((reply) => (
-              <ReplyItem key={reply.id} reply={reply} />
-            ))}
-            <div ref={messagesEndRef} />
-          </div>
-        )}
+        <div className="space-y-3">
+          {threadReplies.map((reply) => (
+            <div
+              key={reply.id}
+              className={cn('flex', reply.isOwn ? 'justify-end' : 'justify-start')}
+            >
+              <div className="max-w-[85%]">
+                {!reply.isOwn && (
+                  <p className="mb-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
+                    {reply.userName}
+                  </p>
+                )}
+                <div
+                  className={cn(
+                    'rounded-2xl px-3.5 py-2 text-sm',
+                    reply.isOwn
+                      ? 'rounded-br-sm bg-primary-500 text-white'
+                      : 'rounded-bl-sm bg-neutral-100 text-neutral-800 dark:bg-neutral-700 dark:text-neutral-100',
+                  )}
+                >
+                  {reply.content}
+                </div>
+                <div
+                  className={cn(
+                    'mt-0.5 flex items-center gap-1 text-[10px] text-neutral-400',
+                    reply.isOwn ? 'justify-end' : 'justify-start',
+                  )}
+                >
+                  {reply.isOwn && reply.isRead && (
+                    <CheckCheck size={10} className="text-primary-400" />
+                  )}
+                  <span>{reply.timestamp}</span>
+                </div>
+              </div>
+            </div>
+          ))}
+          <div ref={messagesEndRef} />
+        </div>
       </div>
 
       {/* 답글 입력 */}

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard,
@@ -11,6 +11,7 @@ import {
   Circle,
   Loader,
   Ticket,
+  Copy,
   ArrowRight,
   Plus,
   UserPlus,
@@ -25,29 +26,26 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
-import { api } from '@/utils/api'
-import { type TaskPriority, type TaskStatus } from '@/constants'
+import {
+  MOCK_CHANNELS,
+  MOCK_RECENT_PAGES,
+  MOCK_MY_TASKS,
+  MOCK_MEETINGS,
+  type TaskPriority,
+  type TaskStatus,
+} from '@/constants'
 
 const priorityConfig: Record<TaskPriority, { label: string; color: string }> = {
   urgent: { label: '긴급', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
-  high: {
-    label: '높음',
-    color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400',
-  },
-  normal: {
-    label: '보통',
-    color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400',
-  },
-  low: {
-    label: '낮음',
-    color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400',
-  },
+  high: { label: '높음', color: 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400' },
+  normal: { label: '보통', color: 'bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400' },
+  low: { label: '낮음', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400' },
 }
 
 const statusConfig: Record<TaskStatus, { label: string; icon: typeof Circle }> = {
-  todo: { label: '할 일', icon: Circle },
+  'todo': { label: '할 일', icon: Circle },
   'in-progress': { label: '진행 중', icon: Loader },
-  done: { label: '완료', icon: CheckCircle },
+  'done': { label: '완료', icon: CheckCircle },
 }
 
 export function DashboardPage() {
@@ -59,86 +57,28 @@ export function DashboardPage() {
   const [inviteCode, setInviteCode] = useState('')
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [showJoinGroup, setShowJoinGroup] = useState(false)
-  const [channels, setChannels] = useState<any[]>([])
-  const [recentPages, setRecentPages] = useState<any[]>([])
-  const [myTasks, setMyTasks] = useState<any[]>([])
-  const [meetings, setMeetings] = useState<any[]>([])
-  const [loading, setLoading] = useState(true)
-  const [loadError, setLoadError] = useState<string | null>(null)
 
-  const fetchDashboard = useCallback(() => {
-    if (!user) {
-      setLoading(false)
-      return Promise.resolve()
-    }
-    setLoading(true)
-    setLoadError(null)
-    const qs = activeOrgId ? `?orgId=${encodeURIComponent(activeOrgId)}` : ''
-    return api
-      .get<{ groups: any[]; recentPages: any[]; myTasks: any[]; upcomingMeetings: any[] }>(
-        `/dashboard${qs}`,
-      )
-      .then((data) => {
-        setChannels(data.groups)
-        setRecentPages(data.recentPages)
-        setMyTasks(data.myTasks)
-        setMeetings(data.upcomingMeetings)
-      })
-      .catch((e) => {
-        setLoadError(e instanceof Error ? e.message : '대시보드를 불러올 수 없습니다.')
-      })
-      .finally(() => setLoading(false))
-  }, [activeOrgId, user])
+  const channels = MOCK_CHANNELS.filter((c) => c.orgId === activeOrgId)
+  const scheduledMeetings = MOCK_MEETINGS.filter((m) => m.status === 'scheduled')
+  const recentMeetings = MOCK_MEETINGS.filter((m) => m.status === 'ended').slice(0, 3)
 
-  useEffect(() => {
-    fetchDashboard()
-  }, [fetchDashboard])
-
-  const scheduledMeetings = meetings.filter((m) => m.status === 'scheduled')
-  const recentMeetings = meetings.filter((m) => m.status === 'ended').slice(0, 3)
-
-  const [joining, setJoining] = useState(false)
-
-  const handleJoinGroup = async () => {
-    const trimmed = inviteCode.trim().toUpperCase()
-    if (!trimmed) {
+  const handleJoinGroup = () => {
+    if (!inviteCode.trim()) {
       addToast('error', '초대 코드를 입력해주세요.')
       return
     }
-    if (trimmed.length !== 6) {
+    if (inviteCode.trim().length < 6) {
       addToast('error', '초대 코드는 6자리입니다.')
       return
     }
-    setJoining(true)
-    try {
-      const channel = await api.post<{ id: string; name: string }>(
-        '/channels/join-by-code',
-        { code: trimmed },
-      )
-      addToast('success', `"${channel.name}" 채널에 참여했습니다.`)
-      setInviteCode('')
-      fetchDashboard()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '참여 실패'
-      addToast('error', msg)
-    } finally {
-      setJoining(false)
-    }
+    addToast('success', '채널에 참여했습니다! (목업)')
+    setInviteCode('')
   }
 
-  const handleQuickMeeting = async () => {
-    const channelName = activeGroupName ?? '채널'
-    const title = `${channelName} 빠른 회의`
-    try {
-      const created = await meetingStore.createMeeting(title)
-      meetingStore.startMeeting(created.id, title, channelName)
-      navigate(`/app/meetings/${created.id}`)
-    } catch (err) {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
-      )
-    }
+  const handleQuickMeeting = () => {
+    const quickId = `mt-quick-${Date.now()}`
+    meetingStore.startMeeting(quickId, '빠른 회의', activeGroupName ?? '채널')
+    navigate(`/app/meetings/${quickId}`)
   }
 
   return (
@@ -150,11 +90,7 @@ export function DashboardPage() {
           <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">대시보드</h1>
         </div>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          안녕하세요,{' '}
-          <span className="font-medium text-neutral-700 dark:text-neutral-200">
-            {user?.name ?? '사용자'}
-          </span>
-          님!
+          안녕하세요, <span className="font-medium text-neutral-700 dark:text-neutral-200">{user?.name ?? '사용자'}</span>님!
         </p>
       </div>
 
@@ -164,61 +100,21 @@ export function DashboardPage() {
           {/* 내 채널 카드 */}
           <section>
             <div className="mb-3 flex items-center justify-between">
-              <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">
-                내 채널
-              </h2>
+              <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">내 채널</h2>
               <div className="flex gap-1.5">
                 <Button variant="ghost" size="sm" onClick={() => setShowJoinGroup(true)}>
                   <UserPlus size={14} />
                   참여
                 </Button>
                 <Button size="sm" onClick={() => setShowCreateGroup(true)}>
-                  <Plus size={14} />새 채널
+                  <Plus size={14} />
+                  새 채널
                 </Button>
               </div>
             </div>
-            {loadError && (
-              <Card className="mb-3 border-red-200 bg-red-50/60 dark:border-red-900/40 dark:bg-red-900/10">
-                <p className="text-sm text-red-700 dark:text-red-400">{loadError}</p>
-                <Button variant="ghost" size="sm" onClick={fetchDashboard} className="mt-2">
-                  다시 시도
-                </Button>
-              </Card>
-            )}
-            {!loading && !loadError && channels.length === 0 && (
-              <Card className="border-dashed border-primary-200 bg-primary-50/40 dark:border-primary-900/40 dark:bg-primary-900/10">
-                <div className="flex flex-col items-center gap-3 py-6 text-center">
-                  <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary-100 text-primary-600 dark:bg-primary-900/40 dark:text-primary-400">
-                    <Plus size={22} />
-                  </div>
-                  <div>
-                    <p className="text-base font-semibold text-neutral-800 dark:text-neutral-100">
-                      첫 채널을 만들어 시작하세요
-                    </p>
-                    <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                      채널을 만들거나 초대 코드로 기존 채널에 참여할 수 있어요.
-                    </p>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => setShowCreateGroup(true)}>
-                      <Plus size={14} />새 채널 만들기
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={() => setShowJoinGroup(true)}>
-                      <UserPlus size={14} />
-                      초대 코드로 참여
-                    </Button>
-                  </div>
-                </div>
-              </Card>
-            )}
             <div className="grid gap-4 sm:grid-cols-2">
               {channels.map((channel) => (
-                <Card
-                  key={channel.id}
-                  hoverable
-                  className="cursor-pointer"
-                  onClick={() => navigate(`/app/group/${channel.id}`)}
-                >
+                <Card key={channel.id} hoverable className="cursor-pointer" onClick={() => navigate(`/app/group/${channel.id}`)}>
                   <div className="flex items-start justify-between">
                     <div>
                       <h3 className="font-semibold text-neutral-800 dark:text-neutral-100">
@@ -228,10 +124,7 @@ export function DashboardPage() {
                         {channel.description}
                       </p>
                     </div>
-                    <ChevronRight
-                      size={18}
-                      className="shrink-0 text-neutral-300 dark:text-neutral-600"
-                    />
+                    <ChevronRight size={18} className="shrink-0 text-neutral-300 dark:text-neutral-600" />
                   </div>
                   <div className="mt-4 flex items-center gap-4 text-xs text-neutral-400 dark:text-neutral-500">
                     <span className="flex items-center gap-1">
@@ -259,10 +152,7 @@ export function DashboardPage() {
               최근 작업 페이지
             </h2>
             <Card className="divide-y divide-neutral-100 p-0 dark:divide-neutral-700/50">
-              {recentPages.length === 0 && (
-                <p className="px-5 py-4 text-sm text-neutral-400">최근 작업한 페이지가 없습니다.</p>
-              )}
-              {recentPages.map((page) => (
+              {MOCK_RECENT_PAGES.map((page) => (
                 <button
                   key={page.id}
                   className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
@@ -303,9 +193,7 @@ export function DashboardPage() {
             <Card className="space-y-3 p-3">
               {scheduledMeetings.length > 0 && (
                 <div>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">
-                    예정
-                  </p>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">예정</p>
                   {scheduledMeetings.map((m) => (
                     <button
                       key={m.id}
@@ -317,9 +205,7 @@ export function DashboardPage() {
                     >
                       <Video size={14} className="shrink-0 text-blue-500" />
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                          {m.title}
-                        </p>
+                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">{m.title}</p>
                         <p className="text-[10px] text-neutral-400">
                           <Calendar size={10} className="mr-0.5 inline" />
                           {m.scheduledAt}
@@ -331,9 +217,7 @@ export function DashboardPage() {
               )}
               {recentMeetings.length > 0 && (
                 <div>
-                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">
-                    최근
-                  </p>
+                  <p className="mb-1.5 text-[10px] font-semibold uppercase text-neutral-400">최근</p>
                   {recentMeetings.map((m) => (
                     <button
                       key={m.id}
@@ -342,12 +226,8 @@ export function DashboardPage() {
                     >
                       <Video size={14} className="shrink-0 text-neutral-400" />
                       <div className="flex-1 min-w-0">
-                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">
-                          {m.title}
-                        </p>
-                        <p className="text-[10px] text-neutral-400">
-                          {m.duration} · {m.participants.length}명
-                        </p>
+                        <p className="truncate text-xs font-medium text-neutral-700 dark:text-neutral-200">{m.title}</p>
+                        <p className="text-[10px] text-neutral-400">{m.duration} · {m.participants.length}명</p>
                       </div>
                     </button>
                   ))}
@@ -362,12 +242,9 @@ export function DashboardPage() {
               내 할 일
             </h2>
             <Card className="space-y-1 p-3">
-              {myTasks.length === 0 && (
-                <p className="px-3 py-2 text-sm text-neutral-400">배정된 할 일이 없습니다.</p>
-              )}
-              {myTasks.map((task) => {
-                const priority = priorityConfig[task.priority as TaskPriority]
-                const status = statusConfig[task.status as TaskStatus]
+              {MOCK_MY_TASKS.map((task) => {
+                const priority = priorityConfig[task.priority]
+                const status = statusConfig[task.status]
                 const StatusIcon = status.icon
                 const isDone = task.status === 'done'
 
@@ -381,15 +258,11 @@ export function DashboardPage() {
                       className={`mt-0.5 shrink-0 ${isDone ? 'text-success' : task.status === 'in-progress' ? 'text-primary-500' : 'text-neutral-300 dark:text-neutral-600'}`}
                     />
                     <div className="flex-1 min-w-0">
-                      <p
-                        className={`text-sm ${isDone ? 'text-neutral-400 line-through dark:text-neutral-500' : 'text-neutral-800 dark:text-neutral-100'}`}
-                      >
+                      <p className={`text-sm ${isDone ? 'text-neutral-400 line-through dark:text-neutral-500' : 'text-neutral-800 dark:text-neutral-100'}`}>
                         {task.title}
                       </p>
                       <div className="mt-1 flex items-center gap-2">
-                        <span
-                          className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${priority.color}`}
-                        >
+                        <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${priority.color}`}>
                           {priority.label}
                         </span>
                         <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
@@ -411,9 +284,7 @@ export function DashboardPage() {
             <Card>
               <div className="flex items-center gap-2 mb-3">
                 <Ticket size={18} className="text-primary-500" />
-                <p className="text-sm text-neutral-700 dark:text-neutral-200">
-                  초대 코드로 채널에 참여하세요
-                </p>
+                <p className="text-sm text-neutral-700 dark:text-neutral-200">초대 코드로 채널에 참여하세요</p>
               </div>
               <div className="flex gap-2">
                 <input
@@ -422,12 +293,30 @@ export function DashboardPage() {
                   onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
                   placeholder="초대 코드 6자리"
                   maxLength={6}
-                  disabled={joining}
                   className="flex-1 rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm uppercase tracking-widest outline-none transition placeholder:normal-case placeholder:tracking-normal focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
                 />
-                <Button size="sm" onClick={handleJoinGroup} disabled={joining}>
+                <Button size="sm" onClick={handleJoinGroup}>
                   <ArrowRight size={16} />
                 </Button>
+              </div>
+
+              <div className="mt-4 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">
+                <p className="mb-2 text-xs font-medium text-neutral-500 dark:text-neutral-400">내 채널 초대 코드</p>
+                <div className="flex items-center justify-between">
+                  <span className="rounded bg-primary-50 px-2.5 py-1 text-sm font-semibold tracking-[0.25em] text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
+                    MK7X3P
+                  </span>
+                  <button
+                    onClick={() => {
+                      navigator.clipboard.writeText('MK7X3P')
+                      addToast('success', '초대 코드가 복사되었습니다.')
+                    }}
+                    className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                    title="초대 코드 복사"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
               </div>
             </Card>
           </section>
@@ -435,16 +324,8 @@ export function DashboardPage() {
       </div>
 
       {/* 모달 */}
-      <CreateGroupModal
-        isOpen={showCreateGroup}
-        onClose={() => setShowCreateGroup(false)}
-        onCreated={fetchDashboard}
-      />
-      <JoinGroupModal
-        isOpen={showJoinGroup}
-        onClose={() => setShowJoinGroup(false)}
-        onJoined={fetchDashboard}
-      />
+      <CreateGroupModal isOpen={showCreateGroup} onClose={() => setShowCreateGroup(false)} />
+      <JoinGroupModal isOpen={showJoinGroup} onClose={() => setShowJoinGroup(false)} />
     </div>
   )
 }
