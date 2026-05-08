@@ -201,7 +201,7 @@ export function MeetingRoomPage() {
     ? mappedParticipants
     : [{
         id: 'local-placeholder',
-        name: authUser?.name ?? 'Guest',
+        name: authUser?.name ?? '(이름 미설정)',
         position: authUser?.position ?? '',
         isMuted: false,
         isSpeaking: false,
@@ -354,18 +354,20 @@ export function MeetingRoomPage() {
     })
     sttSocketRef.current = socket
 
-    // speakerMap 구성 (LiveKit participants 직접 참조)
-    // speakerMap: Google STT speakerTag(1-based) → 사용자 이름
-    // LiveKit 참여자가 있으면 순서대로 매핑, 없으면 현재 로그인 유저를 tag 1에 고정.
-    // tag 1이 현재 유저로 보장되므로 1인 녹음 시 "Speaker 1" 대신 실제 이름이 표시됨.
+    // speakerMap 구성 (Google STT speakerTag 1-based → 사용자 이름)
+    // 현재 로그인 유저를 항상 tag 1에 우선 고정 — 그래야 본인이 LiveKit 참여자
+    // 목록의 idx 0 이 아닐 때도 "tag 1 = me" 가 보장됨. 나머지 참여자는 tag 2~ 로.
     const speakerMap: Record<string, string> = {}
-    if (voiceChat.participants.length > 0) {
-      voiceChat.participants.forEach((p, idx) => { if (p.name) speakerMap[String(idx + 1)] = p.name })
-    }
-    // 현재 유저가 아직 매핑에 없으면 tag 1에 보장 삽입 (1인 사용 / LiveKit 미연결 대비)
-    if (authUser?.name && !Object.values(speakerMap).includes(authUser.name)) {
-      speakerMap['1'] = authUser.name
-    }
+    if (authUser?.name) speakerMap['1'] = authUser.name
+
+    let nextTag = authUser?.name ? 2 : 1
+    voiceChat.participants.forEach((p) => {
+      if (!p.name) return
+      // 본인은 이미 tag 1에 매핑됐으므로 스킵
+      if (authUser?.name && p.name === authUser.name) return
+      speakerMap[String(nextTag)] = p.name
+      nextTag++
+    })
 
     socket.on('connect', () => {
       socket.emit('meeting:join', { meetingId: id, speakerMap })

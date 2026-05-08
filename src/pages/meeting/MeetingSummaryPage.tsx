@@ -72,6 +72,7 @@ export function MeetingSummaryPage() {
   const error = useMeetingStore((s) => s.error)
   const loadMeeting = useMeetingStore((s) => s.loadMeeting)
   const confirmActionItems = useMeetingStore((s) => s.confirmActionItems)
+  const updateActionItem = useMeetingStore((s) => s.updateActionItem)
   const refreshTasks = useTasksStore((s) => s.refresh)
   const authUser = useAuthStore((s) => s.user)
 
@@ -174,12 +175,37 @@ export function MeetingSummaryPage() {
     }
   }, [meeting, actionItems.length, initializeReviewItems, registeredIds.size])
 
-  /* ── 선택된 아이템 등록 처리 (백엔드 confirm API 호출) ── */
+  /* ── 선택된 아이템 등록 처리 (편집값 PUT → confirm API) ── */
+  // 모달에서 편집한 title/assignee/dueDate 가 작업보드에 반영되려면
+  // confirm 전에 updateActionItem 으로 서버 DB 를 먼저 갱신해야 함.
+  // (confirm API 는 DB 의 원본 행을 그대로 tasks 에 복사하므로 편집값이 누락됨)
   const handleRegister = async (items: ReviewItem[]) => {
     const toRegister = items.filter((item) => item.selected && !item.done)
     if (toRegister.length === 0 || !id) return
 
     try {
+      // 편집된 항목만 골라 서버 동기화 (원본 대비 다른 값이 있으면 PUT)
+      const dirty = toRegister.filter((item) => {
+        const original = actionItems.find((a) => a.id === item.id)
+        if (!original) return false
+        return (
+          original.title !== item.title ||
+          (original.assignee ?? '') !== item.assignee ||
+          (original.dueDate ?? '') !== item.dueDate
+        )
+      })
+      if (dirty.length > 0) {
+        await Promise.all(
+          dirty.map((item) =>
+            updateActionItem(id, item.id, {
+              title: item.title,
+              assignee: item.assignee || null,
+              dueDate: item.dueDate || null,
+            }),
+          ),
+        )
+      }
+
       await confirmActionItems(id, toRegister.map((item) => item.id))
       // 칸반 보드에 즉시 반영 — 사용자가 /app/tasks 로 이동 시 새 카드가 보여야 함
       void refreshTasks()
