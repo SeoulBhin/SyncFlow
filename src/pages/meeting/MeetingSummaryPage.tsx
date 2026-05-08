@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   Video,
@@ -12,12 +12,13 @@ import {
   X,
   Trash2,
   ArrowUpRight,
+  Loader2,
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
-import { MOCK_CHANNEL_MEMBERS } from '@/constants'
 import { useToastStore } from '@/stores/useToastStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useTasksStore } from '@/stores/useTasksStore'
+import { useAuthStore } from '@/stores/useAuthStore'
 
 /* ── 액션 아이템 리뷰용 타입 ── */
 type ReviewItem = {
@@ -72,17 +73,68 @@ export function MeetingSummaryPage() {
   const loadMeeting = useMeetingStore((s) => s.loadMeeting)
   const confirmActionItems = useMeetingStore((s) => s.confirmActionItems)
   const refreshTasks = useTasksStore((s) => s.refresh)
+  const authUser = useAuthStore((s) => s.user)
 
   const [showReviewModal, setShowReviewModal] = useState(false)
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
   const [registeredIds, setRegisteredIds] = useState<Set<string>>(new Set())
+  const [isPolling, setIsPolling] = useState(false)
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // 회의 데이터 로드
+  // 트랜스크립트 화자 이름 목록 + 현재 로그인 유저로 담당자 드롭다운 구성
+  // MOCK_CHANNEL_MEMBERS 제거 — 실제 발화자 이름을 우선 사용
+  const assigneeOptions = useMemo(() => {
+    const names = new Set<string>()
+    if (authUser?.name) names.add(authUser.name)
+    transcripts.forEach((t) => { if (t.speaker) names.add(t.speaker) })
+    actionItems.forEach((a) => { if (a.assignee) names.add(a.assignee) })
+    return Array.from(names)
+  }, [authUser?.name, transcripts, actionItems])
+
+  // 회의 데이터 최초 로드
   useEffect(() => {
     if (id) {
       void loadMeeting(id)
     }
   }, [id, loadMeeting])
+
+  // A-4: 회의가 ended인데 summary가 아직 null이면 3초 간격 폴링 (최대 10회 = 30초)
+  // Gemini API 처리 시간 동안 사용자에게 "AI 처리 중" 상태를 명확히 안내
+  useEffect(() => {
+    if (!id) return
+    if (meeting?.status !== 'ended' || summary !== null) {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+        setIsPolling(false)
+      }
+      return
+    }
+
+    setIsPolling(true)
+    let attempts = 0
+    const MAX_ATTEMPTS = 10
+
+    pollRef.current = setInterval(() => {
+      attempts++
+      void loadMeeting(id).then(() => {
+        const latestSummary = useMeetingStore.getState().currentSummary
+        if (latestSummary !== null || attempts >= MAX_ATTEMPTS) {
+          if (pollRef.current) clearInterval(pollRef.current)
+          pollRef.current = null
+          setIsPolling(false)
+        }
+      })
+    }, 3000)
+
+    return () => {
+      if (pollRef.current) {
+        clearInterval(pollRef.current)
+        pollRef.current = null
+        setIsPolling(false)
+      }
+    }
+  }, [id, meeting?.status, summary, loadMeeting])
 
   // 등록된 액션아이템 동기화 (서버에서 confirmed=true로 표시된 항목)
   useEffect(() => {
@@ -93,22 +145,19 @@ export function MeetingSummaryPage() {
 
   /* ── 회의 액션 아이템에서 ReviewItem 초기화 ── */
   const initializeReviewItems = useCallback((): ReviewItem[] => {
-    return actionItems.map((item) => {
-      const member = MOCK_CHANNEL_MEMBERS.find((m) => m.name === item.assignee)
-      return {
-        id: item.id,
-        title: item.title,
-        assignee: item.assignee ?? '',
-        assigneeId: member?.id ?? 'u1',
-        dueDate:
-          item.dueDate ??
-          new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
-        priority: 'normal' as const,
-        selected: !item.confirmed,
-        done: item.confirmed,
-      }
-    })
-  }, [actionItems])
+    return actionItems.map((item) => ({
+      id: item.id,
+      title: item.title,
+      assignee: item.assignee ?? authUser?.name ?? '',
+      assigneeId: item.assignee ?? authUser?.name ?? '',
+      dueDate:
+        item.dueDate ??
+        new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+      priority: 'normal' as const,
+      selected: !item.confirmed,
+      done: item.confirmed,
+    }))
+  }, [actionItems, authUser?.name])
 
   /* ── 회의 종료 상태일 때 500ms 후 모달 자동 표시 ── */
   useEffect(() => {
@@ -266,8 +315,8 @@ export function MeetingSummaryPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* 좌측 2열 */}
         <div className="space-y-6 lg:col-span-2">
-          {/* AI 요약 */}
-          {summary && (
+          {/* AI 요약 — 처리 중이면 폴링 배너 표시 */}
+          {summary ? (
             <Card>
               <div className="mb-3 flex items-center gap-2">
                 <FileText size={16} className="text-primary-500" />
@@ -279,7 +328,21 @@ export function MeetingSummaryPage() {
                 {summary.summary}
               </p>
             </Card>
-          )}
+          ) : meeting?.status === 'ended' && isPolling ? (
+            <Card>
+              <div className="flex items-center gap-3 py-2">
+                <Loader2 size={18} className="shrink-0 animate-spin text-primary-500" />
+                <div>
+                  <p className="text-sm font-medium text-neutral-700 dark:text-neutral-200">
+                    AI가 회의록을 생성하고 있습니다...
+                  </p>
+                  <p className="mt-0.5 text-xs text-neutral-400">
+                    Gemini가 트랜스크립트를 분석 중입니다. 잠시 기다려 주세요.
+                  </p>
+                </div>
+              </div>
+            </Card>
+          ) : null}
 
           {/* 회의록 */}
           {transcripts.length > 0 && (
@@ -485,28 +548,39 @@ export function MeetingSummaryPage() {
                               <span className="text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                                 담당
                               </span>
-                              <select
-                                value={item.assigneeId}
-                                disabled={item.done}
-                                onChange={(e) => {
-                                  const member = MOCK_CHANNEL_MEMBERS.find(
-                                    (m) => m.id === e.target.value,
-                                  )
-                                  if (member) {
+                              {assigneeOptions.length > 0 ? (
+                                <select
+                                  value={item.assigneeId}
+                                  disabled={item.done}
+                                  onChange={(e) =>
                                     updateReviewItem(item.id, {
-                                      assigneeId: member.id,
-                                      assignee: member.name,
+                                      assigneeId: e.target.value,
+                                      assignee: e.target.value,
                                     })
                                   }
-                                }}
-                                className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 focus:border-primary-400 focus:outline-none dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200"
-                              >
-                                {MOCK_CHANNEL_MEMBERS.map((member) => (
-                                  <option key={member.id} value={member.id}>
-                                    {member.name}
-                                  </option>
-                                ))}
-                              </select>
+                                  className="rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 focus:border-primary-400 focus:outline-none dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200"
+                                >
+                                  {assigneeOptions.map((name) => (
+                                    <option key={name} value={name}>
+                                      {name}
+                                    </option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <input
+                                  type="text"
+                                  value={item.assignee}
+                                  disabled={item.done}
+                                  placeholder="담당자 이름"
+                                  onChange={(e) =>
+                                    updateReviewItem(item.id, {
+                                      assignee: e.target.value,
+                                      assigneeId: e.target.value,
+                                    })
+                                  }
+                                  className="w-24 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-700 focus:border-primary-400 focus:outline-none dark:border-neutral-600 dark:bg-neutral-800 dark:text-neutral-200"
+                                />
+                              )}
                             </div>
 
                             <div className="flex items-center gap-1.5">

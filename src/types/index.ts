@@ -104,6 +104,7 @@ export interface ApiMeeting {
   endedAt: string | null
   createdAt: string
   updatedAt: string
+  speakerCount?: number
 }
 
 export interface ApiMeetingTranscript {

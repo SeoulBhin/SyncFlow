@@ -355,8 +355,17 @@ export function MeetingRoomPage() {
     sttSocketRef.current = socket
 
     // speakerMap 구성 (LiveKit participants 직접 참조)
+    // speakerMap: Google STT speakerTag(1-based) → 사용자 이름
+    // LiveKit 참여자가 있으면 순서대로 매핑, 없으면 현재 로그인 유저를 tag 1에 고정.
+    // tag 1이 현재 유저로 보장되므로 1인 녹음 시 "Speaker 1" 대신 실제 이름이 표시됨.
     const speakerMap: Record<string, string> = {}
-    voiceChat.participants.forEach((p, idx) => { if (p.name) speakerMap[String(idx + 1)] = p.name })
+    if (voiceChat.participants.length > 0) {
+      voiceChat.participants.forEach((p, idx) => { if (p.name) speakerMap[String(idx + 1)] = p.name })
+    }
+    // 현재 유저가 아직 매핑에 없으면 tag 1에 보장 삽입 (1인 사용 / LiveKit 미연결 대비)
+    if (authUser?.name && !Object.values(speakerMap).includes(authUser.name)) {
+      speakerMap['1'] = authUser.name
+    }
 
     socket.on('connect', () => {
       socket.emit('meeting:join', { meetingId: id, speakerMap })

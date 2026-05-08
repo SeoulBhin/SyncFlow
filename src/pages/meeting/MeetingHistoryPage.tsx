@@ -168,10 +168,12 @@ export function MeetingHistoryPage() {
                         {formatDuration(m.startedAt, m.endedAt)}
                       </span>
                     )}
-                    <span className="flex items-center gap-1">
-                      <Users size={11} />
-                      참여자
-                    </span>
+                    {typeof m.speakerCount === 'number' && m.speakerCount > 0 && (
+                      <span className="flex items-center gap-1">
+                        <Users size={11} />
+                        {m.speakerCount}명 발화
+                      </span>
+                    )}
                   </div>
                 </div>
                 <ChevronRight size={16} className="shrink-0 text-neutral-300 dark:text-neutral-600" />

@@ -271,13 +271,26 @@ export class MeetingsService {
     return this.actionItemRepo.find({ where: { meetingId, confirmed: true } })
   }
 
-  // 현재 사용자 회의 목록 (최근 50건)
+  // 현재 사용자 회의 목록 (최근 50건) — 각 회의의 발화자 수(speakerCount) 포함
   async getMyMeetings(hostId: string) {
-    return this.meetingRepo.find({
+    const meetings = await this.meetingRepo.find({
       where: { hostId },
       order: { createdAt: 'DESC' },
       take: 50,
     })
+    if (meetings.length === 0) return []
+
+    const rows = await this.transcriptRepo
+      .createQueryBuilder('t')
+      .select('t.meetingId', 'meetingId')
+      .addSelect('COUNT(DISTINCT t.speaker)', 'speakerCount')
+      .where('t.meetingId IN (:...ids)', { ids: meetings.map((m) => m.id) })
+      .andWhere('t.speaker IS NOT NULL')
+      .groupBy('t.meetingId')
+      .getRawMany<{ meetingId: string; speakerCount: string }>()
+
+    const countMap = new Map(rows.map((r) => [r.meetingId, parseInt(r.speakerCount, 10)]))
+    return meetings.map((m) => ({ ...m, speakerCount: countMap.get(m.id) ?? 0 }))
   }
 
   // 프로젝트 회의 목록
