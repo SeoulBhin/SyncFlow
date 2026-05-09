@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect } from 'react'
-import { X, Send, CheckCheck, Loader2, Sparkles } from 'lucide-react'
+import { X, Send, CheckCheck, Loader2, Sparkles, CheckSquare, Trash2 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useThreadStore } from '@/stores/useThreadStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
@@ -17,9 +17,46 @@ function formatTime(iso: string): string {
 
 // ── ReplyItem ─────────────────────────────────────────────────────────────────
 
-function ReplyItem({ reply }: { reply: ChatMessage }) {
+interface ReplyItemProps {
+  reply: ChatMessage
+  onDelete: (reply: ChatMessage) => void
+  onEdit: (reply: ChatMessage) => void
+}
+
+function ReplyItem({ reply, onDelete, onEdit }: ReplyItemProps) {
+  const [hovered, setHovered] = useState(false)
+
   return (
-    <div className={cn('flex', reply.isOwn ? 'justify-end' : 'justify-start')}>
+    <div
+      className={cn('group relative flex', reply.isOwn ? 'justify-end' : 'justify-start')}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+    >
+      {/* Hover action bar — 본인 메시지만 표시 */}
+      {hovered && reply.isOwn && (
+        <div
+          className={cn(
+            'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-sm dark:border-neutral-700 dark:bg-neutral-800',
+            reply.isOwn ? 'right-0' : 'left-0',
+          )}
+        >
+          <button
+            onClick={() => onEdit(reply)}
+            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-blue-500 dark:hover:bg-neutral-700"
+            title="수정"
+          >
+            <CheckSquare size={13} />
+          </button>
+          <button
+            onClick={() => onDelete(reply)}
+            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-700"
+            title="삭제"
+          >
+            <Trash2 size={13} />
+          </button>
+        </div>
+      )}
+
       <div className="max-w-[85%]">
         {!reply.isOwn && (
           <p className="mb-0.5 flex items-center gap-1 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
@@ -57,6 +94,51 @@ function ReplyItem({ reply }: { reply: ChatMessage }) {
   )
 }
 
+// ── EditReplyForm ─────────────────────────────────────────────────────────────
+
+interface EditReplyFormProps {
+  initialContent: string
+  onSave: (content: string) => void
+  onCancel: () => void
+}
+
+function EditReplyForm({ initialContent, onSave, onCancel }: EditReplyFormProps) {
+  const [text, setText] = useState(initialContent)
+
+  return (
+    <div className="flex flex-col gap-1">
+      <textarea
+        autoFocus
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter' && !e.shiftKey) {
+            e.preventDefault()
+            if (text.trim()) onSave(text.trim())
+          }
+          if (e.key === 'Escape') onCancel()
+        }}
+        rows={2}
+        className="w-full resize-none rounded-lg border border-primary-300 bg-surface px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-primary-100 dark:bg-neutral-800"
+      />
+      <div className="flex gap-1 text-xs">
+        <button
+          onClick={() => text.trim() && onSave(text.trim())}
+          className="rounded bg-primary-500 px-2 py-0.5 text-white"
+        >
+          저장
+        </button>
+        <button
+          onClick={onCancel}
+          className="rounded bg-neutral-200 px-2 py-0.5 dark:bg-neutral-700"
+        >
+          취소
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── ThreadPanel ───────────────────────────────────────────────────────────────
 
 export function ThreadPanel() {
@@ -68,10 +150,13 @@ export function ThreadPanel() {
     error,
     closeThread,
     sendReply,
+    deleteReply,
+    updateReply,
   } = useThreadStore()
   const { closePanel } = useDetailPanelStore()
 
   const [replyInput, setReplyInput] = useState('')
+  const [editingReplyId, setEditingReplyId] = useState<string | null>(null)
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -85,6 +170,7 @@ export function ThreadPanel() {
     if (selectedThreadId) {
       inputRef.current?.focus()
       setReplyInput('')
+      setEditingReplyId(null)
     }
   }, [selectedThreadId])
 
@@ -103,6 +189,27 @@ export function ThreadPanel() {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
       handleSend()
+    }
+  }
+
+  const handleDelete = async (reply: ChatMessage) => {
+    if (!window.confirm('댓글을 삭제하시겠습니까?')) return
+    try {
+      await deleteReply(reply.id, reply.channelId)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '삭제 실패'
+      alert(`삭제에 실패했습니다: ${msg}`)
+    }
+  }
+
+  const handleSaveEdit = async (reply: ChatMessage, content: string) => {
+    try {
+      await updateReply(reply.id, content)
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : '수정 실패'
+      alert(`수정에 실패했습니다: ${msg}`)
+    } finally {
+      setEditingReplyId(null)
     }
   }
 
@@ -184,9 +291,29 @@ export function ThreadPanel() {
           <p className="py-4 text-center text-xs text-red-400">{error}</p>
         ) : (
           <div className="space-y-3">
-            {threadReplies.map((reply) => (
-              <ReplyItem key={reply.id} reply={reply} />
-            ))}
+            {threadReplies.map((reply) =>
+              editingReplyId === reply.id ? (
+                <div
+                  key={reply.id}
+                  className={cn('flex', reply.isOwn ? 'justify-end' : 'justify-start')}
+                >
+                  <div className="max-w-[85%] w-full">
+                    <EditReplyForm
+                      initialContent={reply.content}
+                      onSave={(content) => void handleSaveEdit(reply, content)}
+                      onCancel={() => setEditingReplyId(null)}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <ReplyItem
+                  key={reply.id}
+                  reply={reply}
+                  onDelete={(r) => void handleDelete(r)}
+                  onEdit={(r) => setEditingReplyId(r.id)}
+                />
+              ),
+            )}
             <div ref={messagesEndRef} />
           </div>
         )}

@@ -33,6 +33,8 @@ interface ChatState {
   error: string | null
   /** 소켓 연결 여부 */
   isSocketConnected: boolean
+  /** 소켓 연결 시 서버가 할당한 실효 userId (미인증 시 anon-xxx) */
+  socketUserId: string | null
 
   // ── Actions ────────────────────────────────────────────────────────────────
   loadChannels: (groupId: string) => Promise<void>
@@ -53,9 +55,38 @@ interface ChatState {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+/**
+ * 소켓 연결 이후 서버에 저장되는 실효 userId.
+ * JWT 인증 사용자는 user.id, 미인증은 anon-{socketId}.
+ * withIsOwn에서 user?.id 가 없을 때 fallback으로 사용.
+ */
+let _effectiveUserId: string | null = null
+
+/**
+ * localStorage accessToken에서 JWT sub(userId)를 파싱.
+ * /auth/me 응답이 빈 객체여서 user.id가 undefined일 때 사용하는 fallback.
+ */
+function getUserIdFromToken(): string | null {
+  try {
+    const token = localStorage.getItem('accessToken')
+    if (!token) return null
+    const b64 = token.split('.')[1]
+    if (!b64) return null
+    const payload = JSON.parse(atob(b64.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
+    return typeof payload.sub === 'string' ? payload.sub : null
+  } catch {
+    return null
+  }
+}
+
+/** 현재 실효 userId를 반환 (useThreadStore 등 외부에서 사용) */
+export function getEffectiveUserId(): string | null {
+  return useAuthStore.getState().user?.id ?? getUserIdFromToken() ?? _effectiveUserId
+}
+
 function withIsOwn(msg: ChatMessage): ChatMessage {
-  const userId = useAuthStore.getState().user?.id
-  return { ...msg, isOwn: msg.authorId === userId }
+  const userId = getEffectiveUserId()
+  return { ...msg, isOwn: !!userId && msg.authorId === userId }
 }
 
 function upsertMessage(
@@ -84,6 +115,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   isLoading: false,
   error: null,
   isSocketConnected: false,
+  socketUserId: null,
 
   // ── Channel ops ────────────────────────────────────────────────────────────
 
@@ -264,13 +296,32 @@ export const useChatStore = create<ChatState>((set, get) => ({
 
     set({ isSocketConnected: sock.connected })
 
-    sock.on('connect', () => set({ isSocketConnected: true }))
+    sock.on('connect', () => {
+      // 실효 userId 우선순위: store user.id > JWT sub > anon-{socketId}
+      // user.id가 없는 경우(/auth/me 응답 문제)에도 JWT에서 직접 추출해 정확한 isOwn 계산
+      const user = useAuthStore.getState().user
+      const effectiveId = user?.id || getUserIdFromToken() || `anon-${sock.id.slice(0, 6)}`
+      _effectiveUserId = effectiveId
+
+      set((s) => {
+        // 이미 로드된 메시지들의 isOwn을 재계산 (소켓 연결 전에 로드된 경우 대비)
+        const updated: Record<string, ChatMessage[]> = {}
+        for (const [cId, msgs] of Object.entries(s.messages)) {
+          updated[cId] = msgs.map(withIsOwn)
+        }
+        return { isSocketConnected: true, socketUserId: effectiveId, messages: updated }
+      })
+    })
     sock.on('disconnect', () => set({ isSocketConnected: false }))
 
     // New / updated message
     sock.on('chat:message', ({ message }: { message: ChatMessage }) => {
+      // parentId가 있는 메시지는 thread reply → 채널 목록에 추가하지 않음
+      // useThreadStore의 chat:message 핸들러가 스레드 쪽에만 반영함
+      if (message.parentId) return
+
       const channelId = message.channelId
-      const currentUserId = useAuthStore.getState().user?.id
+      const currentUserId = getEffectiveUserId()
 
       set((s) => {
         const isActiveChannel = s.activeChannelId === channelId

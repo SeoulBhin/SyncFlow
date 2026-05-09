@@ -117,7 +117,10 @@ export function ChannelView() {
   const [hoveredMsgId, setHoveredMsgId] = useState<string | null>(null)
   const [editingMsgId, setEditingMsgId] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
-  const [attachedFiles, setAttachedFiles] = useState<File[]>([])
+  /** 선택 즉시 업로드 완료된 [📎 이름](url) 링크 목록 */
+  const [pendingLinks, setPendingLinks] = useState<string[]>([])
+  /** 현재 업로드 중인 파일명 목록 */
+  const [uploadingFileNames, setUploadingFileNames] = useState<string[]>([])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -210,38 +213,23 @@ export function ChannelView() {
     prevScrollHeightRef.current = 0
   }, [activeMessages.length])
 
-  const handleSend = useCallback(async () => {
-    if ((!inputText.trim() && attachedFiles.length === 0) || !activeChannelId) return
+  const handleSend = useCallback(() => {
+    // 업로드 중이거나 보낼 내용이 없으면 전송 불가
+    if (uploadingFileNames.length > 0) return
+    if ((!inputText.trim() && pendingLinks.length === 0) || !activeChannelId) return
 
-    let content = inputText.trim()
-
-    if (attachedFiles.length > 0) {
-      const uploaded = await Promise.allSettled(
-        attachedFiles.map(async (file) => {
-          const form = new FormData()
-          form.append('file', file)
-          const res = await apiFetch('/api/upload', { method: 'POST', body: form })
-          if (!res.ok) throw new Error('upload failed')
-          const data: { fileUrl: string; fileName: string } = await res.json()
-          return `[📎 ${data.fileName}](${data.fileUrl})`
-        }),
-      )
-      const links = uploaded
-        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
-        .map((r) => r.value)
-      content = [content, ...links].filter(Boolean).join('\n')
-    }
-
+    const content = [inputText.trim(), ...pendingLinks].filter(Boolean).join('\n')
     if (!content.trim()) return
+
     sendMessage(activeChannelId, content)
     setInputText('')
-    setAttachedFiles([])
-  }, [inputText, attachedFiles, activeChannelId, sendMessage])
+    setPendingLinks([])
+  }, [inputText, pendingLinks, uploadingFileNames, activeChannelId, sendMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault()
-      void handleSend()
+      handleSend()
     }
   }
 
@@ -326,10 +314,48 @@ export function ChannelView() {
   }
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
-    if (e.target.files) {
-      setAttachedFiles((prev) => [...prev, ...Array.from(e.target.files!)])
-    }
+    if (!e.target.files || e.target.files.length === 0) return
+    const files = Array.from(e.target.files)
+    // 같은 파일을 다시 선택해도 onChange가 동작하도록 즉시 초기화
     e.target.value = ''
+
+    // 파일 선택 즉시 업로드 시작 (fire-and-forget)
+    void (async () => {
+      const names = files.map((f) => f.name)
+      setUploadingFileNames((prev) => [...prev, ...names])
+
+      const results = await Promise.allSettled(
+        files.map(async (file) => {
+          const form = new FormData()
+          form.append('file', file)
+          const res = await apiFetch('/api/upload', { method: 'POST', body: form })
+          if (!res.ok) {
+            const errText = await res.text().catch(() => res.statusText)
+            throw new Error(`${file.name}: ${errText || `HTTP ${res.status}`}`)
+          }
+          const data: { fileUrl: string; fileName: string } = await res.json()
+          return `[📎 ${data.fileName}](${data.fileUrl})`
+        }),
+      )
+
+      setUploadingFileNames((prev) => prev.filter((n) => !names.includes(n)))
+
+      const failed = results.filter(
+        (r): r is PromiseRejectedResult => r.status === 'rejected',
+      )
+      if (failed.length > 0) {
+        const reasons = failed.map((r) => (r.reason as Error).message).join('\n')
+        console.error('[ChannelView] 파일 업로드 실패:', reasons)
+        alert(`파일 업로드에 실패했습니다:\n${reasons}`)
+      }
+
+      const links = results
+        .filter((r): r is PromiseFulfilledResult<string> => r.status === 'fulfilled')
+        .map((r) => r.value)
+      if (links.length > 0) {
+        setPendingLinks((prev) => [...prev, ...links])
+      }
+    })()
   }
 
   // ── Render ────────────────────────────────────────────────────────────────
@@ -704,28 +730,42 @@ export function ChannelView() {
             </div>
           )}
 
-          {/* 첨부 파일 미리보기 */}
-          {attachedFiles.length > 0 && (
+          {/* 파일 미리보기: 업로드 중 + 완료된 링크 */}
+          {(uploadingFileNames.length > 0 || pendingLinks.length > 0) && (
             <div className="mb-2 flex flex-wrap gap-1">
-              {attachedFiles.map((file, idx) => (
+              {/* 업로드 중 배지 */}
+              {uploadingFileNames.map((name) => (
                 <span
-                  key={idx}
-                  className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+                  key={name}
+                  className="inline-flex items-center gap-1 rounded-md bg-amber-50 px-2 py-0.5 text-xs text-amber-600 dark:bg-amber-900/20 dark:text-amber-400"
                 >
-                  <Paperclip size={10} />
-                  <span className="max-w-[120px] truncate">{file.name}</span>
-                  <button
-                    onClick={() =>
-                      setAttachedFiles((prev) =>
-                        prev.filter((_, i) => i !== idx),
-                      )
-                    }
-                    className="rounded-full p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600"
-                  >
-                    <X size={10} />
-                  </button>
+                  <Loader2 size={10} className="animate-spin" />
+                  <span className="max-w-[120px] truncate">{name}</span>
                 </span>
               ))}
+              {/* 업로드 완료된 링크 배지 */}
+              {pendingLinks.map((link, idx) => {
+                // [📎 name](url) 에서 name 추출
+                const match = /\[📎 ([^\]]+)\]/.exec(link)
+                const displayName = match ? match[1] : `파일 ${idx + 1}`
+                return (
+                  <span
+                    key={idx}
+                    className="inline-flex items-center gap-1 rounded-md bg-neutral-100 px-2 py-0.5 text-xs text-neutral-600 dark:bg-neutral-700 dark:text-neutral-300"
+                  >
+                    <Paperclip size={10} />
+                    <span className="max-w-[120px] truncate">{displayName}</span>
+                    <button
+                      onClick={() =>
+                        setPendingLinks((prev) => prev.filter((_, i) => i !== idx))
+                      }
+                      className="rounded-full p-0.5 hover:bg-neutral-200 dark:hover:bg-neutral-600"
+                    >
+                      <X size={10} />
+                    </button>
+                  </span>
+                )
+              })}
             </div>
           )}
 
@@ -774,8 +814,11 @@ export function ChannelView() {
             </button>
 
             <button
-              onClick={() => void handleSend()}
-              disabled={(!inputText.trim() && attachedFiles.length === 0) || !activeChannelId}
+              onClick={handleSend}
+              disabled={
+                uploadingFileNames.length > 0 ||
+                ((!inputText.trim() && pendingLinks.length === 0) || !activeChannelId)
+              }
               className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary-500 text-white transition-colors hover:bg-primary-600 disabled:opacity-40"
             >
               <Send size={16} />

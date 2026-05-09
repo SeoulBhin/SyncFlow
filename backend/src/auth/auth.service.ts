@@ -146,9 +146,16 @@ export class AuthService {
     return user
   }
 
+  /* ── userId로 프로필 조회 ── */
+  async findById(id: string) {
+    const user = await this.userRepository.findOne({ where: { id } })
+    if (!user) throw new NotFoundException('사용자를 찾을 수 없습니다')
+    return this.toProfile(user)
+  }
+
   /* ── JWT 발급 ── */
   generateTokens(user: User) {
-    const payload = { sub: user.id, email: user.email }
+    const payload = { sub: user.id, email: user.email, name: user.name }
     const accessToken = this.jwtService.sign(payload, {
       secret: this.configService.get<string>('JWT_SECRET', 'fallback-secret'),
       expiresIn: this.configService.get<string>('JWT_ACCESS_EXPIRATION', '15m') as any,
