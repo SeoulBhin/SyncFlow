@@ -71,8 +71,19 @@ export class DocumentService implements OnModuleInit {
     return await Packer.toBuffer(doc);
   }
 
-  async createPage(name: string, type: string): Promise<Page> {
-    const page = this.pageRepository.create({ name, type: type || 'doc' })
+  async createPage(
+    name: string,
+    type: string,
+    projectId: string,
+    createdBy: string,
+  ): Promise<Page> {
+    const page = this.pageRepository.create({
+      title: name,
+      name,
+      type: type || 'doc',
+      projectId,
+      createdBy,
+    })
     return this.pageRepository.save(page)
   }
 

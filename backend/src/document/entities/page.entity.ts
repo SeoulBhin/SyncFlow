@@ -1,26 +1,36 @@
-// backend/src/document/entities/page.entity.ts
-
-import { Entity, PrimaryGeneratedColumn, Column, UpdateDateColumn, CreateDateColumn } from 'typeorm'
+import {
+  Column,
+  CreateDateColumn,
+  Entity,
+  PrimaryGeneratedColumn,
+  UpdateDateColumn,
+} from 'typeorm'
 
 @Entity('pages')
 export class Page {
   @PrimaryGeneratedColumn('uuid')
   id: string
 
+  @Column({ name: 'project_id', type: 'uuid' })
+  projectId: string
+
+  @Column({ type: 'varchar', length: 300 })
+  title: string
+
   @Column({ nullable: true, type: 'varchar', length: 200 })
-  name: string | null  // 문서 제목
+  name: string | null
 
   @Column({ nullable: true, type: 'uuid' })
-  channelId: string | null  // 소속 채널 ID
+  channelId: string | null
 
-  @Column({ nullable: true, type: 'uuid' })
-  createdBy: string | null  // 작성자 userId
+  @Column({ name: 'created_by', type: 'uuid' })
+  createdBy: string
 
   @Column({ nullable: true, type: 'varchar', length: 20, default: 'doc' })
-  type: string | null  // 'doc' | 'code'
+  type: string | null
 
-  @Column({ nullable: true, type: 'text' })
-  content: string | null   // 문서 내용 (JSON 형태로 저장)
+  @Column({ nullable: true, type: 'jsonb' })
+  content: string | null
 
   @CreateDateColumn()
   createdAt: Date
