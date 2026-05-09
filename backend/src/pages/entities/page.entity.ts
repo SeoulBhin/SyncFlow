@@ -23,8 +23,8 @@ export class Page {
   @Column({ type: 'varchar', length: 300 })
   title: string
 
-  @Column({ type: 'varchar', length: 10 })
-  type: 'document' | 'code'
+  @Column({ type: 'varchar', length: 20, nullable: true, default: 'document' })
+  type: 'document' | 'code' | null
 
   @Column({ type: 'jsonb', nullable: true })
   content: Record<string, unknown> | null

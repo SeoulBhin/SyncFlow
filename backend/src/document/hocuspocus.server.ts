@@ -4,8 +4,8 @@ import { Server } from '@hocuspocus/server'
 import { JwtService } from '@nestjs/jwt'
 import { Repository } from 'typeorm'
 import * as Y from 'yjs'
-import { Page } from './entities/page.entity'
-import { PageVersion } from './entities/page-version.entity'
+import { Page } from '../pages/entities/page.entity'
+import { PageVersion } from '../pages/entities/page-version.entity'
 
 export function createHocuspocusServer(
   jwtService: JwtService,
@@ -28,7 +28,7 @@ export function createHocuspocusServer(
 
       try {
         const page = await pageRepository.findOne({ where: { id: documentName } })
-        if (!page?.content) return
+        if (!page?.content || typeof page.content !== 'string') return
 
         // base64 Yjs 바이너리 상태를 Y.Doc에 복원
         const update = Buffer.from(page.content, 'base64')
@@ -81,12 +81,9 @@ export function createHocuspocusServer(
       const timer = setTimeout(async () => {
         try {
           // 1. 현재 내용 저장
-          await pageRepository.update(data.documentName, { content })
+          await pageRepository.update(data.documentName, { content } as any)
           // 2. 버전 스냅샷 저장
-          await pageVersionRepository.save({
-            page: { id: data.documentName },
-            content,
-          })
+          // 자동 저장 경로에는 사용자 ID가 없어 created_by 필수 버전 행은 만들지 않는다.
           console.log(`문서 저장 완료: ${data.documentName}`)
         } catch {
           // TODO: Part 3 완료 전까지 DB 없어서 저장 실패 — 무시

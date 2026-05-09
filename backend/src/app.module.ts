@@ -37,7 +37,7 @@ import { TasksModule } from './tasks/tasks.module';
         password: config.get('DATABASE_PASSWORD', 'syncflow1234'),
         database: config.get('DATABASE_NAME', 'syncflow'),
         autoLoadEntities: true,
-        synchronize: config.get('NODE_ENV') === 'development',
+        synchronize: config.get<string>('TYPEORM_SYNC', 'false') === 'true',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),

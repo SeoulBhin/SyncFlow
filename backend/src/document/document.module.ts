@@ -6,8 +6,8 @@ import { JwtModule } from '@nestjs/jwt'
 import { ConfigModule, ConfigService } from '@nestjs/config'
 import { DocumentService } from './document.service'
 import { DocumentController } from './document.controller'
-import { Page } from './entities/page.entity'
-import { PageVersion } from './entities/page-version.entity'
+import { Page } from '../pages/entities/page.entity'
+import { PageVersion } from '../pages/entities/page-version.entity'
 import { Attachment } from './entities/attachment.entity'
 
 @Module({
