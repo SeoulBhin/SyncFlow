@@ -1,11 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
-import { Repository, In } from 'typeorm';
+import { In, Repository } from 'typeorm';
 import { Channel } from '../channels/entities/channel.entity';
 import { ChannelMember } from '../channels/entities/channel-member.entity';
 import { Meeting } from '../meetings/entities/meeting.entity';
 import { Message } from '../messages/entities/message.entity';
-import { Page } from '../document/entities/page.entity';
+import { Page } from '../pages/entities/page.entity';
 
 @Injectable()
 export class DashboardService {
@@ -19,8 +19,6 @@ export class DashboardService {
   ) {}
 
   async getDashboard(userId: string, orgId?: string) {
-    // 조직 컨텍스트가 주어지면 해당 조직 채널 ID 화이트리스트를 한 번만 계산해서
-    // 페이지/회의 쿼리에 재사용한다 (N+1 / 중복 조회 방지).
     const orgChannelIds = orgId ? await this.getChannelIdsByOrg(orgId) : null;
 
     const [groups, recentPages, upcomingMeetings] = await Promise.all([
@@ -51,7 +49,6 @@ export class DashboardService {
       relations: ['channel'],
     });
 
-    // 조직 격리 — orgId 가 주어지면 해당 워크스페이스 채널만 노출.
     const scoped = memberships.filter((m) => {
       if (m.channel == null) return false;
       if (orgId && m.channel.groupId !== orgId) return false;
@@ -72,7 +69,6 @@ export class DashboardService {
         : [];
     const lastMap = new Map(latestMessages.map((r) => [r.channelId, r.lastAt]));
 
-    // memberCount N+1 회피 — 한 번의 GROUP BY 로 일괄 집계.
     const memberCountRows =
       channelIds.length > 0
         ? await this.memberRepo
@@ -103,29 +99,17 @@ export class DashboardService {
   private async getRecentPages(userId: string, orgChannelIds: string[] | null) {
     if (orgChannelIds && orgChannelIds.length === 0) return [];
 
-    const where: Record<string, unknown> = { createdBy: userId };
-    if (orgChannelIds) where.channelId = In(orgChannelIds);
-
     const pages = await this.pageRepo.find({
-      where,
+      where: { createdBy: userId },
       order: { updatedAt: 'DESC' },
       take: 7,
     });
 
-    const channelIds = [
-      ...new Set(pages.map((p) => p.channelId).filter(Boolean)),
-    ] as string[];
-    const channels =
-      channelIds.length > 0
-        ? await this.channelRepo.find({ where: { id: In(channelIds) } })
-        : [];
-    const channelMap = new Map(channels.map((c) => [c.id, c.name]));
-
     return pages.map((p) => ({
       id: p.id,
-      name: p.name ?? '제목 없음',
-      type: 'doc',
-      groupName: p.channelId ? (channelMap.get(p.channelId) ?? '') : '',
+      name: p.title ?? '제목 없음',
+      type: p.type === 'code' ? 'code' : 'doc',
+      groupName: '',
       projectName: '',
       updatedAt: this.formatDate(p.updatedAt),
     }));
@@ -149,7 +133,6 @@ export class DashboardService {
       }),
     ]);
 
-    // 회의 → 채널명 매핑 (하나의 쿼리로 일괄 조회)
     const meetingChannelIds = [
       ...new Set(
         [...scheduled, ...ended].map((m) => m.groupId).filter(Boolean) as string[],

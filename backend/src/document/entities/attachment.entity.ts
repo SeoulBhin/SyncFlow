@@ -10,7 +10,7 @@ import {
   ManyToOne,
   JoinColumn,
 } from 'typeorm'
-import { Page } from './page.entity'
+import { Page } from '../../pages/entities/page.entity'
 
 @Entity('attachments')
 export class Attachment {

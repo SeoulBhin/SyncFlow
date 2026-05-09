@@ -6,7 +6,7 @@ import { Channel } from '../channels/entities/channel.entity'
 import { ChannelMember } from '../channels/entities/channel-member.entity'
 import { Meeting } from '../meetings/entities/meeting.entity'
 import { Message } from '../messages/entities/message.entity'
-import { Page } from '../document/entities/page.entity'
+import { Page } from '../pages/entities/page.entity'
 
 @Module({
   imports: [

@@ -1,11 +1,22 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { X, FileText, Code } from 'lucide-react'
+import { Code, FileText, X } from 'lucide-react'
 import { Button } from '@/components/common/Button'
-import { cn } from '@/utils/cn'
-import { useToastStore } from '@/stores/useToastStore'
 import { usePageStore } from '@/stores/usePageStore'
+import { useToastStore } from '@/stores/useToastStore'
+import { cn } from '@/utils/cn'
 import { api } from '@/utils/api'
+
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+interface ApiGroup {
+  id: string
+}
+
+interface ApiProject {
+  id: string
+}
 
 interface Props {
   isOpen: boolean
@@ -23,29 +34,58 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
 
   if (!isOpen) return null
 
+  const handleClose = () => {
+    setName('')
+    setType('doc')
+    onClose()
+  }
+
   const handleCreate = async () => {
-    if (!name.trim()) {
+    const title = name.trim()
+
+    if (!title) {
       addToast('error', '페이지명을 입력해주세요.')
       return
     }
+
     setLoading(true)
     try {
-      const { id } = await api.post<{ id: string }>('/document', { name: name.trim(), type })
-      addPage({ id, name: name.trim(), type, projectId })
-      addToast('success', `페이지 "${name.trim()}"이(가) 생성되었습니다.`)
+      const resolvedProjectId = await resolveProjectId(projectId)
+      const { id } = await api.post<{ id: string }>('/document', {
+        name: title,
+        type,
+        projectId: resolvedProjectId,
+      })
+
+      addPage({ id, name: title, type, projectId })
+      addToast('success', `페이지 "${title}"이(가) 생성되었습니다.`)
       handleClose()
       navigate(type === 'code' ? `/app/code/${id}` : `/app/editor/${id}`)
-    } catch {
+    } catch (error) {
+      console.error('[CreatePageModal] create failed:', error)
       addToast('error', '페이지 생성에 실패했습니다.')
     } finally {
       setLoading(false)
     }
   }
 
-  const handleClose = () => {
-    setName('')
-    setType('doc')
-    onClose()
+  const resolveProjectId = async (candidate: string): Promise<string> => {
+    if (candidate && UUID_RE.test(candidate)) return candidate
+
+    console.warn('[CreatePageModal] mock projectId detected; resolving real project:', candidate)
+    const groups = await api.get<ApiGroup[]>('/groups')
+    const firstGroup = groups.find((group) => UUID_RE.test(group.id))
+    if (!firstGroup) {
+      throw new Error('생성 가능한 실제 그룹이 없습니다.')
+    }
+
+    const projects = await api.get<ApiProject[]>(`/groups/${firstGroup.id}/projects`)
+    const firstProject = projects.find((project) => UUID_RE.test(project.id))
+    if (!firstProject) {
+      throw new Error('생성 가능한 실제 프로젝트가 없습니다.')
+    }
+
+    return firstProject.id
   }
 
   return (
@@ -61,10 +101,11 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
             <X size={18} />
           </button>
         </div>
+
         <div className="space-y-4">
           <div>
             <label className="mb-2 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              페이지 타입
+              페이지 유형
             </label>
             <div className="grid grid-cols-2 gap-3">
               <button
@@ -93,6 +134,7 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
                   문서
                 </span>
               </button>
+
               <button
                 onClick={() => setType('code')}
                 className={cn(
@@ -121,18 +163,11 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
               </button>
             </div>
           </div>
+
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
               페이지명 *
             </label>
-            <input
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder={type === 'doc' ? '예: 프로젝트 개요' : '예: main.py'}
-              maxLength={50}
-              className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
-            />
             <input
               type="text"
               value={name}
@@ -145,6 +180,7 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
               className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
             />
           </div>
+
           <div className="flex justify-end gap-2 pt-2">
             <Button variant="ghost" size="sm" onClick={handleClose} disabled={loading}>
               취소

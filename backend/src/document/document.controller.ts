@@ -1,8 +1,9 @@
 // backend/src/document/document.controller.ts
-import { Controller, Post, Put, Get, Delete, Param, UploadedFile, UseInterceptors, Body, Res, NotFoundException, Req } from '@nestjs/common'
+import { BadRequestException, Controller, Post, Put, Get, Delete, Param, UploadedFile, UseInterceptors, Body, Res, NotFoundException, Req, UseGuards } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
 import { DocumentService } from './document.service'
 import type { Request, Response } from 'express'
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 
 const FIFTY_MB = 50 * 1024 * 1024
 
@@ -11,8 +12,28 @@ export class DocumentController {
   constructor(private documentService: DocumentService) {}
 
   @Post()
-  async createPage(@Body() body: { name: string; type?: string }) {
-    return this.documentService.createPage(body.name, body.type ?? 'doc')
+  @UseGuards(JwtAuthGuard)
+  async createPage(
+    @Body() body: { name: string; type?: string; projectId?: string },
+    @Req() req: Request & { user?: { id?: string; userId?: string } },
+  ) {
+    const UUID_RE =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const name = body.name?.trim()
+    const projectId = body.projectId?.trim()
+    const createdBy = req.user?.id ?? req.user?.userId
+
+    if (!name) {
+      throw new BadRequestException('페이지명은 필수입니다.')
+    }
+    if (!projectId || !UUID_RE.test(projectId)) {
+      throw new BadRequestException('projectId 는 유효한 UUID 여야 합니다.')
+    }
+    if (!createdBy || !UUID_RE.test(createdBy)) {
+      throw new BadRequestException('인증된 사용자 ID를 확인할 수 없습니다.')
+    }
+
+    return this.documentService.createPage(name, body.type ?? 'doc', projectId, createdBy)
   }
 
   @Post('upload')
