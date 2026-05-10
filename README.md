@@ -155,16 +155,25 @@ SyncFlow/
 
 ## 진행 현황
 
-| 카테고리 | 상태 |
-|----------|------|
-| 프론트엔드 UI | 완료 (mock 데이터로 동작) |
-| 백엔드 초기 설정 | 완료 (NestJS, TypeORM, Docker, .env 템플릿) |
-| 백엔드 API — 인증 | 완료 (JWT, Google/GitHub/Kakao OAuth) |
-| 백엔드 API — 설정 | 완료 (테마, 알림, 비밀번호 변경) |
-| 백엔드 API — 그룹/프로젝트/페이지 | 진행 중 |
-| 백엔드 API — 작업/일정/메시지 | 미착수 |
-| 백엔드 API — AI/음성/화면공유 | 미착수 |
-| 백엔드 API — 구독/결제 | 미착수 |
+| 카테고리 | 상태 | 담당 |
+|----------|------|---|
+| 프론트엔드 UI (UI-01~UI-83) | **95% 완료** (60건 중 57건 + 신규 24건) | 김경빈 |
+| 백엔드 초기 설정 (NestJS, TypeORM, Docker) | 완료 | 김경빈/김명준 |
+| Prisma DB 마이그레이션 (29개 중 22개 모델) | 완료 (회의 5개 추가 필요) | 김명준 |
+| 백엔드 API — 인증 (JWT, Google/GitHub/Kakao OAuth) | **완료** + 프론트 연동 | 김명준 |
+| 백엔드 API — 설정 (테마/알림/비밀번호) | **완료** | 김명준 |
+| 백엔드 API — 그룹/프로젝트/페이지 (CRUD + 권한) | **백엔드 완료**, 프론트 연동 진행 중 | 김명준 |
+| 백엔드 API — 채널/메시지 + Socket.IO Gateway | **부분 완료** (권한·스레드·파일·소켓) | 이도현 |
+| 백엔드 API — 문서 실시간 협업 (Hocuspocus + Yjs) | **완료** (라이브커서 포함) | 이도현 |
+| 백엔드 API — 문서 에디터 (TipTap, PDF/DOCX 내보내기, 버전) | **완료** (DOC-09 외 14건) | 김봉만 |
+| 백엔드 API — 회의 AI 킬러 피처 (STT, 회의록, 액션아이템) | **75% 완료** (MTG 12건 중 9건) | 김봉만 |
+| 백엔드 API — 대시보드 | **75% 완료** (DASH 4건 중 3건) | 김봉만 |
+| 백엔드 API — LiveKit (음성/화상 토큰 발급) | **부분 완료** | 이도현 |
+| 백엔드 API — 작업 관리 (Tasks, 칸반/간트) | 미착수 | 남궁훈 |
+| 백엔드 API — AI RAG 파이프라인 | 미착수 | 남궁훈 |
+| 백엔드 API — 음성/화면 공유 상세 | 미착수 | 이도현 |
+| 백엔드 API — 구독/결제 | 미착수 | - |
+| **통합 빌드 & 부팅** | **2026-05-11 검증 완료** (4건 마이너 이슈, 모두 해결 진행 중) | 전체 |
 
 ## 개발 일지
 
@@ -188,12 +197,34 @@ SyncFlow/
 - Vite 프록시 설정 (`/api`, `/socket.io`)
 - 백엔드 모듈 폴더 구조 생성 (14개 모듈)
 
-### 이후
-- UI 리팩토링 — Slack 스타일 사이드바(`SlackSidebar`), 멀티뷰 작업 패턴 정리
-- Zustand store 확장 (detailPanel, meeting, AI, customField, thread 등 추가 → 총 13개)
-- 백엔드 인증 API 구현 — 회원가입, JWT 로그인, Google/GitHub/Kakao OAuth, 토큰 갱신, 비밀번호 재설정
-- 백엔드 설정 API 구현 — 테마, 알림, 비밀번호 변경
+### 2026-03 ~ 04
+- UI 리팩토링 — Slack 스타일 사이드바(`SlackSidebar`), 멀티뷰 작업 패턴 정리 (김경빈)
+- Zustand store 확장 (detailPanel, meeting, AI, customField, thread 등 추가 → 총 13개) (김경빈)
+- 외부 조직 공유 채널(Slack Connect) UI 5건, 문서 블록 확장 5건, 칸반 퀵액션 5건, 커스텀 필드 5건 추가 완료 (김경빈)
+- 백엔드 인증 API 구현 — 회원가입, JWT, Google/GitHub/Kakao OAuth, 토큰 갱신, 비밀번호 재설정 (김명준)
+- 백엔드 설정 API 구현 — 테마, 알림, 비밀번호 변경 (김명준)
+- Prisma 기반 DB 마이그레이션 시스템 구축 (`prisma/schema.prisma` + `DATABASE_MIGRATION.md`) (김명준)
 - UI 설계 문서 추가 (`.docs/UIplan.md`)
+
+### 2026-04 ~ 05
+- 그룹/프로젝트/페이지 CRUD API 완성 (백엔드 완료, 프론트 연동 진행 중) (김명준)
+- 문서 실시간 협업 인프라 구현 — Hocuspocus + Yjs + 라이브커서 + PresenceAvatars (이도현)
+- 채팅 + 메신저 백엔드 — 채널 권한, 스레드, 파일 업로드, Socket.IO Gateway (이도현)
+- LiveKit 인프라 — 토큰 발급 + livekit.yaml 설정 (이도현)
+- 문서 에디터 백엔드 14건 — TipTap, 표/이미지/코드블록, PDF/DOCX 내보내기, 버전 히스토리 (김봉만)
+- 대시보드 백엔드 3건 — 내 그룹, 최근 페이지, 초대 코드 (김봉만)
+- 회의 AI 킬러 피처 9건 — STT 파이프라인(Google STT + 화자 분리), 실시간 자막, AI 회의록 자동 생성, 액션아이템 추출/등록, 회의 이력 (김봉만)
+
+### 2026-05-10 ~ 05-11 (통합 테스트)
+- 5명 작업분 main 병합 → 통합 빌드 검증 진행
+- TypeScript 컴파일 0 errors, NestJS 부팅 성공 (`http://localhost:3000`)
+- API 70개 + Socket.IO 8 이벤트 + Hocuspocus(`ws://localhost:1234`) 동시 가동
+- Prisma 마이그레이션 22개 모델 적용 완료 (29개 중 회의 5개 추가 필요)
+- 통합 이슈 4건 발견 — 모두 1회 수정으로 해결 가능, 개별 파트 품질 문제 아님:
+  1. `OAuthAccount.provider_access_token` 컬럼 마이그레이션 누락 (김명준 처리 예정)
+  2. 회의 AI 5개 테이블 schema.prisma 미반영 (김봉만 처리 필요)
+  3. Kakao OAuth 시크릿 잘려서 공유됨 (김명준에게 재공유 요청)
+  4. 시크릿 노출 보안 이슈 → `.env.example` placeholder 정리, 키 회전 권장
 
 ### 앞으로 해야 할 일
 - **그룹/프로젝트/페이지 CRUD API** — TypeORM Entity + REST 엔드포인트
