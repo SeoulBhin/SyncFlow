@@ -3,6 +3,8 @@
 .env
 *.js.map
 *.d.ts
+pgvector
+
 
 # IDE
 .idea
