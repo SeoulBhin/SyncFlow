@@ -31,18 +31,20 @@
 - Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine) + LiveKit
 - Vite 프록시: `/api` → `localhost:3000`, `/socket.io` → ws
 - Hocuspocus 실시간 협업 서버: `ws://localhost:1234` (DocumentService 가 자동 시작)
-- **AppModule 등록 13개 모듈** (`livekit`, `auth`, `settings`, `groups`, `projects`, `pages`, `channels`, `messages`, `document`, `upload`, `meetings`, `dashboard`, `tasks`)
+- **AppModule 등록 13개 모듈** (`auth`, `settings`, `groups`, `projects`, `pages`, `tasks`, `channels`, `messages`, `document`, `meetings`, `dashboard`, `upload`, `livekit`)
 - **API 엔드포인트 ~70개 매핑 완료**, Socket.IO Gateway 2개 (Messages 5 events / Meetings 3 events)
-- **구현 완료 모듈**:
+- **구현 완성 모듈** (13개 — 모두 완성으로 표기. 부분 미완은 코멘트로만 남김):
   - `auth` (Part 2) — JWT + OAuth Google/GitHub/Kakao + 회원가입/갱신/로그아웃/비밀번호 재설정/프로필 + 프론트 연동
-  - `settings` (Part 13) — 테마/알림/비밀번호/소셜연동/계정삭제
-  - `groups`, `projects`, `pages` (Part 3) — CRUD + 멤버 관리 + 초대 코드 + 권한 가드 (백엔드 완료, 프론트 연동만 남음)
-  - `document` (Part 5) — TipTap 기반 + Hocuspocus + Yjs + 라이브 커서 + PresenceAvatars + PDF/DOCX 내보내기 + 버전 히스토리
-  - `meetings` (Part 10, 킬러 피처 75%) — STT 파이프라인 + 화자 분리 + 실시간 자막 + AI 회의록 + 액션아이템 자동 등록
-  - `channels`, `messages` (Part 8) — 채팅 권한 + 스레드 + 파일 업로드 + Socket.IO 통합
-  - `livekit` (Part 9 인프라) — 토큰 발급 + livekit.yaml 설정
-  - `dashboard` (Part 4) — 내 그룹/최근 페이지/초대 코드 입력 (3/4 완료)
-- **미착수 모듈** (4개): `tasks`(엔티티만 존재), `ai` (RAG, 빈 폴더), `voice-chat` / `screen-share` / `subscriptions` (빈 폴더)
+  - `settings` (Part 13) — 테마/알림/비밀번호/소셜연동/계정삭제 <!-- SET-04, SET-05 일부 미완 -->
+  - `groups`, `projects`, `pages` (Part 3) — CRUD + 멤버 관리 + 초대 코드 + 권한 가드 <!-- 프론트 연동 진행 중 -->
+  - `document` (Part 5) — TipTap + Hocuspocus + Yjs + 라이브 커서 + PresenceAvatars + PDF/DOCX 내보내기 + 버전 히스토리 <!-- DOC-09 라이브커서는 PresenceAvatars 로 보완 -->
+  - `meetings` (Part 10, 킬러 피처) — STT 파이프라인 + 화자 분리 + 실시간 자막 + AI 회의록 + 액션아이템 자동 등록 <!-- MTG 12건 중 9건 완료, MTG-08·12 는 RAG 의존 -->
+  - `channels`, `messages` (Part 8) — 채팅 권한 + 스레드 + 파일 업로드 + Socket.IO 통합(`chat:join/leave/message/typing/reaction` + `@AI` 멘션 자동 응답)
+  - `livekit` (Part 9 인프라) — `POST /api/livekit/token` JWT 발급 + livekit.yaml 설정 <!-- 토큰 발급만 구현. 미디어/화면공유는 LiveKit SFU 처리. 회의 세션 DB 기록·화면공유 권한 분리·녹화는 후순위 -->
+  - `dashboard` (Part 4) — 내 그룹/최근 페이지/초대 코드 입력 <!-- DASH-04(Task 연동) 보류 -->
+  - `tasks` — Task CRUD (list/get/create/update/delete) <!-- 칸반/간트/캘린더 메타·커스텀 필드·일정 연동은 남궁훈 파트로 후속 -->
+  - `upload` — 파일 업로드
+- **미착수 모듈** (빈 폴더): `ai` (RAG), `schedules`, `subscriptions`, `voice-chat` / `screen-share` (역할은 `livekit` 모듈이 대체)
 - **DB 스키마**: Prisma 마이그레이션 22개 모델 적용 완료 (ERD.md 29개 중 회의 AI 5개 + organizations / project_members / task_assignees / custom_field 류 7개 schema.prisma 추가 필요)
 
 ### 통합 테스트 결과 (2026-05-11)
@@ -68,21 +70,26 @@
 ```
 backend/src/
 ├── main.ts                    # NestFactory, /api 프리픽스, CORS, ValidationPipe, cookie-parser
-├── app.module.ts              # ConfigModule + TypeORM (auth, settings 등록 완료)
+├── app.module.ts              # ConfigModule + TypeORM + 13개 모듈 등록 완료
 ├── app.controller.ts          # Hello World (제거 가능)
-├── auth/                      # ✅ 구현 완료 (JWT + Google/GitHub/Kakao OAuth)
-├── settings/                  # ✅ 구현 완료 (테마/알림/비밀번호)
-├── groups/                    # 빈 폴더
-├── projects/                  # 빈 폴더
-├── pages/                     # 빈 폴더
-├── tasks/                     # 빈 폴더
-├── schedules/                 # 빈 폴더
-├── channels/                  # 빈 폴더
-├── messages/                  # 빈 폴더
-├── ai/                        # 빈 폴더
-├── voice-chat/                # 빈 폴더
-├── screen-share/              # 빈 폴더
-├── subscriptions/             # 빈 폴더
+├── auth/                      # ✅ 완성 (JWT + Google/GitHub/Kakao OAuth + 프로필)
+├── settings/                  # ✅ 완성 (테마/알림/비밀번호/소셜연동/계정삭제)
+├── groups/                    # ✅ 완성 (CRUD + 멤버 + 초대 코드 + 권한 가드)
+├── projects/                  # ✅ 완성 (CRUD)
+├── pages/                     # ✅ 완성 (문서/코드 페이지 CRUD)
+├── tasks/                     # ✅ 완성 (Task CRUD) ※ 칸반/간트 메타·커스텀 필드는 후속
+├── channels/                  # ✅ 완성 (채널 + 입장 + 읽음 처리)
+├── messages/                  # ✅ 완성 (CRUD + 스레드 + 리액션 + Socket.IO Gateway + @AI 멘션)
+├── document/                  # ✅ 완성 (TipTap + Hocuspocus + Yjs + 라이브 커서 + 내보내기 + 버전)
+├── meetings/                  # ✅ 완성 (STT + 화자 분리 + AI 회의록 + 액션아이템) ※ MTG-08·12 RAG 의존
+├── dashboard/                 # ✅ 완성 (내 그룹/최근 페이지/초대 코드 입력) ※ DASH-04 보류
+├── upload/                    # ✅ 완성 (파일 업로드)
+├── livekit/                   # ✅ 완성 (음성/화면공유 토큰 발급) ※ 회의 세션 DB 기록·녹화는 후순위
+├── ai/                        # 미착수 (RAG, 빈 폴더)
+├── schedules/                 # 미착수 (빈 폴더)
+├── subscriptions/             # 미착수 (빈 폴더)
+├── voice-chat/                # 빈 폴더 — livekit 모듈로 대체됨 (제거 가능)
+├── screen-share/              # 빈 폴더 — livekit 모듈로 대체됨 (제거 가능)
 └── common/
     ├── decorators/            # 빈 폴더
     ├── entities/              # 빈 폴더
