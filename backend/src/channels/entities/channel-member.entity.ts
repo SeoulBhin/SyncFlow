@@ -12,25 +12,25 @@ import { Channel } from './channel.entity';
 @Entity('channel_members')
 @Unique(['channelId', 'userId'])
 export class ChannelMember {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn('increment')
+  id: number;
 
-  @Column()
+  @Column({ name: 'channel_id', type: 'uuid' })
   channelId: string;
 
-  @Column()
+  @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  @Column({ default: '' })
+  @Column({ name: 'user_name', type: 'varchar', length: 100, default: '' })
   userName: string;
 
-  @Column({ type: 'timestamp', nullable: true })
+  @Column({ name: 'last_read_at', type: 'timestamptz', nullable: true })
   lastReadAt: Date | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'joined_at', type: 'timestamptz' })
   joinedAt: Date;
 
   @ManyToOne(() => Channel, (c) => c.members, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'channelId' })
+  @JoinColumn({ name: 'channel_id' })
   channel: Channel;
 }

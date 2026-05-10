@@ -46,6 +46,35 @@ export class AuthService {
     return this.generateTokens(user)
   }
 
+  /**
+   * Dev 환경 전용: 테스터 계정 자동 시드 (tester1/2/3 @ test.com / test1234).
+   * 팀이 git pull 후 npm run start:dev 하면 자동으로 같은 계정이 생겨 같이 테스트 가능.
+   * production 환경에서는 실행되지 않음.
+   */
+  async seedTestUsersIfDev() {
+    if (process.env.NODE_ENV === 'production') return
+    const testers = [
+      { email: 'tester1@test.com', password: 'test1234', name: 'Tester1' },
+      { email: 'tester2@test.com', password: 'test1234', name: 'Tester2' },
+      { email: 'tester3@test.com', password: 'test1234', name: 'Tester3' },
+    ]
+    let created = 0
+    for (const t of testers) {
+      const exists = await this.userRepository.findOne({ where: { email: t.email } })
+      if (exists) continue
+      const passwordHash = await bcrypt.hash(t.password, 10)
+      await this.userRepository.save(
+        this.userRepository.create({ email: t.email, passwordHash, name: t.name }),
+      )
+      created++
+    }
+    if (created > 0) {
+      console.log(
+        `[seed] Created ${created} test user(s). Login: tester1@test.com / test1234`,
+      )
+    }
+  }
+
   /* ── 로그인 ── */
   async login(dto: LoginDto) {
     const user = await this.userRepository.findOne({ where: { email: dto.email } })

@@ -11,22 +11,147 @@ import {
   Circle,
   Loader,
   Ticket,
-  ArrowRight,
   Plus,
   UserPlus,
   Video,
   Calendar,
+  Copy,
+  Check,
+  RefreshCw,
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
 import { CreateGroupModal } from '@/components/group/CreateGroupModal'
 import { JoinGroupModal } from '@/components/group/JoinGroupModal'
+import { CreateMeetingModal } from '@/components/meeting/CreateMeetingModal'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { api } from '@/utils/api'
 import { type TaskPriority, type TaskStatus } from '@/constants'
+
+/* ── 활성 조직 초대 코드 발급/노출 카드 (DashboardPage 우측 하단) ── */
+function OrgInviteCodeCard() {
+  const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
+  const activeOrgName = useGroupContextStore((s) => s.activeOrgName)
+  const myGroups = useGroupContextStore((s) => s.myGroups)
+  const addToast = useToastStore((s) => s.addToast)
+  const [code, setCode] = useState<string | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [regenerating, setRegenerating] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const [role, setRole] = useState<'owner' | 'admin' | 'member' | 'guest' | null>(null)
+
+  const myRole = myGroups.find((g) => g.id === activeOrgId)?.myRole ?? null
+
+  useEffect(() => {
+    if (!activeOrgId) return
+    setLoading(true)
+    setCode(null)
+    api
+      .get<{ inviteCode?: string | null; myRole?: 'owner' | 'admin' | 'member' | 'guest' | null }>(
+        `/groups/${activeOrgId}`,
+      )
+      .then((d) => {
+        setCode(d.inviteCode ?? null)
+        setRole(d.myRole ?? myRole ?? null)
+      })
+      .catch(() => setCode(null))
+      .finally(() => setLoading(false))
+  }, [activeOrgId, myRole])
+
+  const isOwnerOrAdmin = (role ?? myRole) === 'owner' || (role ?? myRole) === 'admin'
+
+  const handleRegenerate = async () => {
+    if (!activeOrgId || !isOwnerOrAdmin) return
+    setRegenerating(true)
+    try {
+      const res = await api.post<{ code: string }>(`/groups/${activeOrgId}/regenerate-code`, {})
+      setCode(res.code)
+      addToast('success', '초대 코드가 재발급되었습니다.')
+    } catch (e) {
+      addToast('error', e instanceof Error ? e.message : '재발급 실패')
+    } finally {
+      setRegenerating(false)
+    }
+  }
+
+  const handleCopy = () => {
+    if (!code) return
+    navigator.clipboard.writeText(code)
+    setCopied(true)
+    addToast('success', '초대 코드가 복사되었습니다.')
+    setTimeout(() => setCopied(false), 2000)
+  }
+
+  if (!activeOrgId) {
+    return (
+      <section>
+        <h2 className="mb-3 text-sm font-medium text-neutral-500 dark:text-neutral-400">
+          조직 코드 발급
+        </h2>
+        <Card>
+          <p className="text-xs text-neutral-400">조직을 선택하면 초대 코드를 확인할 수 있어요.</p>
+        </Card>
+      </section>
+    )
+  }
+
+  return (
+    <section>
+      <div className="mb-3 flex items-center justify-between">
+        <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">조직 코드 발급</h2>
+        {isOwnerOrAdmin && (
+          <button
+            onClick={() => void handleRegenerate()}
+            disabled={regenerating || loading}
+            className="flex items-center gap-1 text-[11px] text-primary-600 hover:underline disabled:opacity-50 dark:text-primary-400"
+          >
+            <RefreshCw size={11} className={regenerating ? 'animate-spin' : ''} />
+            재발급
+          </button>
+        )}
+      </div>
+      <Card>
+        <div className="mb-3 flex items-center gap-2">
+          <Ticket size={18} className="text-primary-500" />
+          <p className="truncate text-sm text-neutral-700 dark:text-neutral-200">
+            <span className="font-semibold">{activeOrgName ?? '조직'}</span> 초대 코드
+          </p>
+        </div>
+        {loading ? (
+          <p className="rounded-lg bg-neutral-50 p-3 text-center text-xs text-neutral-400 dark:bg-neutral-800/50">
+            불러오는 중...
+          </p>
+        ) : code ? (
+          <div className="flex items-center justify-center gap-3 rounded-lg bg-neutral-50 p-3 dark:bg-neutral-800/50">
+            <span className="text-xl font-bold tracking-[0.3em] text-primary-600 dark:text-primary-400">
+              {code}
+            </span>
+            <button
+              onClick={handleCopy}
+              className="rounded-lg p-1.5 text-neutral-500 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-700"
+            >
+              {copied ? <Check size={16} className="text-success" /> : <Copy size={16} />}
+            </button>
+          </div>
+        ) : (
+          <div className="rounded-lg bg-neutral-50 p-3 text-center text-[11px] text-neutral-400 dark:bg-neutral-800/50">
+            {isOwnerOrAdmin
+              ? '초대 코드가 없습니다. 재발급을 눌러 새 코드를 발급하세요.'
+              : '초대 코드는 owner/admin에게만 노출됩니다.'}
+          </div>
+        )}
+        {isOwnerOrAdmin && code && (
+          <p className="mt-2 text-[11px] text-neutral-400">
+            팀원이 이 코드로 조직에 참여할 수 있습니다. 재발급하면 기존 코드는 즉시 무효화돼요.
+          </p>
+        )}
+      </Card>
+    </section>
+  )
+}
 
 const priorityConfig: Record<TaskPriority, { label: string; color: string }> = {
   urgent: { label: '긴급', color: 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400' },
@@ -65,6 +190,7 @@ export function DashboardPage() {
   const [meetings, setMeetings] = useState<any[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
+  const [showCreateMeeting, setShowCreateMeeting] = useState(false)
 
   const fetchDashboard = useCallback(() => {
     if (!user) {
@@ -126,19 +252,8 @@ export function DashboardPage() {
     }
   }
 
-  const handleQuickMeeting = async () => {
-    const channelName = activeGroupName ?? '채널'
-    const title = `${channelName} 빠른 회의`
-    try {
-      const created = await meetingStore.createMeeting(title)
-      meetingStore.startMeeting(created.id, title, channelName)
-      navigate(`/app/meetings/${created.id}`)
-    } catch (err) {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
-      )
-    }
+  const handleOpenMeetingModal = () => {
+    setShowCreateMeeting(true)
   }
 
   return (
@@ -295,9 +410,9 @@ export function DashboardPage() {
           <section>
             <div className="mb-3 flex items-center justify-between">
               <h2 className="text-sm font-medium text-neutral-500 dark:text-neutral-400">회의</h2>
-              <Button variant="ghost" size="sm" onClick={handleQuickMeeting}>
+              <Button variant="ghost" size="sm" onClick={handleOpenMeetingModal}>
                 <Video size={14} />
-                빠른 시작
+                새 회의 방
               </Button>
             </div>
             <Card className="space-y-3 p-3">
@@ -403,34 +518,8 @@ export function DashboardPage() {
             </Card>
           </section>
 
-          {/* 초대 코드 입력 영역 */}
-          <section>
-            <h2 className="mb-3 text-sm font-medium text-neutral-500 dark:text-neutral-400">
-              채널 참여
-            </h2>
-            <Card>
-              <div className="flex items-center gap-2 mb-3">
-                <Ticket size={18} className="text-primary-500" />
-                <p className="text-sm text-neutral-700 dark:text-neutral-200">
-                  초대 코드로 채널에 참여하세요
-                </p>
-              </div>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={inviteCode}
-                  onChange={(e) => setInviteCode(e.target.value.toUpperCase())}
-                  placeholder="초대 코드 6자리"
-                  maxLength={6}
-                  disabled={joining}
-                  className="flex-1 rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm uppercase tracking-widest outline-none transition placeholder:normal-case placeholder:tracking-normal focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
-                />
-                <Button size="sm" onClick={handleJoinGroup} disabled={joining}>
-                  <ArrowRight size={16} />
-                </Button>
-              </div>
-            </Card>
-          </section>
+          {/* 조직 코드 발급 — 활성 조직의 8자리 초대 코드를 노출/재발급 */}
+          <OrgInviteCodeCard />
         </div>
       </div>
 
@@ -444,6 +533,11 @@ export function DashboardPage() {
         isOpen={showJoinGroup}
         onClose={() => setShowJoinGroup(false)}
         onJoined={fetchDashboard}
+      />
+      <CreateMeetingModal
+        isOpen={showCreateMeeting}
+        onClose={() => setShowCreateMeeting(false)}
+        onCreated={(id) => navigate(`/app/meetings/${id}`)}
       />
     </div>
   )

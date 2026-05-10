@@ -1,9 +1,10 @@
-import { useState } from 'react'
-import { X, Copy, Check, Globe, Hash, Shield, Info } from 'lucide-react'
+import { useEffect, useState } from 'react'
+import { X, Copy, Check, Globe, Hash, Shield, Info, Users } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
 import { useToastStore } from '@/stores/useToastStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { api } from '@/utils/api'
 
 interface Props {
@@ -20,9 +21,18 @@ interface CreatedChannel {
   inviteCode?: string | null
 }
 
+interface OrgMember {
+  id: number
+  userId: string
+  groupId: string
+  role: string
+  user: { id: string; name: string; email?: string; avatarUrl?: string | null }
+}
+
 export function CreateGroupModal({ isOpen, onClose, onCreated }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
+  const currentUserId = useAuthStore((s) => s.user?.id)
   const [step, setStep] = useState<'form' | 'done'>('form')
   const [name, setName] = useState('')
   const [description, setDescription] = useState('')
@@ -32,7 +42,44 @@ export function CreateGroupModal({ isOpen, onClose, onCreated }: Props) {
   const [copied, setCopied] = useState(false)
   const [submitting, setSubmitting] = useState(false)
 
+  // 조직원 목록 + 선택 state
+  const [orgMembers, setOrgMembers] = useState<OrgMember[]>([])
+  const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
+  const [loadingMembers, setLoadingMembers] = useState(false)
+
+  // 모달 열릴 때 조직원 목록 fetch
+  useEffect(() => {
+    if (!isOpen || !activeOrgId) return
+    setLoadingMembers(true)
+    api
+      .get<OrgMember[]>(`/groups/${activeOrgId}/members`)
+      .then((members) => {
+        setOrgMembers(
+          members.filter((m) => {
+            if (!currentUserId) return true
+            return m.userId !== currentUserId && m.user?.id !== currentUserId
+          }),
+        )
+      })
+      .catch(() => setOrgMembers([]))
+      .finally(() => setLoadingMembers(false))
+  }, [isOpen, activeOrgId, currentUserId])
+
   if (!isOpen) return null
+
+  const toggleMember = (userId: string) => {
+    setSelectedUserIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(userId)) next.delete(userId)
+      else next.add(userId)
+      return next
+    })
+  }
+
+  const toggleAll = () => {
+    if (selectedUserIds.size === orgMembers.length) setSelectedUserIds(new Set())
+    else setSelectedUserIds(new Set(orgMembers.map((m) => m.userId)))
+  }
 
   const handleCreate = async () => {
     if (!name.trim()) {
@@ -51,11 +98,30 @@ export function CreateGroupModal({ isOpen, onClose, onCreated }: Props) {
         name: name.trim(),
         description: description.trim() || undefined,
       })
+
+      // 선택된 조직원들을 채널에 추가
+      if (selectedUserIds.size > 0) {
+        const membersToAdd = orgMembers
+          .filter((m) => selectedUserIds.has(m.userId))
+          .map((m) => ({ userId: m.userId, userName: m.user.name }))
+        try {
+          await api.post(`/channels/${channel.id}/members`, { members: membersToAdd })
+        } catch {
+          addToast('error', '일부 멤버 초대에 실패했습니다.')
+        }
+      }
+
       setGeneratedCode(
         channel.inviteCode ?? Math.random().toString(36).substring(2, 8).toUpperCase(),
       )
       setStep('done')
-      addToast('success', `채널 "${channel.name}"이(가) 생성되었습니다.`)
+      const memberCount = selectedUserIds.size
+      addToast(
+        'success',
+        memberCount > 0
+          ? `채널 "${channel.name}" 생성 완료. ${memberCount}명 초대됨.`
+          : `채널 "${channel.name}"이(가) 생성되었습니다.`,
+      )
       onCreated?.()
     } catch (e) {
       const msg = e instanceof Error ? e.message : '채널 생성 실패'
@@ -80,6 +146,7 @@ export function CreateGroupModal({ isOpen, onClose, onCreated }: Props) {
     setExternalEmail('')
     setGeneratedCode('')
     setCopied(false)
+    setSelectedUserIds(new Set())
     onClose()
   }
 
@@ -156,6 +223,65 @@ export function CreateGroupModal({ isOpen, onClose, onCreated }: Props) {
                 </div>
               </>
             )}
+            {/* 조직원 체크박스 초대 — 채널 생성과 동시에 멤버 추가 */}
+            <div>
+              <div className="mb-1.5 flex items-center justify-between">
+                <label className="flex items-center gap-1.5 text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                  <Users size={14} className="text-neutral-400" />
+                  초대할 조직원
+                  {selectedUserIds.size > 0 && (
+                    <span className="rounded-full bg-primary-100 px-1.5 text-[10px] font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+                      {selectedUserIds.size}
+                    </span>
+                  )}
+                </label>
+                {orgMembers.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={toggleAll}
+                    className="text-[11px] text-primary-600 hover:underline dark:text-primary-400"
+                  >
+                    {selectedUserIds.size === orgMembers.length ? '전체 해제' : '전체 선택'}
+                  </button>
+                )}
+              </div>
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-neutral-200 bg-neutral-50/50 dark:border-neutral-700 dark:bg-neutral-800/50">
+                {loadingMembers ? (
+                  <p className="px-3 py-3 text-center text-[11px] text-neutral-400">불러오는 중...</p>
+                ) : orgMembers.length === 0 ? (
+                  <p className="px-3 py-3 text-center text-[11px] text-neutral-400">
+                    초대할 조직원이 없습니다. (당신 외 멤버가 없음)
+                  </p>
+                ) : (
+                  orgMembers.map((m) => {
+                    const checked = selectedUserIds.has(m.userId)
+                    return (
+                      <label
+                        key={m.userId}
+                        className="flex cursor-pointer items-center gap-2 px-3 py-1.5 text-sm hover:bg-neutral-100 dark:hover:bg-neutral-700/50"
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleMember(m.userId)}
+                          className="h-3.5 w-3.5 rounded border-neutral-300 text-primary-600 focus:ring-primary-400"
+                        />
+                        <div className="flex h-6 w-6 items-center justify-center rounded-full bg-primary-100 text-[10px] font-bold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300">
+                          {m.user.name?.[0] ?? '?'}
+                        </div>
+                        <span className="flex-1 truncate text-xs text-neutral-700 dark:text-neutral-200">
+                          {m.user.name}
+                        </span>
+                        {m.role === 'owner' && (
+                          <span className="text-[9px] font-medium text-neutral-400">Owner</span>
+                        )}
+                      </label>
+                    )
+                  })
+                )}
+              </div>
+            </div>
+
             <div className="flex justify-end gap-2 pt-2">
               <Button variant="ghost" size="sm" onClick={handleClose} disabled={submitting}>취소</Button>
               <Button size="sm" onClick={handleCreate} disabled={submitting}>

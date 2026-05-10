@@ -6,6 +6,7 @@ import {
   useCallback,
   useMemo,
 } from 'react'
+import { useParams } from 'react-router-dom'
 import {
   Send,
   Smile,
@@ -22,6 +23,7 @@ import {
 import { cn } from '@/utils/cn'
 import { apiFetch } from '@/lib/api'
 import { useChatStore } from '@/stores/useChatStore'
+import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useThreadStore } from '@/stores/useThreadStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
@@ -129,6 +131,22 @@ export function ChannelView() {
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // URL의 :channelId param을 useChatStore에 동기화 — 직접 진입/새로고침에도 작동
+  const { channelId: urlChannelId } = useParams<{ channelId: string }>()
+  useEffect(() => {
+    if (urlChannelId && urlChannelId !== activeChannelId) {
+      setActiveChannel(urlChannelId)
+    }
+  }, [urlChannelId, activeChannelId, setActiveChannel])
+
+  // 채널 진입 시 markRead — 사이드바 unread 배지 즉시 0
+  const markChannelRead = useChannelsStore((s) => s.markChannelRead)
+  useEffect(() => {
+    if (!urlChannelId) return
+    void apiFetch(`/channels/${urlChannelId}/read`, { method: 'PUT' }).catch(() => {})
+    markChannelRead(urlChannelId)
+  }, [urlChannelId, markChannelRead])
 
   // ── Socket init / cleanup ─────────────────────────────────────────────────
 

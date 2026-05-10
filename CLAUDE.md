@@ -6,19 +6,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 SyncFlow는 AI가 회의에 참여하는 스마트 협업 플랫폼이다. 킬러 피처는 AI 회의 어시스턴트(STT + RAG 기반 회의록 자동 생성 + 작업 자동 등록)이며, 실시간 문서 동시 편집, 음성 회의, 작업 관리, RAG AI, 코드 실행을 하나의 플랫폼에서 제공한다. 경쟁군은 Jira+Confluence+Slack+Zoom 스택이며, 타겟은 기업/조직 팀 협업이다. 프론트엔드 UI는 완성 상태이며 백엔드 API 구현이 진행 중이다.
 
-## 개발 현황
+## 개발 현황 (2026-05-11 기준)
 
-- **프론트엔드**: 완료. Mock 데이터(`src/constants/index.ts`)로 동작. API 연동 시 Store만 수정.
-- **백엔드**: AppModule 등록 13개 모듈, API ~70개 매핑, Socket.IO Gateway 2개(Messages·Meetings), Hocuspocus(`ws://localhost:1234`) 구동. 2026-05-11 통합 부팅 검증 완료.
-  - **구현 완성** (13개 모듈): `auth`, `settings`, `groups`, `projects`, `pages`, `tasks`, `channels`, `messages`, `document`, `meetings`, `dashboard`, `upload`, `livekit`
-    <!-- 부분 구현 메모 -->
-    <!-- - livekit: 토큰 발급 API만 구현. 미디어 전송·화면공유·참가자 관리는 LiveKit SFU가 처리. 회의 세션 DB 기록·화면공유 권한 분리·녹화는 후순위 -->
-    <!-- - dashboard: DASH-01~03 완료. DASH-04(Task 관련)는 연동 보류 -->
-    <!-- - meetings: MTG 12건 중 9건 완료(75%). MTG-08, MTG-12는 RAG 의존 -->
-    <!-- - settings: 테마/알림/비밀번호/소셜연동/계정삭제 중 SET-04, SET-05 일부 미완 -->
-    <!-- - tasks: 기본 CRUD 구현. 칸반/간트/캘린더 메타·커스텀 필드·일정 연동은 남궁훈 파트로 후속 -->
-  - **미착수** (4개 폴더, 빈 상태): `ai`(RAG), `schedules`, `subscriptions`, `voice-chat`/`screen-share`(LiveKit으로 흡수돼 별도 모듈 불필요)
-- **백엔드 개발 가이드**: `.docs/Do.md` — 파트별 생성할 파일, API 스펙, 완료 조건이 상세히 명시되어 있음
+- **프론트엔드**: Slack 패턴 정렬 진행 중. mock 비움 + 실제 API 연동 단계.
+- **백엔드**: AppModule 13개 모듈, API ~90개, Socket.IO Gateway 2개, Hocuspocus(`ws://localhost:1234`).
+  - **완료**: `auth`(테스터 자동 시드 포함), `settings`, `groups`(visibility/초대코드/공개검색/탈퇴/삭제), `projects`(자동 채팅방 생성), `pages`, `tasks`(컬럼 정렬 완료), `channels`(DM/project/일반 가시성 분리, 멤버 관리, 토픽 수정), `messages`, `document`, `meetings`(visibility/참여자/시작·종료·삭제 권한), `dashboard`(DM 제외), `upload`, `livekit`
+  - **미착수**: `ai`(RAG), `schedules`, `subscriptions`
+- **마이그레이션 적용**: `provider_access_token`, `add_group_visibility`, `align_channels_messages_with_entities`, `add_meetings_tables`, `align_tasks_with_entity`, `add_project_members`, `add_meeting_visibility_participants`
+- **테스터 계정**: `tester1@test.com` / `tester2@test.com` / `tester3@test.com` (비번 모두 `test1234`). dev 부팅 시 자동 시드 (production 제외).
+- **백엔드 개발 가이드**: `.docs/Do.md`
 
 ## 백엔드 개발 시 반드시 읽을 문서
 
@@ -79,20 +75,18 @@ npm run docker:down   # Stop containers
 - **사이드바 주의:** `AppLayout`이 실제로 import하는 사이드바는 **`SlackSidebar`**(`src/components/layout/SlackSidebar.tsx`)다. 동일 디렉토리의 `Sidebar.tsx`는 어디서도 import되지 않는 dead component이므로 사이드바 관련 변경은 항상 `SlackSidebar`에 적용해야 한다.
 
 ### Backend (backend/src/)
-- **NestJS 11 + TypeScript** — AppModule에 등록된 13개 모듈: `auth`, `settings`, `groups`, `projects`, `pages`, `tasks`, `channels`, `messages`, `document`, `meetings`, `dashboard`, `upload`, `livekit`
-- **현재 구현 완성:**
-  - `auth` — JWT + Google/GitHub/Kakao OAuth, 회원가입, 토큰 갱신, 비밀번호 재설정, 프로필
-  - `settings` — 테마, 알림, 비밀번호 변경, 소셜 연동, 계정 삭제
-  - `groups` / `projects` / `pages` — CRUD + 멤버 관리 + 초대 코드 + 권한 가드
-  - `channels` / `messages` — 채팅 권한, 스레드, 파일 업로드, Socket.IO Gateway(`chat:join/leave/message/typing/reaction`, `@AI` 멘션 자동 응답)
-  - `document` — TipTap 기반 + Hocuspocus + Yjs 라이브 커서 + PresenceAvatars + PDF/DOCX 내보내기 + 버전 히스토리
-  - `meetings` — STT 파이프라인(Google STT + 화자 분리), 실시간 자막, AI 회의록 자동 생성, 액션아이템 추출/Task 등록 (킬러 피처)
-  - `tasks` — Task CRUD (list/get/create/update/delete)
-  - `dashboard` — 내 그룹, 최근 페이지, 초대 코드 입력
-  - `upload` — 파일 업로드
-  - `livekit` — `POST /api/livekit/token` 음성/화면공유용 LiveKit JWT 발급 (TTL 4h, roomJoin/canPublish/canSubscribe/canPublishData 권한)
-- **미착수 (빈 폴더):** `ai`(RAG), `schedules`, `subscriptions`, `voice-chat`/`screen-share`(역할은 `livekit` 모듈이 대체)
-- **DB:** TypeORM + PostgreSQL 16 (pgvector 768-dim) · Prisma 마이그레이션 22개 모델 적용 (회의 AI 5개 schema.prisma 추가 필요)
+- **NestJS 11 + TypeScript**
+- **모듈별 완료 상태** (간략):
+  - `auth` — OAuth(Google/GitHub/Kakao) + 회원가입/로그인 + JWT + 토큰 갱신. **dev 부팅 시 tester1~3 자동 시드** (`AuthService.seedTestUsersIfDev`)
+  - `groups` — CRUD + visibility(public/private) + 8자리 초대코드 + `POST /:id/join` + `POST /:id/join-public` + `POST /:id/leave` + 멤버 role(owner/admin/member/guest)
+  - `projects` — CRUD + project_members + **생성 시 type='project' 채널 자동 생성**
+  - `channels` — type별(channel/dm/project) 흐름. DM은 본인 멤버만 노출, 같은 두 사람 중복 생성 차단, leave/delete. 채널 멤버 추가/제거/목록, 토픽 수정
+  - `messages` — CRUD + 스레드 + 리액션 + Socket.IO Gateway
+  - `meetings` — 회의 방 생성(즉시 시작 X) + start/end/delete 권한 + visibility + meeting_participants. STT/요약/액션아이템→Task
+  - `dashboard` — 내 채널(DM 제외) + 최근 페이지 + 회의
+  - `pages`, `tasks`, `document`, `upload`, `livekit`, `settings` — CRUD/기본 흐름 OK
+- **미착수**: `ai`(RAG), `schedules`, `subscriptions`
+- **DB**: PostgreSQL 16(pgvector 768-dim) + Redis. Prisma 마이그레이션 7건 적용 (groups/channels/messages/tasks/meetings/project_members 정합성 fix 포함)
 - **캐싱:** Redis (ioredis)
 - **인증:** JWT + Passport (Google/GitHub/Kakao OAuth)
 - **코드 실행:** Docker 샌드박스 (Dockerode) — 후순위
@@ -113,7 +107,8 @@ npm run docker:down   # Stop containers
 
 - **Group Context System:** Discord 서버 전환 방식 — `useGroupContextStore`로 현재 그룹 컨텍스트 관리, 하단 툴바에서 전환
 - **컴포넌트 구조:** `components/common/`에 재사용 UI, 기능별 폴더에 도메인 컴포넌트
-- **Mock 데이터:** 현재 프론트엔드는 `src/constants/index.ts`의 mock 데이터로 동작. 백엔드 API 구현 시 Store 내부만 수정하여 연동 (컴포넌트 코드 변경 없음). 상세는 `UI.md` "Mock 데이터 & 백엔드 전환 가이드" 섹션 참조.
+- **Mock 데이터:** `src/constants/index.ts`의 모든 `MOCK_*`는 빈 배열/객체로 비워둠 (실제 API 연동 모드). 데모 모드 복원이 필요하면 git history 참조. type 정의는 보존.
+- **Slack 정렬 로드맵:** UI.md 끝 "Slack 정렬 로드맵" 섹션 참조 — Phase 0~3 + 도메인별 매트릭스. 새 작업은 항상 그 표에서 다음 카드를 뽑는다.
 - **멀티뷰 패턴:** 작업 관리에서 칸반/캘린더/간트/리스트 4개 뷰가 동일 데이터 모델 공유
 - **권한 모델:** 조직 역할(Owner/Admin/Member/Guest) + 그룹 가시성(public/private) + 프로젝트별 Viewer 초대. 상세는 `.docs/PROJECT.md` "가시성 & 권한 모델" 참조.
 

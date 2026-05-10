@@ -15,6 +15,7 @@ import { DocumentEditorPage } from '@/pages/editor/DocumentEditorPage'
 import { CodeEditorPage } from '@/pages/editor/CodeEditorPage'
 import { SettingsPage } from '@/pages/settings/SettingsPage'
 import { TasksPage } from '@/pages/tasks/TasksPage'
+import { MessagesPage } from '@/pages/messages/MessagesPage'
 import { PricingPage } from '@/pages/billing/PricingPage'
 import { BillingHistoryPage } from '@/pages/billing/BillingHistoryPage'
 import { MeetingHistoryPage } from '@/pages/meeting/MeetingHistoryPage'
@@ -50,6 +51,7 @@ export const router = createBrowserRouter([
       { path: 'editor/:pageId', element: <DocumentEditorPage /> },
       { path: 'code/:pageId', element: <CodeEditorPage /> },
       { path: 'tasks', element: <TasksPage /> },
+      { path: 'messages', element: <MessagesPage /> },
       { path: 'meetings', element: <MeetingHistoryPage /> },
       { path: 'meetings/:id', element: <MeetingRoomPage /> },
       { path: 'meetings/:id/summary', element: <MeetingSummaryPage /> },

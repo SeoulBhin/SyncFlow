@@ -74,11 +74,21 @@ interface MeetingState {
   addRealtimeTranscript: (entry: ApiMeetingTranscript) => void
 
   // ── API 액션 ───────────────────────────────────────────────────────────────
-  createMeeting: (title: string, opts?: { groupId?: string; projectId?: string }) => Promise<ApiMeeting>
+  createMeeting: (
+    title: string,
+    opts?: {
+      groupId?: string
+      projectId?: string
+      visibility?: 'public' | 'private'
+      participants?: { userId: string; userName: string }[]
+    },
+  ) => Promise<ApiMeeting>
+  startMeetingApi: (meetingId: string) => Promise<ApiMeeting>
+  deleteMeetingApi: (meetingId: string) => Promise<void>
   uploadAudio: (meetingId: string, file: File, speakerMap?: Record<string, string>) => Promise<UploadAudioResponse>
   finalizeMeeting: (meetingId: string) => Promise<EndMeetingResponse>
   loadMeeting: (meetingId: string) => Promise<void>
-  loadMyMeetings: () => Promise<void>
+  loadMyMeetings: (orgId?: string) => Promise<void>
   loadMeetingsByProject: (projectId: string) => Promise<void>
   updateActionItem: (
     meetingId: string,
@@ -212,6 +222,8 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
         title,
         groupId: asUuid(opts?.groupId),
         projectId: asUuid(opts?.projectId),
+        visibility: opts?.visibility ?? 'private',
+        participants: opts?.participants ?? [],
       }),
     })
     set((s) => ({
@@ -219,6 +231,26 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       currentMeeting: meeting,
     }))
     return meeting
+  },
+
+  startMeetingApi: async (meetingId) => {
+    const meeting = await apiJson<ApiMeeting>(`/api/meetings/${meetingId}/start`, {
+      method: 'POST',
+      body: JSON.stringify({}),
+    })
+    set((s) => ({
+      meetings: s.meetings.map((m) => (m.id === meeting.id ? meeting : m)),
+      currentMeeting: meeting,
+    }))
+    return meeting
+  },
+
+  deleteMeetingApi: async (meetingId) => {
+    await apiJson(`/api/meetings/${meetingId}`, { method: 'DELETE' })
+    set((s) => ({
+      meetings: s.meetings.filter((m) => m.id !== meetingId),
+      currentMeeting: s.currentMeeting?.id === meetingId ? null : s.currentMeeting,
+    }))
   },
 
   uploadAudio: (meetingId, file, speakerMap) => {
@@ -319,10 +351,11 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
     }
   },
 
-  loadMyMeetings: async () => {
+  loadMyMeetings: async (orgId) => {
     set({ isLoading: true, error: null })
     try {
-      const meetings = await apiJson<ApiMeeting[]>('/api/meetings/my')
+      const qs = orgId && asUuid(orgId) ? `?orgId=${encodeURIComponent(orgId)}` : ''
+      const meetings = await apiJson<ApiMeeting[]>(`/api/meetings/my${qs}`)
       set({ meetings, isLoading: false })
     } catch (err) {
       set({

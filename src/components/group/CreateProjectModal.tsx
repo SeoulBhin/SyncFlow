@@ -2,39 +2,98 @@ import { useState } from 'react'
 import { X, Trash2 } from 'lucide-react'
 import { Button } from '@/components/common/Button'
 import { useToastStore } from '@/stores/useToastStore'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { useProjectsStore, type ProjectSummary } from '@/stores/useProjectsStore'
+import { useChannelsStore } from '@/stores/useChannelsStore'
+import { api } from '@/utils/api'
 
 interface Props {
   isOpen: boolean
   onClose: () => void
-  editData?: { id: string; name: string; description: string; dueDate?: string }
+  editData?: { id: string; name: string; description: string; deadline?: string }
+  onCreated?: (project: ProjectSummary) => void
 }
 
-export function CreateProjectModal({ isOpen, onClose, editData }: Props) {
+export function CreateProjectModal({ isOpen, onClose, editData, onCreated }: Props) {
   const addToast = useToastStore((s) => s.addToast)
+  const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
+  const addProject = useProjectsStore((s) => s.addProject)
+  const removeProject = useProjectsStore((s) => s.removeProject)
+  const fetchChannelsForOrg = useChannelsStore((s) => s.fetchForOrg)
   const isEdit = !!editData
+
   const [name, setName] = useState(editData?.name ?? '')
   const [description, setDescription] = useState(editData?.description ?? '')
-  const [dueDate, setDueDate] = useState(editData?.dueDate ?? '')
+  const [deadline, setDeadline] = useState(editData?.deadline ?? '')
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
 
   if (!isOpen) return null
 
-  const handleSubmit = () => {
-    if (!name.trim()) { addToast('error', '프로젝트명을 입력해주세요.'); return }
-    addToast('success', isEdit ? '프로젝트가 수정되었습니다. (목업)' : `프로젝트 "${name}"이(가) 생성되었습니다. (목업)`)
-    handleClose()
+  const handleSubmit = async () => {
+    if (!name.trim()) {
+      addToast('error', '프로젝트명을 입력해주세요.')
+      return
+    }
+    if (!isEdit && !activeOrgId) {
+      addToast('error', '조직이 선택되지 않았습니다.')
+      return
+    }
+    setSubmitting(true)
+    try {
+      if (isEdit && editData) {
+        const updated = await api.put<ProjectSummary>(`/projects/${editData.id}`, {
+          name: name.trim(),
+          description: description.trim() || undefined,
+          deadline: deadline || undefined,
+        })
+        addProject(updated)
+        addToast('success', '프로젝트가 수정되었습니다.')
+        onCreated?.(updated)
+      } else {
+        const created = await api.post<ProjectSummary>('/projects', {
+          groupId: activeOrgId,
+          name: name.trim(),
+          description: description.trim() || undefined,
+          deadline: deadline || undefined,
+        })
+        addProject(created)
+        // 백엔드가 프로젝트 생성과 동시에 type='project' 채널을 자동 생성하므로
+        // channels store도 새로 fetch해야 사이드바에 "프로젝트 채팅" 항목이 노출됨
+        if (activeOrgId) void fetchChannelsForOrg(activeOrgId)
+        addToast('success', `프로젝트 "${created.name}"이(가) 생성되었습니다.`)
+        onCreated?.(created)
+      }
+      handleClose()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '프로젝트 처리 실패'
+      addToast('error', msg)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
-  const handleDelete = () => {
-    addToast('success', '프로젝트가 삭제되었습니다. (목업)')
-    setShowDeleteConfirm(false)
-    handleClose()
+  const handleDelete = async () => {
+    if (!editData) return
+    setSubmitting(true)
+    try {
+      await api.delete(`/projects/${editData.id}`)
+      removeProject(editData.id)
+      addToast('success', '프로젝트가 삭제되었습니다.')
+      setShowDeleteConfirm(false)
+      handleClose()
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : '프로젝트 삭제 실패'
+      addToast('error', msg)
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   const handleClose = () => {
     setName('')
     setDescription('')
-    setDueDate('')
+    setDeadline('')
     setShowDeleteConfirm(false)
     onClose()
   }
@@ -54,17 +113,17 @@ export function CreateProjectModal({ isOpen, onClose, editData }: Props) {
         <div className="space-y-4">
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">프로젝트명 *</label>
-            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="예: SyncFlow" maxLength={40}
+            <input type="text" value={name} onChange={(e) => setName(e.target.value)} placeholder="예: SyncFlow" maxLength={200} autoFocus
               className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900" />
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">설명</label>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="프로젝트에 대한 간단한 설명" rows={2} maxLength={100}
+            <textarea value={description} onChange={(e) => setDescription(e.target.value)} placeholder="프로젝트에 대한 간단한 설명" rows={2} maxLength={300}
               className="w-full resize-none rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900" />
           </div>
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">마감일</label>
-            <input type="date" value={dueDate} onChange={(e) => setDueDate(e.target.value)}
+            <input type="date" value={deadline} onChange={(e) => setDeadline(e.target.value)}
               className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900" />
           </div>
           {isEdit && (
@@ -72,17 +131,19 @@ export function CreateProjectModal({ isOpen, onClose, editData }: Props) {
               {showDeleteConfirm ? (
                 <div className="flex items-center gap-2">
                   <p className="flex-1 text-xs font-medium text-error">정말 삭제하시겠습니까?</p>
-                  <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)}>취소</Button>
-                  <Button variant="danger" size="sm" onClick={handleDelete}><Trash2 size={14} />삭제</Button>
+                  <Button variant="ghost" size="sm" onClick={() => setShowDeleteConfirm(false)} disabled={submitting}>취소</Button>
+                  <Button variant="danger" size="sm" onClick={handleDelete} disabled={submitting}><Trash2 size={14} />삭제</Button>
                 </div>
               ) : (
-                <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)}><Trash2 size={14} />프로젝트 삭제</Button>
+                <Button variant="danger" size="sm" onClick={() => setShowDeleteConfirm(true)} disabled={submitting}><Trash2 size={14} />프로젝트 삭제</Button>
               )}
             </div>
           )}
           <div className="flex justify-end gap-2 pt-2">
-            <Button variant="ghost" size="sm" onClick={handleClose}>취소</Button>
-            <Button size="sm" onClick={handleSubmit}>{isEdit ? '저장' : '생성'}</Button>
+            <Button variant="ghost" size="sm" onClick={handleClose} disabled={submitting}>취소</Button>
+            <Button size="sm" onClick={handleSubmit} disabled={submitting}>
+              {submitting ? '처리 중...' : isEdit ? '저장' : '생성'}
+            </Button>
           </div>
         </div>
       </div>

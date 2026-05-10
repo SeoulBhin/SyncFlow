@@ -18,32 +18,33 @@ export class Message {
   @PrimaryGeneratedColumn('uuid')
   id: string;
 
-  @Column()
+  @Column({ name: 'channel_id', type: 'uuid' })
   channelId: string;
 
-  @Column()
+  /** ERD/Prisma 상의 user_id 컬럼 — 메시지 작성자(또는 시스템 발화자) */
+  @Column({ name: 'user_id', type: 'uuid' })
   authorId: string;
 
-  @Column()
+  @Column({ name: 'author_name', type: 'varchar', length: 100, default: '' })
   authorName: string;
 
   @Column('text')
   content: string;
 
-  @Column({ type: 'uuid', nullable: true })
+  @Column({ name: 'parent_id', type: 'uuid', nullable: true })
   parentId: string | null;
 
-  @Column({ default: false })
+  @Column({ name: 'is_system', type: 'boolean', default: false })
   isSystem: boolean;
 
-  @Column({ default: 0 })
+  @Column({ name: 'reply_count', type: 'integer', default: 0 })
   replyCount: number;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @ManyToOne(() => Channel, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'channelId' })
+  @JoinColumn({ name: 'channel_id' })
   channel: Channel;
 
   @OneToMany(() => MessageReaction, (r) => r.message, { cascade: true })

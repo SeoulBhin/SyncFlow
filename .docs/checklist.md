@@ -681,6 +681,65 @@
 
 ---
 
+## 일괄 완료 (2026-05-11 정비)
+
+이 섹션은 위 항목들 위에서 한 번에 묶어서 처리한 변경 사항. 위 개별 항목은 historical record로 남겨둠.
+
+### 백엔드 정합성 fix
+- **마이그레이션 7건 추가** (entity ↔ DB 정렬): groups visibility, channels/messages 매핑, meetings 4개 테이블 신규, tasks 컬럼, project_members, meeting visibility/participants
+- **dev 자동 시드**: tester1~3 계정 (`AuthService.seedTestUsersIfDev`)
+- **AppLayout fetchMe**: 본인 식별 정확화
+
+### 조직 흐름
+- 생성/8자리 초대코드/참여(`POST /groups/join`)/탈퇴(`POST /groups/:id/leave`)/삭제(owner)/공개·비공개 전환/공개 검색(`POST /groups/:id/join-public`)
+- 자동 fetch (`fetchMyGroups`) → 새로고침/재로그인 시 데이터 유지
+- `OrganizationSettingsModal` (settings 통합), `PublicGroupSearchModal`
+
+### 채널 흐름
+- type별 가시성 분리 (`getGroupChannels`): DM은 본인 멤버만, 일반/project는 그룹 누구나
+- DM 중복 방지(`findExistingDm`), self-DM 차단, leave/delete (`POST /channels/:id/leave`, `DELETE`)
+- 멤버 체크박스 다중 초대 (`POST /channels/:id/members`), 멤버 제거, 토픽 수정 (`PUT`)
+- `ChannelSettingsModal` (이름·토픽·멤버·삭제), 채널 헤더 ⚙️ 진입점, 회의 시작 = 채널 멤버 자동 참여자
+
+### DM
+- `NewDMModal`, `SidebarDMList`, `MessagesPage` (DM 전용 인박스)
+- 본인 입장 상대방 표시 (`otherUser` 필드, 백엔드에서 user별 다르게 반환)
+- markRead 즉시 반영 (`useChannelsStore.markChannelRead`)
+- 대시보드 "내 채널" 카드에서 DM 제외
+
+### 프로젝트
+- 백엔드 연동 (`useProjectsStore`), CreateProjectModal 실제 API
+- 사이드바 + 버튼 (`CollapsibleSection.action` slot), expand 시 "💬 프로젝트 채팅" 진입점
+- 생성 시 `type='project'` 채널 자동 생성
+
+### 회의 흐름 변경
+- 즉시 시작 X (`status='scheduled'`), 호스트만 `start`, 호스트/조직관리자만 `end`/`delete`
+- visibility(public/private) + meeting_participants
+- 비공개 회의록 권한 가드 (`assertCanAccess`)
+- 본인 접근 가능한 회의만 노출 (`getAccessibleMeetings`)
+- `CreateMeetingModal` 신규 (제목·visibility·참여자 체크박스)
+
+### 좌측 하단 분리
+- `프로필` (`/app/profile`) = 닉네임/아바타 + **비밀번호/소셜/탈퇴** (AccountSecuritySection 분리)
+- `조직 설정` (`/app/settings`) = 테마/알림 + 조직 삭제(owner)/탈퇴(멤버)
+
+### 빈 상태 UI
+- `EmptyState`, `WelcomeOnboarding` (조직 0개 시 풀스크린)
+- 사이드바 채널/프로젝트 0개 시 인라인 빈 상태
+
+### 기타
+- 모든 mock 데이터 빈 배열로 (`scripts/empty-mocks.py`)
+- 본인 제외 필터 강화 (`m.userId !== currentUserId && m.user?.id !== currentUserId`) — NewDMModal/CreateGroupModal/CreateMeetingModal
+- UI.md에 "Slack 정렬 로드맵" 섹션 추가 — Phase 0~3 + 도메인 매트릭스
+
+### 다음 작업 (Phase 0, 백엔드 의존 0)
+1. DetailPanel 채널 멤버 패널 채우기
+2. 채널 헤더 토픽 인라인 편집
+3. 사이드바 채널 hover ⚙️ 빠른 진입
+4. 메시지 hover 액션 정렬
+
+---
+
 _문서 작성일: 2026-03-05_
-_마지막 업데이트: 2026-05-11 — 구현 완료 모듈 13개 반영, 부분 미완은 코멘트로 정리_
+_마지막 업데이트: 2026-05-11 — 일괄 정비 섹션 추가 (조직/채널/DM/회의/프로필 분리/빈 상태)_
 _팀명: 2학년의 무게 | 계명대학교 컴퓨터공학과_

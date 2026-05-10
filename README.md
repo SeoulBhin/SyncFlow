@@ -33,7 +33,9 @@ npm install
 npm run start:dev
 ```
 
-테스터 계정 `tester1@test.com` / `test1234`
+테스터 계정 (모두 비번 `test1234`):
+- `tester1@test.com` / `tester2@test.com` / `tester3@test.com`
+- dev 부팅 시 `AuthService.seedTestUsersIfDev`가 자동 생성. 다른 팀원도 `git pull` 후 그대로 로그인 가능.
 
 ### 주요 명령어
 
@@ -160,26 +162,21 @@ SyncFlow/
 
 ## 진행 현황
 
-| 카테고리 | 상태 | 담당 |
-|----------|------|---|
-| 프론트엔드 UI (UI-01~UI-83) | **95% 완료** (60건 중 57건 + 신규 24건) | 김경빈 |
-| 백엔드 초기 설정 (NestJS, TypeORM, Docker) | 완료 | 김경빈/김명준 |
-| Prisma DB 마이그레이션 (29개 중 22개 모델) | 완료 (회의 5개 추가 필요) | 김명준 |
-| 백엔드 API — 인증 (JWT, Google/GitHub/Kakao OAuth) | **완성** + 프론트 연동 | 김명준 |
-| 백엔드 API — 설정 (테마/알림/비밀번호) | **완성** <!-- SET-04, SET-05 일부 미완 --> | 김명준 |
-| 백엔드 API — 그룹/프로젝트/페이지 (CRUD + 권한) | **완성** <!-- 프론트 연동 진행 중 --> | 김명준 |
-| 백엔드 API — 채널/메시지 + Socket.IO Gateway | **완성** (권한·스레드·파일 업로드·리액션·`@AI` 멘션) | 이도현 |
-| 백엔드 API — 문서 실시간 협업 (Hocuspocus + Yjs) | **완성** (라이브커서·PresenceAvatars 포함) | 이도현 |
-| 백엔드 API — 문서 에디터 (TipTap, PDF/DOCX 내보내기, 버전) | **완성** <!-- DOC-09 외 14건, 라이브커서는 PresenceAvatars 로 보완 --> | 김봉만 |
-| 백엔드 API — 회의 AI 킬러 피처 (STT, 회의록, 액션아이템) | **완성** <!-- MTG 12건 중 9건, MTG-08·12 는 RAG 의존 --> | 김봉만 |
-| 백엔드 API — 대시보드 | **완성** <!-- DASH-01~03 완료, DASH-04는 Task 연동 보류 --> | 김봉만 |
-| 백엔드 API — LiveKit (음성/화면공유 토큰 발급) | **완성** <!-- 토큰 발급 API 구현, 미디어/화면공유는 LiveKit SFU 처리. 회의 세션 DB 기록·녹화는 후순위 --> | 이도현 |
-| 백엔드 API — 작업 관리 (Tasks 기본 CRUD) | **완성** <!-- 칸반/간트/캘린더 메타·커스텀 필드 후속 --> | 남궁훈 |
-| 백엔드 API — 파일 업로드 (Upload) | **완성** | - |
-| 백엔드 API — AI RAG 파이프라인 | 미착수 | 남궁훈 |
-| 백엔드 API — 일정 (Schedules) | 미착수 | 남궁훈 |
-| 백엔드 API — 구독/결제 | 미착수 | - |
-| **통합 빌드 & 부팅** | **2026-05-11 검증 완료** (4건 마이너 이슈, 모두 해결 진행 중) | 전체 |
+| 카테고리 | 상태 |
+|----------|------|
+| 프론트엔드 UI (Slack 정렬 진행) | mock 비움 + 실제 API 연동 모드, Phase 0 진행 중 |
+| 백엔드 — auth (OAuth/JWT/테스터 자동 시드) | 완성 |
+| 백엔드 — groups (visibility/초대코드/참여/탈퇴/삭제) | 완성 |
+| 백엔드 — projects (자동 채팅방 생성) | 완성 |
+| 백엔드 — channels (DM/project/일반 가시성·멤버 관리·토픽) | 완성 |
+| 백엔드 — messages + Socket.IO Gateway | 완성 |
+| 백엔드 — meetings (방 생성/시작·종료·삭제/visibility/참여자) | 완성 |
+| 백엔드 — dashboard (DM 제외) | 완성 |
+| 백엔드 — pages/tasks/document/upload/livekit/settings | 완성 |
+| Prisma 마이그레이션 (정합성 fix 7건 추가) | 완성 |
+| 백엔드 — AI RAG | 미착수 |
+| 백엔드 — schedules / subscriptions | 미착수 |
+| 통합 빌드 & 부팅 | **2026-05-11 검증 완료** |
 
 ## 개발 일지
 
@@ -221,28 +218,32 @@ SyncFlow/
 - 대시보드 백엔드 3건 — 내 그룹, 최근 페이지, 초대 코드 (김봉만)
 - 회의 AI 킬러 피처 9건 — STT 파이프라인(Google STT + 화자 분리), 실시간 자막, AI 회의록 자동 생성, 액션아이템 추출/등록, 회의 이력 (김봉만)
 
-### 2026-05-10 ~ 05-11 (통합 테스트)
-- 5명 작업분 main 병합 → 통합 빌드 검증 진행
-- TypeScript 컴파일 0 errors, NestJS 부팅 성공 (`http://localhost:3000`)
-- API 70개 + Socket.IO 8 이벤트 + Hocuspocus(`ws://localhost:1234`) 동시 가동
-- Prisma 마이그레이션 22개 모델 적용 완료 (29개 중 회의 5개 추가 필요)
-- 통합 이슈 4건 발견 — 모두 1회 수정으로 해결 가능, 개별 파트 품질 문제 아님:
-  1. `OAuthAccount.provider_access_token` 컬럼 마이그레이션 누락 (김명준 처리 예정)
-  2. 회의 AI 5개 테이블 schema.prisma 미반영 (김봉만 처리 필요)
-  3. Kakao OAuth 시크릿 잘려서 공유됨 (김명준에게 재공유 요청)
-  4. 시크릿 노출 보안 이슈 → `.env.example` placeholder 정리, 키 회전 권장
+### 2026-05-10 ~ 05-11 (통합 테스트 + Slack 패턴 정렬)
+- 5명 작업분 main 병합 → 통합 빌드 + 정합성 fix 완료
+- DB 스키마 ↔ TypeORM Entity 정합성 fix (마이그레이션 7건 추가):
+  - `groups.visibility/is_external/connected_org_ids` 추가
+  - `channels`/`channel_members`/`messages`/`message_reactions` entity ↔ DB 매핑 정렬, 누락 컬럼 추가
+  - `meetings`/`meeting_transcripts`/`meeting_summaries`/`meeting_action_items` 테이블 신규 생성
+  - `tasks` 컬럼 정렬 (`assignee`/`source_meeting_id` 등)
+  - `project_members` 테이블 신규
+  - `meetings.visibility` + `meeting_participants` 신규
+- 테스터 계정 자동 시드 (`AuthService.seedTestUsersIfDev`) — tester1~3, dev only
+- 조직 흐름 정비 — 생성/초대코드(8자)/참여/탈퇴/삭제, 공개·비공개 전환, 공개 조직 검색
+- 채널 흐름 정비 — type별(channel/dm/project) 가시성 분리, DM 중복 차단·삭제 영구화·읽음 표시, 채널 헤더 ⚙️ 설정·토픽·회의 시작
+- 프로젝트 흐름 정비 — 생성 시 type='project' 채널 자동 생성, 사이드바 expand 시 "프로젝트 채팅" 진입점
+- 회의 흐름 정비 — 즉시 시작 X (status='scheduled' → start), 호스트/조직관리자만 시작·종료·삭제, visibility/참여자, 비공개 회의록은 참여자만 열람
+- DM 흐름 — `NewDMModal`, `SidebarDMList`, `MessagesPage`(DM 전용), 본인 입장 상대 이름 노출(`otherUser`)
+- 좌측 하단 분리 — `프로필`(비번/소셜/탈퇴) + `조직 설정`(테마/알림/조직 삭제·탈퇴)
+- 빈 상태 UI — `EmptyState`, `WelcomeOnboarding`(조직 0개 시)
+- 모든 mock 데이터 빈 배열로 정리 (실제 API 모드)
+- UI.md 끝에 "Slack 정렬 로드맵" 섹션 추가 (Phase 0~3 + 도메인 매트릭스)
 
 ### 앞으로 해야 할 일
-- **그룹/프로젝트/페이지 CRUD API** — TypeORM Entity + REST 엔드포인트
-- **실시간 문서/코드 편집** — Socket.IO + Yjs/Hocuspocus
-- **Docker 코드 실행 환경** — 언어별 이미지, 샌드박스 실행 API
-- **할 일/일정 API** — 칸반/간트/캘린더 데이터 모델
-- **채팅 메시지 API + Socket.IO** — 채널/DM/스레드
-- **음성/화면 공유** — LiveKit 서버 + 토큰 발급 API
-- **AI RAG 파이프라인** — Gemini API + pgvector 임베딩/검색
-- **구독 결제** — Toss Payments 또는 Stripe
-- **프론트-백 API 연동** — Mock 데이터 → 실제 API 호출로 교체 (Store만 수정)
-- **GCP 배포** — Compute Engine, Cloud SQL, Nginx
+UI.md "Slack 정렬 로드맵" 참조 — Phase 0부터 차례로:
+- **Phase 0** (백엔드 의존 0): DetailPanel 멤버 패널, 채널 헤더 토픽 인라인 편집, 사이드바 hover ⚙️, 메시지 hover 액션 정렬
+- **Phase 1** (작은 백엔드): 메시지 핀, 채널별 알림, 즐겨찾기, 메시지 저장
+- **Phase 2** (중간 백엔드): 파일 모음, 통합 검색, 알림 inbox, 멘션 추적
+- **Phase 3 보류**: AI RAG, Slack Connect, Canvas, Workflow, Huddle 풀통합
 
 ## 문서
 

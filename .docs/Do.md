@@ -20,13 +20,12 @@
 
 ## 현재 상태
 
-### 프론트엔드 (UI 100% 완료)
+### 프론트엔드 (Slack 정렬 진행 중)
 - React 19 + TypeScript + TailwindCSS v4 + Vite 7.3
-- Zustand 13개 store, React Router v7
-- **모든 UI가 Mock 데이터(`src/constants/index.ts`)로 동작 중**
-- 백엔드 API가 준비되면 Store 내부만 수정하여 연동 (컴포넌트 변경 없음)
+- Zustand 다수 store + 신규: `useChannelsStore`, `useProjectsStore`
+- **모든 mock 데이터 비움** — 실제 API 연동 모드. 다음 작업은 UI.md "Slack 정렬 로드맵" Phase 0부터
 
-### 백엔드 (2026-05-11 통합 테스트 완료, 4건 마이너 이슈 처리 중)
+### 백엔드 (2026-05-11 정합성 fix 완료, 마이그레이션 7건 추가)
 - NestJS 11 (`backend/`), TypeScript
 - Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine) + LiveKit
 - Vite 프록시: `/api` → `localhost:3000`, `/socket.io` → ws
@@ -1006,4 +1005,33 @@ createTask: async (task: CreateTaskDto) => {
 
 ---
 
-*마지막 업데이트: 2026-05-07*
+## 모듈별 완료 현황 (간략, 2026-05-11)
+
+| 모듈 | 상태 | 핵심 |
+|------|------|------|
+| auth | 완료 | OAuth(Google/GitHub/Kakao) + 회원가입/로그인 + JWT + 토큰 갱신 + **dev tester 자동 시드** |
+| groups | 완료 | CRUD + visibility + 8자리 초대코드 + join/leave/join-public + 공개 검색 + 멤버 role 관리 |
+| projects | 완료 | CRUD + project_members + **자동 type='project' 채널 생성** |
+| channels | 완료 | type별 흐름(channel/dm/project), DM 본인 한정·중복 차단·leave/delete, 멤버 추가/제거/목록, 토픽 수정 |
+| messages | 완료 | CRUD + 스레드 + 리액션 + Socket.IO Gateway |
+| meetings | 완료 | 방 생성(즉시 시작 X) + start/end/delete 권한 + visibility + meeting_participants + assertCanAccess |
+| dashboard | 완료 | 내 채널(DM 제외) + 최근 페이지 + 회의 |
+| pages, tasks, document, upload, livekit, settings | 완료 | 기본 CRUD/흐름 |
+| ai (RAG) | **미착수** | Gemini + pgvector |
+| schedules | **미착수** | — |
+| subscriptions | **미착수** | — |
+
+### 마이그레이션 7건 (모두 적용 + git에 commit됨)
+1. `add_provider_access_token`
+2. `add_group_visibility` (visibility/is_external/connected_org_ids)
+3. `align_channels_messages_with_entities` (entity ↔ DB 매핑 + invite_code/user_name/author_name/is_system/reply_count)
+4. `add_meetings_tables` (meetings/transcripts/summaries/action_items)
+5. `align_tasks_with_entity` (assignee/source_meeting_id/source_action_item_id)
+6. `add_project_members`
+7. `add_meeting_visibility_participants`
+
+다른 팀원은 `git pull && npx prisma migrate deploy` 한 번만 하면 모두 자동 적용.
+
+---
+
+*마지막 업데이트: 2026-05-11 — 정합성 fix 완료, 모듈별 완료 현황 간략화*

@@ -202,6 +202,33 @@ export class GroupsService {
     return this.memberRepo.save(targetMember)
   }
 
+  /* ── POST /api/groups/:id/join-public — 공개 조직에 직접 참여 ── */
+  async joinPublicGroup(groupId: string, userId: string) {
+    const group = await this.findGroupOrThrow(groupId)
+    if (group.visibility !== 'public') {
+      throw new ForbiddenException('비공개 조직은 초대 코드로만 참여할 수 있습니다')
+    }
+    const existing = await this.memberRepo.findOne({ where: { groupId, userId } })
+    if (existing) throw new BadRequestException('이미 조직에 참여 중입니다')
+    const member = this.memberRepo.create({ groupId, userId, role: 'member' })
+    await this.memberRepo.save(member)
+    return { message: '조직에 참여했습니다', group }
+  }
+
+  /* ── POST /api/groups/:id/leave — 본인 자발적 탈퇴 ── */
+  async leaveGroup(groupId: string, userId: string) {
+    await this.findGroupOrThrow(groupId)
+    const member = await this.memberRepo.findOne({ where: { groupId, userId } })
+    if (!member) throw new NotFoundException('조직 멤버가 아닙니다')
+    if (member.role === 'owner') {
+      throw new ForbiddenException(
+        '조직 소유자는 탈퇴할 수 없습니다. 소유권을 다른 멤버에게 이전하거나 조직을 삭제하세요.',
+      )
+    }
+    await this.memberRepo.remove(member)
+    return { message: '조직에서 탈퇴했습니다' }
+  }
+
   /* ── DELETE /api/groups/:id/members/:uid ── */
   async removeMember(groupId: string, requesterId: string, targetUserId: string) {
     await this.requireRole(groupId, requesterId, ['owner', 'admin'])

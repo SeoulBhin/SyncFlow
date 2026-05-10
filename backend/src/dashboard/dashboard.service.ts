@@ -52,6 +52,8 @@ export class DashboardService {
     const scoped = memberships.filter((m) => {
       if (m.channel == null) return false;
       if (orgId && m.channel.groupId !== orgId) return false;
+      // 대시보드 "내 채널" 카드에는 부서/팀 채널만. DM은 별도 영역(메시지 탭/사이드바)
+      if (m.channel.type === 'dm') return false;
       return true;
     });
 

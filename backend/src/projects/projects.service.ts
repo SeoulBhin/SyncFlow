@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common'
@@ -8,11 +9,15 @@ import { Repository } from 'typeorm'
 import { Project } from './entities/project.entity'
 import { ProjectMember } from './entities/project-member.entity'
 import { GroupMember } from '../groups/entities/group-member.entity'
+import { Channel } from '../channels/entities/channel.entity'
+import { ChannelMember } from '../channels/entities/channel-member.entity'
 import { CreateProjectDto } from './dto/create-project.dto'
 import { UpdateProjectDto } from './dto/update-project.dto'
 
 @Injectable()
 export class ProjectsService {
+  private readonly logger = new Logger(ProjectsService.name)
+
   constructor(
     @InjectRepository(Project)
     private readonly projectRepo: Repository<Project>,
@@ -20,6 +25,10 @@ export class ProjectsService {
     private readonly projectMemberRepo: Repository<ProjectMember>,
     @InjectRepository(GroupMember)
     private readonly groupMemberRepo: Repository<GroupMember>,
+    @InjectRepository(Channel)
+    private readonly channelRepo: Repository<Channel>,
+    @InjectRepository(ChannelMember)
+    private readonly channelMemberRepo: Repository<ChannelMember>,
   ) {}
 
   /* ── POST /api/projects ── */
@@ -48,6 +57,30 @@ export class ProjectsService {
       role: 'admin',
     })
     await this.projectMemberRepo.save(member)
+
+    // 프로젝트 단체 채팅방 자동 생성 (type='project') — 생성자 자동 멤버
+    try {
+      const projectChannel = this.channelRepo.create({
+        groupId: dto.groupId,
+        projectId: project.id,
+        type: 'project',
+        name: project.name,
+        description: `${project.name} 프로젝트 채팅방`,
+        inviteCode: null,
+      })
+      const savedChannel = await this.channelRepo.save(projectChannel)
+      await this.channelMemberRepo.save(
+        this.channelMemberRepo.create({
+          channelId: savedChannel.id,
+          userId,
+          userName: '',
+        }),
+      )
+    } catch (e) {
+      this.logger.warn(
+        `프로젝트 채널 자동 생성 실패 (project=${project.id}): ${(e as Error).message}`,
+      )
+    }
 
     return project
   }

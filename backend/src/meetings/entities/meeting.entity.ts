@@ -1,4 +1,5 @@
-import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn } from 'typeorm'
+import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateColumn, OneToMany } from 'typeorm'
+import { MeetingParticipant } from './meeting-participant.entity'
 
 @Entity('meetings')
 export class Meeting {
@@ -20,6 +21,9 @@ export class Meeting {
   @Column({ type: 'varchar', length: 20, default: 'scheduled' })
   status: string // scheduled | in-progress | ended
 
+  @Column({ type: 'varchar', length: 10, default: 'private' })
+  visibility: 'public' | 'private'
+
   @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
   startedAt: Date | null
 
@@ -31,4 +35,7 @@ export class Meeting {
 
   @UpdateDateColumn({ name: 'updated_at' })
   updatedAt: Date
+
+  @OneToMany(() => MeetingParticipant, (p) => p.meeting, { cascade: true })
+  participants: MeetingParticipant[]
 }

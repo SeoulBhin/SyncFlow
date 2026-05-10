@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import * as path from 'path';
 import { AppModule } from './app.module';
+import { AuthService } from './auth/auth.service';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
@@ -36,5 +37,8 @@ async function bootstrap() {
   const port = process.env.PORT || 3000;
   await app.listen(port);
   console.log(`SyncFlow backend running on http://localhost:${port}`);
+
+  // Dev 환경 자동 시드: 테스터 계정이 없으면 생성
+  await app.get(AuthService).seedTestUsersIfDev();
 }
 bootstrap();

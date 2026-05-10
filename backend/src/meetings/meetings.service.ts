@@ -1,5 +1,6 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
@@ -11,7 +12,9 @@ import { Meeting } from './entities/meeting.entity'
 import { MeetingTranscript } from './entities/meeting-transcript.entity'
 import { MeetingSummary } from './entities/meeting-summary.entity'
 import { MeetingActionItem } from './entities/meeting-action-item.entity'
+import { MeetingParticipant } from './entities/meeting-participant.entity'
 import { Task } from '../tasks/entities/task.entity'
+import { GroupMember } from '../groups/entities/group-member.entity'
 import { SttService } from './stt.service'
 import { SummaryService } from './summary.service'
 
@@ -37,25 +40,170 @@ export class MeetingsService {
     @InjectRepository(MeetingTranscript) private transcriptRepo: Repository<MeetingTranscript>,
     @InjectRepository(MeetingSummary) private summaryRepo: Repository<MeetingSummary>,
     @InjectRepository(MeetingActionItem) private actionItemRepo: Repository<MeetingActionItem>,
+    @InjectRepository(MeetingParticipant) private participantRepo: Repository<MeetingParticipant>,
     @InjectRepository(Task) private taskRepo: Repository<Task>,
+    @InjectRepository(GroupMember) private groupMemberRepo: Repository<GroupMember>,
     private sttService: SttService,
     private summaryService: SummaryService,
   ) {}
 
-  // 회의 생성
-  async createMeeting(title: string, hostId: string, groupId?: string, projectId?: string) {
-    // group_id / project_id 컬럼은 uuid 타입 — 비-UUID 값(MOCK 채널 "ch1" 등)이
-    // 들어오면 Postgres가 invalid input syntax 로 throw 해 500을 반환함.
-    // 프런트 보냄 값이 무엇이든 안전하게 null 로 정규화 (방어적 프로그래밍)
+  /**
+   * 회의 방 생성 — 즉시 시작하지 않음(status='scheduled').
+   * 호스트가 명시적으로 startMeeting()을 호출해야 in-progress가 됨.
+   * participants[]가 비어있고 visibility='public'이면 같은 조직 멤버 누구나 들어올 수 있음.
+   * visibility='private'이면 호스트 + participants만 접근 가능.
+   */
+  async createMeeting(
+    title: string,
+    hostId: string,
+    options: {
+      groupId?: string
+      projectId?: string
+      visibility?: 'public' | 'private'
+      participants?: { userId: string; userName: string }[]
+    } = {},
+  ) {
+    const { groupId, projectId, visibility = 'private', participants = [] } = options
     const meeting = this.meetingRepo.create({
       title,
       hostId: toUuidOrNull(hostId) ?? hostId,
       groupId: toUuidOrNull(groupId),
       projectId: toUuidOrNull(projectId),
-      status: 'in-progress',
-      startedAt: new Date(),
+      visibility,
+      status: 'scheduled',
     })
+    const saved = await this.meetingRepo.save(meeting)
+
+    // 호스트는 자동 참여자
+    const allParticipants: { userId: string; userName: string }[] = []
+    const hostUuid = toUuidOrNull(hostId)
+    if (hostUuid) allParticipants.push({ userId: hostUuid, userName: '' })
+    for (const p of participants) {
+      if (toUuidOrNull(p.userId) && p.userId !== hostUuid) {
+        allParticipants.push(p)
+      }
+    }
+    if (allParticipants.length > 0) {
+      const records = allParticipants.map((p) =>
+        this.participantRepo.create({
+          meetingId: saved.id,
+          userId: p.userId,
+          userName: p.userName ?? '',
+        }),
+      )
+      await this.participantRepo.save(records)
+    }
+    return saved
+  }
+
+  /** 회의 시작 — 호스트만. status='scheduled' → 'in-progress'. */
+  async startMeeting(meetingId: string, userId: string) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    if (meeting.hostId !== userId) {
+      throw new ForbiddenException('회의 호스트만 시작할 수 있습니다')
+    }
+    if (meeting.status === 'in-progress') return meeting
+    if (meeting.status === 'ended') {
+      throw new BadRequestException('이미 종료된 회의입니다')
+    }
+    meeting.status = 'in-progress'
+    meeting.startedAt = new Date()
     return this.meetingRepo.save(meeting)
+  }
+
+  /** 회의 삭제 — 호스트 또는 조직 owner/admin만. 회의록·트랜스크립트·액션아이템 같이 삭제. */
+  async deleteMeeting(meetingId: string, userId: string) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    const isHost = meeting.hostId === userId
+    let isOrgManager = false
+    if (meeting.groupId) {
+      const member = await this.groupMemberRepo.findOne({
+        where: { groupId: meeting.groupId, userId },
+      })
+      isOrgManager = member?.role === 'owner' || member?.role === 'admin'
+    }
+    if (!isHost && !isOrgManager) {
+      throw new ForbiddenException('회의 호스트 또는 조직 관리자만 삭제할 수 있습니다')
+    }
+
+    await this.meetingRepo.delete(meetingId)
+    return { message: '회의가 삭제되었습니다' }
+  }
+
+  /** 사용자가 접근 가능한 회의 목록 — 호스트이거나 참여자로 지정된 회의. */
+  async getAccessibleMeetings(userId: string, groupId?: string) {
+    // 1) 호스트인 회의
+    const hostedQb = this.meetingRepo
+      .createQueryBuilder('m')
+      .where('m.hostId = :userId', { userId })
+    if (groupId && UUID_RE.test(groupId)) {
+      hostedQb.andWhere('m.groupId = :groupId', { groupId })
+    }
+    const hosted = await hostedQb.orderBy('m.createdAt', 'DESC').getMany()
+
+    // 2) 참여자로 지정된 회의 (호스트 제외)
+    const partRecords = await this.participantRepo.find({ where: { userId } })
+    const meetingIds = partRecords.map((p) => p.meetingId).filter((id) => !hosted.some((h) => h.id === id))
+    let participating: Meeting[] = []
+    if (meetingIds.length > 0) {
+      const partQb = this.meetingRepo
+        .createQueryBuilder('m')
+        .where('m.id IN (:...ids)', { ids: meetingIds })
+      if (groupId && UUID_RE.test(groupId)) {
+        partQb.andWhere('m.groupId = :groupId', { groupId })
+      }
+      participating = await partQb.orderBy('m.createdAt', 'DESC').getMany()
+    }
+
+    // 3) 공개 회의 (현재 활성 조직의)
+    let publicMeetings: Meeting[] = []
+    if (groupId && UUID_RE.test(groupId)) {
+      publicMeetings = await this.meetingRepo
+        .createQueryBuilder('m')
+        .where('m.groupId = :groupId', { groupId })
+        .andWhere("m.visibility = 'public'")
+        .andWhere('m.hostId != :userId', { userId })
+        .andWhere('m.id NOT IN (:...ids)', {
+          ids: meetingIds.length > 0 ? meetingIds : ['00000000-0000-0000-0000-000000000000'],
+        })
+        .orderBy('m.createdAt', 'DESC')
+        .getMany()
+    }
+
+    return [...hosted, ...participating, ...publicMeetings].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    )
+  }
+
+  /** 사용자가 회의에 접근 권한이 있는지 확인. private 회의록 보호용. */
+  async assertCanAccess(meetingId: string, userId: string): Promise<Meeting> {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    if (meeting.hostId === userId) return meeting
+    if (meeting.visibility === 'public') {
+      // 같은 조직 멤버면 접근 OK
+      if (meeting.groupId) {
+        const m = await this.groupMemberRepo.findOne({
+          where: { groupId: meeting.groupId, userId },
+        })
+        if (m) return meeting
+      } else {
+        return meeting // group 없는 공개 회의는 누구나
+      }
+    }
+    const isParticipant = await this.participantRepo.findOne({
+      where: { meetingId, userId },
+    })
+    if (!isParticipant) {
+      throw new ForbiddenException('회의에 접근할 권한이 없습니다')
+    }
+    return meeting
   }
 
   // 오디오 파일(디스크 경로) → STT → DB 저장
@@ -119,11 +267,25 @@ export class MeetingsService {
     return this.transcriptRepo.save(transcript)
   }
 
-  // 회의 종료 → Gemini 회의록 생성
-  async endMeeting(meetingId: string) {
+  // 회의 종료 → Gemini 회의록 생성. 호스트 또는 조직 관리자만 가능.
+  async endMeeting(meetingId: string, userId?: string) {
     assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    if (userId) {
+      const isHost = meeting.hostId === userId
+      let isOrgManager = false
+      if (meeting.groupId) {
+        const member = await this.groupMemberRepo.findOne({
+          where: { groupId: meeting.groupId, userId },
+        })
+        isOrgManager = member?.role === 'owner' || member?.role === 'admin'
+      }
+      if (!isHost && !isOrgManager) {
+        throw new ForbiddenException('회의 호스트 또는 조직 관리자만 종료할 수 있습니다')
+      }
+    }
 
     // 1. 회의 상태 업데이트
     await this.meetingRepo.update(meetingId, { status: 'ended', endedAt: new Date() })
