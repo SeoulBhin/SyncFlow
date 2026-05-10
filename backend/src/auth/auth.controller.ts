@@ -23,6 +23,8 @@ import { GoogleAuthGuard } from './guards/google-auth.guard'
 import { GithubAuthGuard } from './guards/github-auth.guard'
 import { KakaoAuthGuard } from './guards/kakao-auth.guard'
 import { User } from './entities/user.entity'
+import { CurrentUser } from './decorators/current-user.decorator'
+import type { CurrentUserPayload } from './decorators/current-user.decorator'
 
 @Controller('auth')
 export class AuthController {
@@ -84,15 +86,15 @@ export class AuthController {
   /* ── GET /api/auth/me ── */
   @Get('me')
   @UseGuards(JwtAuthGuard)
-  getMe(@Req() req: { user: User }) {
-    return this.authService.toProfile(req.user)
+  getMe(@CurrentUser() user: CurrentUserPayload) {
+    return this.authService.findById(user.userId)
   }
 
   /* ── PUT /api/auth/profile ── */
   @Put('profile')
   @UseGuards(JwtAuthGuard)
-  updateProfile(@Req() req: { user: User }, @Body() dto: UpdateProfileDto) {
-    return this.authService.updateProfile(req.user.id, dto)
+  updateProfile(@CurrentUser() user: CurrentUserPayload, @Body() dto: UpdateProfileDto) {
+    return this.authService.updateProfile(user.userId, dto)
   }
 
   /* ── GET /api/auth/oauth/google ── */

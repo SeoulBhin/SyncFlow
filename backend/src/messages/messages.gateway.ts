@@ -9,6 +9,7 @@ import {
 } from '@nestjs/websockets';
 import { Server, Socket } from 'socket.io';
 import { ConfigService } from '@nestjs/config';
+import { JwtService } from '@nestjs/jwt';
 import { MessagesService } from './messages.service';
 
 interface SocketUser {
@@ -32,19 +33,51 @@ export class MessagesGateway
   constructor(
     private readonly messagesService: MessagesService,
     private readonly config: ConfigService,
+    private readonly jwtService: JwtService,
   ) {}
 
   // ── Connection lifecycle ───────────────────────────────────────────────────
 
   handleConnection(client: Socket) {
-    const userId =
+    // 1순위: auth 객체 또는 헤더에서 명시적으로 전달된 userId
+    let userId =
       (client.handshake.auth['userId'] as string | undefined) ||
       (client.handshake.headers['x-user-id'] as string | undefined) ||
-      `anon-${client.id.slice(0, 6)}`;
-    const userName =
+      '';
+    let userName =
       (client.handshake.auth['userName'] as string | undefined) ||
       (client.handshake.headers['x-user-name'] as string | undefined) ||
       'Unknown';
+
+    // 2순위: userId가 비어있으면 JWT 토큰에서 sub(userId) 추출
+    // → 인증된 사용자의 authorId가 REST API와 동일하게 유지됨 (403 방지)
+    if (!userId) {
+      const rawToken =
+        (client.handshake.auth['token'] as string | undefined) ||
+        (client.handshake.headers['authorization'] as string | undefined)?.replace(
+          /^Bearer\s+/i,
+          '',
+        );
+      if (rawToken) {
+        try {
+          const secret = this.config.get<string>('JWT_SECRET', 'dev-secret');
+          const payload = this.jwtService.verify<{ sub: string; name?: string }>(
+            rawToken,
+            { secret },
+          );
+          userId = payload.sub;
+          userName = payload.name ?? userName;
+        } catch {
+          // 유효하지 않거나 만료된 토큰 → 3순위(익명)로 fall-through
+        }
+      }
+    }
+
+    // 3순위: 완전 익명 (개발/테스트용)
+    if (!userId) {
+      userId = `anon-${client.id.slice(0, 6)}`;
+    }
+
     this.users.set(client.id, { userId, userName });
   }
 

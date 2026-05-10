@@ -18,14 +18,35 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 }
 
 const ALLOWED_MIME = new Set([
+  // 이미지
   'image/jpeg',
   'image/png',
   'image/gif',
   'image/webp',
+  'image/svg+xml',
+  // 문서
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  // 텍스트
   'text/plain',
+  'text/csv',
+  'text/markdown',
+  // XML / 다이어그램 (.drawio, .xml, .svg 등)
+  'application/xml',
+  'text/xml',
+  'application/vnd.jgraph.mxfile',   // drawio
+  // 압축
+  'application/zip',
+  'application/x-zip-compressed',
+  'application/x-tar',
+  'application/gzip',
+  // 기타 바이너리 (일반 첨부용)
+  'application/octet-stream',
 ]);
 
 @UseGuards(JwtAuthGuard)
@@ -56,9 +77,11 @@ export class UploadController {
   )
   upload(@UploadedFile() file: Express.Multer.File) {
     if (!file) throw new BadRequestException('파일이 없습니다');
+    // multer는 multipart 헤더를 latin1로 디코딩함 — 한글 파일명을 UTF-8로 복원
+    const fileName = Buffer.from(file.originalname, 'latin1').toString('utf8');
     return {
       fileUrl: `/uploads/${file.filename}`,
-      fileName: file.originalname,
+      fileName,
       mimeType: file.mimetype,
       size: file.size,
     };
