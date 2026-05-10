@@ -4,6 +4,10 @@ import { useAuthStore } from '@/stores/useAuthStore'
 // Module-level singleton — survives Vite HMR
 let _socket: Socket | null = null
 
+function encodeHeaderValue(value: string): string {
+  return encodeURIComponent(value)
+}
+
 function buildSocket(): Socket {
   const user = useAuthStore.getState().user
   const accessToken = localStorage.getItem('accessToken')
@@ -22,7 +26,7 @@ function buildSocket(): Socket {
     },
     extraHeaders: {
       'x-user-id': user?.id ?? '',
-      'x-user-name': user?.name ?? '',
+      'x-user-name': user ? encodeHeaderValue(user.name) : '',
     },
   })
 }
@@ -48,7 +52,7 @@ export function connectSocket(): void {
     }
     ;(sock.io.opts as Record<string, unknown>).extraHeaders = {
       'x-user-id': user?.id ?? '',
-      'x-user-name': user?.name ?? '',
+      'x-user-name': user ? encodeHeaderValue(user.name) : '',
     }
     sock.connect()
   }

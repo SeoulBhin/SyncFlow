@@ -3,6 +3,15 @@ import { ConfigService } from '@nestjs/config';
 import { AuthGuard } from '@nestjs/passport';
 import type { Request } from 'express';
 
+function decodeHeaderValue(value: string | undefined): string | undefined {
+  if (!value) return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
   constructor(private readonly config: ConfigService) {
@@ -20,7 +29,9 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     ) {
       (req as Request & { user: unknown }).user = {
         userId: req.headers['x-user-id'] as string,
-        userName: (req.headers['x-user-name'] as string) || 'Unknown',
+        userName:
+          decodeHeaderValue(req.headers['x-user-name'] as string | undefined) ||
+          'Unknown',
       };
       return true;
     }

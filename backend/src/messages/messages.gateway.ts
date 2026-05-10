@@ -17,6 +17,15 @@ interface SocketUser {
   userName: string;
 }
 
+function decodeHeaderValue(value: string | undefined): string | undefined {
+  if (!value) return value;
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   // Vite dev server proxies /socket.io → :3000, so no need to change path
@@ -46,7 +55,9 @@ export class MessagesGateway
       '';
     let userName =
       (client.handshake.auth['userName'] as string | undefined) ||
-      (client.handshake.headers['x-user-name'] as string | undefined) ||
+      decodeHeaderValue(
+        client.handshake.headers['x-user-name'] as string | undefined,
+      ) ||
       'Unknown';
 
     // 2순위: userId가 비어있으면 JWT 토큰에서 sub(userId) 추출

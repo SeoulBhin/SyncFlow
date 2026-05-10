@@ -1,5 +1,9 @@
 import { useAuthStore } from '@/stores/useAuthStore'
 
+function encodeHeaderValue(value: string): string {
+  return encodeURIComponent(value)
+}
+
 /**
  * fetch 래퍼 — 인증 헤더를 자동으로 첨부합니다.
  *
@@ -28,7 +32,7 @@ export async function apiFetch(
   }
   if (user) {
     headers.set('x-user-id', user.id)
-    headers.set('x-user-name', user.name)
+    headers.set('x-user-name', encodeHeaderValue(user.name))
   }
 
   return fetch(input, { ...init, headers })
