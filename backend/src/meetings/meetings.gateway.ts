@@ -34,6 +34,15 @@ interface AuthedSocket extends Socket {
   data: Socket['data'] & { userId?: string; userName?: string }
 }
 
+function decodeHeaderValue(value: string | undefined): string | undefined {
+  if (!value) return value
+  try {
+    return decodeURIComponent(value)
+  } catch {
+    return value
+  }
+}
+
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
   namespace: 'meetings',
@@ -66,7 +75,9 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
       if (!token && isDev && devUserId) {
         client.data.userId = devUserId
         client.data.userName =
-          (client.handshake.headers['x-user-name'] as string | undefined) ?? 'Unknown'
+          decodeHeaderValue(
+            client.handshake.headers['x-user-name'] as string | undefined,
+          ) ?? 'Unknown'
         this.logger.log(
           `소켓 연결(dev fallback): ${client.id}, user=${devUserId}`,
         )
