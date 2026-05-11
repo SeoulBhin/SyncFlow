@@ -35,7 +35,7 @@ export class DocumentService implements OnModuleInit {
       this.pageVersionRepository,
     );
     server.listen();
-    console.log('Hocuspocus 서버 시작! (포트 1234)');
+    console.log('Hocuspocus 서버 시작! (포트 3001)');
   }
 
   async uploadToGCS(file: Express.Multer.File): Promise<string> {
