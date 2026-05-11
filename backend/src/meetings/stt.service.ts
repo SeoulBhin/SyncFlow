@@ -32,31 +32,33 @@ interface WordInfo {
 @Injectable()
 export class SttService {
   private readonly logger = new Logger(SttService.name)
-  private readonly client: SpeechClient
+  private readonly client: SpeechClient | null
   private readonly languageCode: string
   private readonly model: string
   private readonly minSpeakerCount: number
   private readonly maxSpeakerCount: number
 
   constructor(private readonly config: ConfigService) {
-    // 인증 전략: GOOGLE_STT_KEY_JSON (서비스 계정 JSON 전체를 문자열로 .env 에 저장).
-    // 로컬 파일 경로(GOOGLE_APPLICATION_CREDENTIALS) 사용 시 OS·환경별 경로 문제,
-    // CI/배포 환경에서 키 파일 누락 등 휴먼 에러가 잦아서 단일 env 로 일원화.
+    // 키 누락 시 throw 하지 않고 null 로 초기화 — 실제 STT 호출 시점에 예외 발생.
+    // 이렇게 해야 GOOGLE_STT_KEY_JSON 없는 개발 환경에서도 서버가 정상 기동된다.
     this.client = this.createSpeechClient()
     this.languageCode = this.config.get<string>('STT_LANGUAGE', 'ko-KR')
     this.model = this.config.get<string>('STT_MODEL', 'latest_long')
-    this.minSpeakerCount = Number(
-      this.config.get<string>('STT_MIN_SPEAKERS', '2'),
-    )
-    this.maxSpeakerCount = Number(
-      this.config.get<string>('STT_MAX_SPEAKERS', '6'),
-    )
+    this.minSpeakerCount = Number(this.config.get<string>('STT_MIN_SPEAKERS', '2'))
+    this.maxSpeakerCount = Number(this.config.get<string>('STT_MAX_SPEAKERS', '6'))
+  }
+
+  private requireClient(): SpeechClient {
+    if (!this.client) {
+      throw new InternalServerErrorException('STT Auth Key string is missing in .env')
+    }
+    return this.client
   }
 
   // GOOGLE_STT_KEY_JSON 문자열을 파싱해 SpeechClient 를 생성.
   // private_key 의 이스케이프된 \\n 을 실제 개행으로 변환해야 PEM 파싱 성공.
-  private createSpeechClient(): SpeechClient {
-    // 진단: 두 가지 변수명 모두 점검 (사용자가 옛 이름에 JSON을 넣어둔 케이스 대응)
+  // 키가 없거나 파싱 실패 시 null 반환 (서버 기동 차단 방지).
+  private createSpeechClient(): SpeechClient | null {
     const primary = this.config.get<string>('GOOGLE_STT_KEY_JSON', '')?.trim()
     const legacy = this.config.get<string>('GOOGLE_APPLICATION_CREDENTIALS', '')?.trim()
 
@@ -65,55 +67,39 @@ export class SttService {
       `GOOGLE_APPLICATION_CREDENTIALS exists=${!!legacy} (len=${legacy?.length ?? 0})`,
     )
 
-    // 우선순위: GOOGLE_STT_KEY_JSON > GOOGLE_APPLICATION_CREDENTIALS(값이 JSON 형태일 때만)
     let raw = primary
     if (!raw && legacy && legacy.startsWith('{')) {
       this.logger.warn(
-        'GOOGLE_STT_KEY_JSON 이 비어 있습니다. GOOGLE_APPLICATION_CREDENTIALS 의 JSON 문자열을 fallback 으로 사용합니다. ' +
-        '권장: .env 변수명을 GOOGLE_STT_KEY_JSON 으로 변경하세요.',
+        'GOOGLE_STT_KEY_JSON 이 비어 있습니다. GOOGLE_APPLICATION_CREDENTIALS 의 JSON 문자열을 fallback 으로 사용합니다.',
       )
       raw = legacy
     }
 
     if (!raw) {
       this.logger.error(
-        'GOOGLE_STT_KEY_JSON 이 .env 에 없습니다. 서비스 계정 JSON 전체를 한 줄 문자열로 넣어주세요. ' +
+        'GOOGLE_STT_KEY_JSON 이 .env 에 없습니다. STT 기능은 비활성화됩니다. ' +
         `(GOOGLE_APPLICATION_CREDENTIALS fallback 도 사용 불가: legacy="${legacy?.slice(0, 30) ?? ''}…")`,
       )
-      throw new InternalServerErrorException(
-        'STT Auth Key string is missing in .env',
-      )
+      return null
     }
 
     let parsed: ServiceAccountCredentials
     try {
       parsed = JSON.parse(raw) as ServiceAccountCredentials
     } catch (err) {
-      this.logger.error(
-        `GOOGLE_STT_KEY_JSON 파싱 실패: ${(err as Error).message}`,
-      )
-      throw new InternalServerErrorException(
-        'STT Auth Key string is missing in .env',
-      )
+      this.logger.error(`GOOGLE_STT_KEY_JSON 파싱 실패: ${(err as Error).message}`)
+      return null
     }
 
     if (!parsed.client_email || !parsed.private_key) {
-      this.logger.error(
-        'GOOGLE_STT_KEY_JSON 에 client_email 또는 private_key 가 없습니다.',
-      )
-      throw new InternalServerErrorException(
-        'STT Auth Key string is missing in .env',
-      )
+      this.logger.error('GOOGLE_STT_KEY_JSON 에 client_email 또는 private_key 가 없습니다.')
+      return null
     }
 
-    // .env 한 줄로 저장된 JSON 의 private_key 는 개행이 \\n 으로 이스케이프됨.
-    // PEM 파서는 실제 \n 개행을 요구하므로 변환 필요.
     parsed.private_key = parsed.private_key.replace(/\\n/g, '\n')
-
     this.logger.log(
       `STT 인증: client_email="${parsed.client_email}" (private_key len=${parsed.private_key.length})`,
     )
-
     return new SpeechClient({ credentials: parsed })
   }
 
@@ -152,7 +138,7 @@ export class SttService {
       this.logger.log(`멀티채널 오디오 감지: ${channelCount}ch — 채널 믹스로 인식`)
     }
 
-    const [response] = (await this.client.recognize({
+    const [response] = (await this.requireClient().recognize({
       audio: { content: audioBuffer.toString('base64') },
       config,
     })) as any
@@ -268,7 +254,7 @@ export class SttService {
   // recognizeStream.on('error') / on('end') / on('close') 가 발생하므로
   // 호출자(Gateway)가 그 이벤트를 받아 재생성해야 함.
   createStreamingSession(onResult: (result: TranscriptResult) => void): Duplex {
-    const recognizeStream: Duplex = this.client.streamingRecognize({
+    const recognizeStream: Duplex = this.requireClient().streamingRecognize({
       config: {
         encoding: 'WEBM_OPUS' as any,
         // WebM/Opus 컨테이너는 보통 48kHz. MediaRecorder 기본값과 일치.
