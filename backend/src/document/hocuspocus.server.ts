@@ -16,7 +16,7 @@ export function createHocuspocusServer(
   const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
 
   return new Server({
-    port: 1234,
+    port: 3001,
 
     async onConnect(data) {
       console.log('누군가 접속했습니다:', data.socketId)

@@ -196,7 +196,7 @@ export function DocumentEditorPage() {
   const provider = useMemo(() => {
     if (!pageId) return null
     const token = localStorage.getItem('accessToken') ?? ''
-    const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:1234'
+    const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:3001'
 
     return new HocuspocusProvider({
       url: wsUrl,
