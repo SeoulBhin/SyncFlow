@@ -155,6 +155,7 @@ model Project {
   @@map("projects")
 }
 
+// 8. Project Members
 model ProjectMember {
   id        Int      @id @default(autoincrement())
   projectId String   @map("project_id") @db.Uuid
@@ -171,7 +172,7 @@ model ProjectMember {
   @@map("project_members")
 }
 
-// 8. Pages
+// 9. Pages
 model Page {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId   String   @map("project_id") @db.Uuid
@@ -194,7 +195,7 @@ model Page {
   @@map("pages")
 }
 
-// 9. Page Versions
+// 10. Page Versions
 model PageVersion {
   id        Int      @id @default(autoincrement())
   pageId    String   @map("page_id") @db.Uuid
@@ -209,7 +210,7 @@ model PageVersion {
   @@map("page_versions")
 }
 
-// 10. Tasks
+// 11. Tasks
 model Task {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId          String?   @map("project_id") @db.Uuid
@@ -237,7 +238,7 @@ model Task {
   @@map("tasks")
 }
 
-// 11. Schedules
+// 12. Schedules
 model Schedule {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId   String   @map("project_id") @db.Uuid
@@ -256,7 +257,7 @@ model Schedule {
   @@map("schedules")
 }
 
-// 12. Channels
+// 13. Channels
 model Channel {
   id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   groupId     String   @map("group_id") @db.Uuid
@@ -276,7 +277,7 @@ model Channel {
   @@map("channels")
 }
 
-// 13. Channel Members
+// 14. Channel Members
 model ChannelMember {
   id         Int       @id @default(autoincrement())
   channelId  String    @map("channel_id") @db.Uuid
@@ -292,7 +293,7 @@ model ChannelMember {
   @@map("channel_members")
 }
 
-// 14. Messages
+// 15. Messages
 model Message {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   channelId  String   @map("channel_id") @db.Uuid
@@ -319,7 +320,7 @@ model Message {
   @@map("messages")
 }
 
-// 15. Message Reactions
+// 16. Message Reactions
 model MessageReaction {
   id        Int      @id @default(autoincrement())
   messageId String   @map("message_id") @db.Uuid
@@ -334,7 +335,7 @@ model MessageReaction {
   @@map("message_reactions")
 }
 
-// 16. Meetings
+// 17. Meetings
 model Meeting {
   id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   title      String    @db.VarChar(200)
@@ -356,7 +357,7 @@ model Meeting {
   @@map("meetings")
 }
 
-// 16.5 Meeting Participants
+// 18. Meeting Participants
 model MeetingParticipant {
   id        Int      @id @default(autoincrement())
   meetingId String   @map("meeting_id") @db.Uuid
@@ -372,7 +373,7 @@ model MeetingParticipant {
   @@map("meeting_participants")
 }
 
-// 17. Meeting Transcripts (STT 결과)
+// 19. Meeting Transcripts (STT 결과)
 model MeetingTranscript {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   meetingId String   @map("meeting_id") @db.Uuid
@@ -388,7 +389,7 @@ model MeetingTranscript {
   @@map("meeting_transcripts")
 }
 
-// 18. Meeting Summaries (AI 요약)
+// 20. Meeting Summaries (AI 요약)
 model MeetingSummary {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   meetingId String   @unique @map("meeting_id") @db.Uuid
@@ -401,7 +402,7 @@ model MeetingSummary {
   @@map("meeting_summaries")
 }
 
-// 19. Meeting Action Items
+// 21. Meeting Action Items
 model MeetingActionItem {
   id        String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   meetingId String    @map("meeting_id") @db.Uuid
@@ -418,7 +419,7 @@ model MeetingActionItem {
   @@map("meeting_action_items")
 }
 
-// 16. AI Conversations
+// 22. AI Conversations
 model AiConversation {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
@@ -435,7 +436,7 @@ model AiConversation {
   @@map("ai_conversations")
 }
 
-// 17. AI Messages
+// 23. AI Messages
 model AiMessage {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   conversationId  String   @map("conversation_id") @db.Uuid
@@ -451,7 +452,7 @@ model AiMessage {
   @@map("ai_messages")
 }
 
-// 18. Embeddings (pgvector 중요 필드)
+// 24. Embeddings (pgvector 중요 필드)
 model Embedding {
   id         Int                    @id @default(autoincrement())
   pageId     String                 @map("page_id") @db.Uuid
@@ -468,7 +469,7 @@ model Embedding {
   @@map("embeddings")
 }
 
-// 19. Subscriptions
+// 25. Subscriptions
 model Subscription {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId             String    @map("user_id") @db.Uuid
@@ -487,7 +488,7 @@ model Subscription {
   @@map("subscriptions")
 }
 
-// 20. Payments
+// 26. Payments
 model Payment {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId          String   @map("user_id") @db.Uuid
@@ -507,7 +508,7 @@ model Payment {
   @@map("payments")
 }
 
-// 21. Notifications
+// 27. Notifications
 model Notification {
   id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId    String   @map("user_id") @db.Uuid
@@ -524,7 +525,7 @@ model Notification {
   @@map("notifications")
 }
 
-// 22. File Uploads
+// 28. File Uploads
 model FileUpload {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   userId       String   @map("user_id") @db.Uuid
