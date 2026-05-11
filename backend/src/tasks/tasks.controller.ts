@@ -5,6 +5,7 @@ import {
   Get,
   HttpCode,
   Param,
+  Patch,
   Post,
   Put,
   Query,
@@ -26,6 +27,22 @@ export class TasksController {
   constructor(private readonly tasksService: TasksService) {}
 
   // ── 고정 경로는 동적 :id 라우트보다 앞에 위치해야 한다 ─────────────────────
+
+  /** GET /api/tasks — 내가 접근 가능한 작업 전체 (필터 옵션) */
+  @Get()
+  list(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('groupId') groupId?: string,
+    @Query('projectId') projectId?: string,
+    @Query('status') status?: string,
+  ) {
+    return this.tasksService.list({
+      userId: user.userId,
+      groupId,
+      projectId,
+      status: status as TaskStatus | undefined,
+    })
+  }
 
   /** GET /api/tasks/me */
   @Get('me')
@@ -95,6 +112,12 @@ export class TasksController {
   /** PUT /api/tasks/:id */
   @Put(':id')
   update(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
+    return this.tasksService.updateTask(id, dto)
+  }
+
+  /** PATCH /api/tasks/:id — 부분 업데이트 (프론트 호환) */
+  @Patch(':id')
+  patch(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
     return this.tasksService.updateTask(id, dto)
   }
 

@@ -12,7 +12,7 @@ const EMBED_RATE_LIMIT_MS = 150
 @Injectable()
 export class EmbeddingService {
   private readonly logger = new Logger(EmbeddingService.name)
-  private readonly genAI: GoogleGenerativeAI | null
+  private readonly genAI: GoogleGenerativeAI
 
   constructor(
     private readonly config: ConfigService,
@@ -20,27 +20,14 @@ export class EmbeddingService {
     private readonly embeddingRepo: Repository<DocumentEmbedding>,
     private readonly dataSource: DataSource,
   ) {
-    const apiKey = this.config.get<string>('GEMINI_API_KEY', '')
-    if (!apiKey) {
-      this.logger.error('GEMINI_API_KEY가 설정되지 않았습니다. 임베딩 기능이 비활성화됩니다.')
-      this.genAI = null
-    } else {
-      this.genAI = new GoogleGenerativeAI(apiKey)
-    }
-  }
-
-  private requireGenAI(): GoogleGenerativeAI {
-    if (!this.genAI) {
-      throw new InternalServerErrorException('GEMINI_API_KEY가 설정되지 않았습니다')
-    }
-    return this.genAI
+    this.genAI = new GoogleGenerativeAI(this.config.getOrThrow<string>('GEMINI_API_KEY'))
   }
 
   // ── 임베딩 생성 ────────────────────────────────────────────────────────────
 
   async embed(text: string): Promise<number[]> {
     try {
-      const model = this.requireGenAI().getGenerativeModel({ model: 'text-embedding-004' })
+      const model = this.genAI.getGenerativeModel({ model: 'text-embedding-004' })
       const result = await model.embedContent(text)
       return result.embedding.values
     } catch (err) {

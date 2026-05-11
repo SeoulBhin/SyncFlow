@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { SpeechClient } from '@google-cloud/speech'
 import type { Duplex } from 'stream'
@@ -32,15 +28,13 @@ interface WordInfo {
 @Injectable()
 export class SttService {
   private readonly logger = new Logger(SttService.name)
-  private readonly client: SpeechClient | null
+  private readonly client: SpeechClient
   private readonly languageCode: string
   private readonly model: string
   private readonly minSpeakerCount: number
   private readonly maxSpeakerCount: number
 
   constructor(private readonly config: ConfigService) {
-    // 키 누락 시 throw 하지 않고 null 로 초기화 — 실제 STT 호출 시점에 예외 발생.
-    // 이렇게 해야 GOOGLE_STT_KEY_JSON 없는 개발 환경에서도 서버가 정상 기동된다.
     this.client = this.createSpeechClient()
     this.languageCode = this.config.get<string>('STT_LANGUAGE', 'ko-KR')
     this.model = this.config.get<string>('STT_MODEL', 'latest_long')
@@ -48,58 +42,13 @@ export class SttService {
     this.maxSpeakerCount = Number(this.config.get<string>('STT_MAX_SPEAKERS', '6'))
   }
 
-  private requireClient(): SpeechClient {
-    if (!this.client) {
-      throw new InternalServerErrorException('STT Auth Key string is missing in .env')
-    }
-    return this.client
-  }
-
   // GOOGLE_STT_KEY_JSON 문자열을 파싱해 SpeechClient 를 생성.
   // private_key 의 이스케이프된 \\n 을 실제 개행으로 변환해야 PEM 파싱 성공.
-  // 키가 없거나 파싱 실패 시 null 반환 (서버 기동 차단 방지).
-  private createSpeechClient(): SpeechClient | null {
-    const primary = this.config.get<string>('GOOGLE_STT_KEY_JSON', '')?.trim()
-    const legacy = this.config.get<string>('GOOGLE_APPLICATION_CREDENTIALS', '')?.trim()
-
-    this.logger.log(
-      `[STT 인증 점검] GOOGLE_STT_KEY_JSON exists=${!!primary} (len=${primary?.length ?? 0}), ` +
-      `GOOGLE_APPLICATION_CREDENTIALS exists=${!!legacy} (len=${legacy?.length ?? 0})`,
-    )
-
-    let raw = primary
-    if (!raw && legacy && legacy.startsWith('{')) {
-      this.logger.warn(
-        'GOOGLE_STT_KEY_JSON 이 비어 있습니다. GOOGLE_APPLICATION_CREDENTIALS 의 JSON 문자열을 fallback 으로 사용합니다.',
-      )
-      raw = legacy
-    }
-
-    if (!raw) {
-      this.logger.error(
-        'GOOGLE_STT_KEY_JSON 이 .env 에 없습니다. STT 기능은 비활성화됩니다. ' +
-        `(GOOGLE_APPLICATION_CREDENTIALS fallback 도 사용 불가: legacy="${legacy?.slice(0, 30) ?? ''}…")`,
-      )
-      return null
-    }
-
-    let parsed: ServiceAccountCredentials
-    try {
-      parsed = JSON.parse(raw) as ServiceAccountCredentials
-    } catch (err) {
-      this.logger.error(`GOOGLE_STT_KEY_JSON 파싱 실패: ${(err as Error).message}`)
-      return null
-    }
-
-    if (!parsed.client_email || !parsed.private_key) {
-      this.logger.error('GOOGLE_STT_KEY_JSON 에 client_email 또는 private_key 가 없습니다.')
-      return null
-    }
-
+  private createSpeechClient(): SpeechClient {
+    const raw = this.config.getOrThrow<string>('GOOGLE_STT_KEY_JSON').trim()
+    const parsed = JSON.parse(raw) as ServiceAccountCredentials
     parsed.private_key = parsed.private_key.replace(/\\n/g, '\n')
-    this.logger.log(
-      `STT 인증: client_email="${parsed.client_email}" (private_key len=${parsed.private_key.length})`,
-    )
+    this.logger.log(`STT 인증: client_email="${parsed.client_email}"`)
     return new SpeechClient({ credentials: parsed })
   }
 
@@ -138,7 +87,7 @@ export class SttService {
       this.logger.log(`멀티채널 오디오 감지: ${channelCount}ch — 채널 믹스로 인식`)
     }
 
-    const [response] = (await this.requireClient().recognize({
+    const [response] = (await this.client.recognize({
       audio: { content: audioBuffer.toString('base64') },
       config,
     })) as any
@@ -254,7 +203,7 @@ export class SttService {
   // recognizeStream.on('error') / on('end') / on('close') 가 발생하므로
   // 호출자(Gateway)가 그 이벤트를 받아 재생성해야 함.
   createStreamingSession(onResult: (result: TranscriptResult) => void): Duplex {
-    const recognizeStream: Duplex = this.requireClient().streamingRecognize({
+    const recognizeStream: Duplex = this.client.streamingRecognize({
       config: {
         encoding: 'WEBM_OPUS' as any,
         // WebM/Opus 컨테이너는 보통 48kHz. MediaRecorder 기본값과 일치.

@@ -1,7 +1,6 @@
 import {
   Injectable,
   Logger,
-  InternalServerErrorException,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common'
@@ -38,7 +37,7 @@ const DAILY_LIMITS: Record<string, number> = {
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name)
-  private readonly genAI: GoogleGenerativeAI | null
+  private readonly genAI: GoogleGenerativeAI
   private readonly modelName: string
 
   constructor(
@@ -52,22 +51,9 @@ export class AiService {
     @InjectRepository(AiMessage)
     private readonly messageRepo: Repository<AiMessage>,
   ) {
-    const apiKey = this.config.get<string>('GEMINI_API_KEY', '')
-    if (!apiKey) {
-      this.logger.error('GEMINI_API_KEY가 설정되지 않았습니다. AI 기능이 비활성화됩니다.')
-      this.genAI = null
-    } else {
-      this.genAI = new GoogleGenerativeAI(apiKey)
-    }
+    this.genAI = new GoogleGenerativeAI(this.config.getOrThrow<string>('GEMINI_API_KEY'))
     this.modelName = this.config.get<string>('GEMINI_MODEL', 'gemini-2.5-flash')
-    if (this.genAI) this.logger.log(`AI 모델: ${this.modelName}`)
-  }
-
-  private requireGenAI(): GoogleGenerativeAI {
-    if (!this.genAI) {
-      throw new InternalServerErrorException('GEMINI_API_KEY가 설정되지 않았습니다')
-    }
-    return this.genAI
+    this.logger.log(`AI 모델: ${this.modelName}`)
   }
 
   // ── SSE 스트리밍 채팅 ─────────────────────────────────────────────────────
@@ -128,7 +114,7 @@ export class AiService {
       parts: [{ text: m.content }],
     }))
 
-    const model = this.requireGenAI().getGenerativeModel({
+    const model = this.genAI.getGenerativeModel({
       model: this.modelName,
       systemInstruction: systemPrompt,
     })
@@ -209,7 +195,7 @@ export class AiService {
 
     const systemPrompt = this.buildLegacySystemPrompt(contextChunks)
 
-    const model = this.requireGenAI().getGenerativeModel({
+    const model = this.genAI.getGenerativeModel({
       model: this.modelName,
       systemInstruction: systemPrompt,
     })
@@ -231,7 +217,7 @@ export class AiService {
     const relevant = ragResults.filter((r) => r.similarity >= RAG_SIMILARITY_THRESHOLD)
     const systemPrompt = this.buildLegacySystemPrompt(relevant)
 
-    const model = this.requireGenAI().getGenerativeModel({
+    const model = this.genAI.getGenerativeModel({
       model: this.modelName,
       systemInstruction: systemPrompt,
     })
@@ -331,7 +317,7 @@ export class AiService {
 
     const systemPrompt = this.buildLegacySystemPrompt(relevantContext)
 
-    const model = this.requireGenAI().getGenerativeModel({
+    const model = this.genAI.getGenerativeModel({
       model: this.modelName,
       systemInstruction: systemPrompt,
     })
@@ -401,7 +387,7 @@ ${dto.content}
 - 원본에 없는 내용 추가 금지
 - 핵심 키워드는 **볼드** 처리`
 
-    const model = this.requireGenAI().getGenerativeModel({ model: this.modelName })
+    const model = this.genAI.getGenerativeModel({ model: this.modelName })
     const result = await model.generateContent(prompt)
     const summary = result.response.text()
 
@@ -435,7 +421,7 @@ ${dto.code}
 
 응답은 마크다운 형식으로 작성하세요.`
 
-    const model = this.requireGenAI().getGenerativeModel({ model: this.modelName })
+    const model = this.genAI.getGenerativeModel({ model: this.modelName })
     const result = await model.generateContent(prompt)
 
     return {
@@ -460,7 +446,7 @@ ${transcript}
 - 내용이 없으면 "회의 내용에서 찾을 수 없습니다" 라고 답변
 - 관련 발언자와 발언 내용을 인용해서 답변`
 
-    const model = this.requireGenAI().getGenerativeModel({ model: this.modelName })
+    const model = this.genAI.getGenerativeModel({ model: this.modelName })
     const result = await model.generateContent(prompt)
 
     return {
@@ -493,7 +479,7 @@ ${content}
 
 태스크가 없으면 tasks를 빈 배열로.`
 
-    const model = this.requireGenAI().getGenerativeModel({ model: this.modelName })
+    const model = this.genAI.getGenerativeModel({ model: this.modelName })
     const result = await model.generateContent(prompt)
     const text = result.response.text().trim()
 

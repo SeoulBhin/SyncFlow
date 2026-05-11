@@ -29,7 +29,10 @@ export function SidebarProjectList() {
   const navigate = useNavigate()
   const { activeProjectId, setActiveProject } = useSidebarStore()
   const addToast = useToastStore((s) => s.addToast)
-  const { pages: realPages, removePage, renamePage } = usePageStore()
+  const realPages = usePageStore((s) => s.pages)
+  const removePage = usePageStore((s) => s.removePage)
+  const renamePage = usePageStore((s) => s.renamePage)
+  const loadPagesByProject = usePageStore((s) => s.loadByProject)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
   const setActiveGroup = useGroupContextStore((s) => s.setActiveGroup)
   const { projects, loadedForOrgId, fetchForOrg, removeProject: removeProjectFromStore } =
@@ -52,6 +55,16 @@ export function SidebarProjectList() {
       void fetchForOrg(activeOrgId)
     }
   }, [activeOrgId, loadedForOrgId, fetchForOrg])
+
+  // 활성 프로젝트(펼친 프로젝트) 변경 시 그 프로젝트의 페이지 목록을 백엔드에서 받아온다.
+  // 그래야 다른 계정/브라우저에서 만든 페이지도 보이고, 권한 없는 페이지는 자동 제외된다.
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  useEffect(() => {
+    if (activeProjectId && UUID_RE.test(activeProjectId)) {
+      void loadPagesByProject(activeProjectId)
+    }
+  }, [activeProjectId, loadPagesByProject])
 
   if (!activeOrgId) {
     return null
@@ -76,18 +89,33 @@ export function SidebarProjectList() {
     setRenameValue(currentName)
   }
 
-  const confirmRename = (id: string) => {
-    if (renameValue.trim()) {
-      renamePage(id, renameValue.trim())
-      addToast('success', '페이지 이름이 변경되었습니다.')
+  const confirmRename = async (id: string) => {
+    const next = renameValue.trim()
+    if (!next) {
+      setRenamingId(null)
+      return
     }
-    setRenamingId(null)
+    try {
+      await renamePage(id, next)
+      addToast('success', '페이지 이름이 변경되었습니다.')
+    } catch (err) {
+      console.error('[SidebarProjectList] rename failed:', err)
+      addToast('error', '페이지 이름 변경에 실패했습니다.')
+    } finally {
+      setRenamingId(null)
+    }
   }
 
-  const confirmDeletePage = (id: string, name: string) => {
-    removePage(id)
-    addToast('success', `"${name}" 페이지가 삭제되었습니다.`)
-    setDeletingId(null)
+  const confirmDeletePage = async (id: string, name: string) => {
+    try {
+      await removePage(id)
+      addToast('success', `"${name}" 페이지가 삭제되었습니다.`)
+    } catch (err) {
+      console.error('[SidebarProjectList] delete failed:', err)
+      addToast('error', '페이지 삭제에 실패했습니다.')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   const handleDeleteProject = async (projectId: string, projectName: string) => {
@@ -214,7 +242,7 @@ export function SidebarProjectList() {
                             <X size={12} />
                           </button>
                           <button
-                            onClick={() => confirmDeletePage(page.id, page.name)}
+                            onClick={() => void confirmDeletePage(page.id, page.name)}
                             className="rounded p-0.5 text-error hover:text-red-700"
                           >
                             <Check size={12} />
@@ -232,14 +260,14 @@ export function SidebarProjectList() {
                             value={renameValue}
                             onChange={(e) => setRenameValue(e.target.value)}
                             onKeyDown={(e) => {
-                              if (e.key === 'Enter') confirmRename(page.id)
+                              if (e.key === 'Enter') void confirmRename(page.id)
                               if (e.key === 'Escape') setRenamingId(null)
                             }}
                             autoFocus
                             className="flex-1 rounded border border-primary-400 bg-surface px-1 py-0.5 text-xs outline-none dark:bg-surface-dark"
                           />
                           <button
-                            onClick={() => confirmRename(page.id)}
+                            onClick={() => void confirmRename(page.id)}
                             className="rounded p-0.5 text-success hover:text-green-700"
                           >
                             <Check size={12} />

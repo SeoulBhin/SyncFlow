@@ -57,7 +57,7 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
         projectId: resolvedProjectId,
       })
 
-      addPage({ id, name: title, type, projectId })
+      addPage({ id, name: title, type, projectId: resolvedProjectId })
       addToast('success', `페이지 "${title}"이(가) 생성되었습니다.`)
       handleClose()
       navigate(type === 'code' ? `/app/code/${id}` : `/app/editor/${id}`)

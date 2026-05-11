@@ -57,6 +57,56 @@ export class TasksService {
     private readonly dataSource: DataSource,
   ) {}
 
+  // ── 전체 작업 목록 (사용자 접근 가능 + 필터) ────────────────────────────────
+
+  async list(query: {
+    userId: string
+    groupId?: string
+    projectId?: string
+    status?: TaskStatus
+  }): Promise<Task[]> {
+    assertUuid(query.userId, 'userId')
+
+    const assignedTaskIds = await this.assigneeRepo
+      .find({ where: { userId: query.userId }, select: ['taskId'] })
+      .then((rows) => rows.map((r) => r.taskId))
+
+    const qb = this.taskRepo
+      .createQueryBuilder('t')
+      .leftJoinAndSelect('t.assignees', 'ta')
+
+    if (assignedTaskIds.length > 0) {
+      qb.where(
+        '(t.assigneeId = :uid OR t.createdBy = :uid OR t.id IN (:...tids))',
+        { uid: query.userId, tids: assignedTaskIds },
+      )
+    } else {
+      qb.where('(t.assigneeId = :uid OR t.createdBy = :uid)', {
+        uid: query.userId,
+      })
+    }
+
+    if (query.groupId) {
+      assertUuid(query.groupId, 'groupId')
+      qb.andWhere('t.groupId = :groupId', { groupId: query.groupId })
+    }
+    if (query.projectId) {
+      assertUuid(query.projectId, 'projectId')
+      qb.andWhere('t.projectId = :projectId', { projectId: query.projectId })
+    }
+    if (query.status) {
+      if (!ALLOWED_STATUS.has(query.status)) {
+        throw new BadRequestException('올바르지 않은 status 값입니다')
+      }
+      qb.andWhere('t.status = :status', { status: query.status })
+    }
+
+    return qb
+      .orderBy('t.sortOrder', 'ASC')
+      .addOrderBy('t.createdAt', 'DESC')
+      .getMany()
+  }
+
   // ── 프로젝트 작업 목록 (필터/정렬) ──────────────────────────────────────────
 
   async listByProject(projectId: string, filter: TaskFilterDto): Promise<Task[]> {

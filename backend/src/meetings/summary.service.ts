@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -21,30 +17,19 @@ interface SummaryResult {
 @Injectable()
 export class SummaryService {
   private readonly logger = new Logger(SummaryService.name)
-  private genAI: GoogleGenerativeAI | null
+  private readonly genAI: GoogleGenerativeAI
   private readonly modelName: string
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY', '')
-    if (!apiKey) {
-      this.logger.error('GEMINI_API_KEY 가 설정되지 않았습니다. 회의 요약 기능이 비활성화됩니다.')
-      this.genAI = null
-    } else {
-      this.genAI = new GoogleGenerativeAI(apiKey)
-    }
+    this.genAI = new GoogleGenerativeAI(
+      this.configService.getOrThrow<string>('GEMINI_API_KEY'),
+    )
     this.modelName = this.configService.get<string>('GEMINI_MODEL', 'gemini-2.5-flash')
-    if (this.genAI) this.logger.log(`Gemini 모델: ${this.modelName}`)
-  }
-
-  private requireGenAI(): GoogleGenerativeAI {
-    if (!this.genAI) {
-      throw new InternalServerErrorException('Gemini API key is not configured on the server')
-    }
-    return this.genAI
+    this.logger.log(`Gemini 모델: ${this.modelName}`)
   }
 
   async generateSummary(transcripts: string): Promise<SummaryResult> {
-    const model = this.requireGenAI().getGenerativeModel({ model: this.modelName })
+    const model = this.genAI.getGenerativeModel({ model: this.modelName })
 
     const today = new Date().toISOString().slice(0, 10)
 

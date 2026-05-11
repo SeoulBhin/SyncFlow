@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type { User } from '@/types'
 import { api } from '@/utils/api'
+import { usePageStore } from '@/stores/usePageStore'
 
 interface AuthState {
   isAuthenticated: boolean
@@ -19,6 +20,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
   },
   logout: () => {
     localStorage.removeItem('accessToken')
+    // 다음 계정으로 로그인할 때 이전 계정의 페이지 캐시가 남아 있지 않도록 비운다.
+    usePageStore.getState().clear()
     set({ isAuthenticated: false, user: null })
   },
   fetchMe: async () => {
