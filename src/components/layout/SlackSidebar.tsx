@@ -294,19 +294,21 @@ export function SlackSidebar() {
     }
   }, [activeOrgId, channelsLoadedFor, fetchChannelsForOrg])
 
-  // Auto-select first group channel on initial load or after org switch clears selection
+  const setActiveChatChannel = useChatStore((s) => s.setActiveChannel)
+
+  // 조직 전환 후 또는 첫 로드 시 첫 번째 채널을 자동 활성화
+  // activeGroupId가 아닌 setActiveChatChannel만 호출 — activeGroupId에 채널 ID가 들어가는 것을 방지
   useEffect(() => {
     if (!activeGroupId && channels.length > 0) {
-      setActiveGroup(channels[0].id, channels[0].name)
+      setActiveChatChannel(channels[0].id)
     }
   }, [activeGroupId, channels]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  const setActiveChatChannel = useChatStore((s) => s.setActiveChannel)
 
   const handleChannelSelect = (channelId: string, channelName: string) => {
     setActiveGroup(channelId, channelName)
     setSidebarGroup(channelId)
     setActiveChatChannel(channelId)
+    navigate(`/app/channel/${channelId}`)
     if (isMobile) setOpen(false)
   }
 

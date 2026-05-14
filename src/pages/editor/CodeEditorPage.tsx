@@ -11,6 +11,8 @@ import {
   Cloud,
   CloudOff,
   Loader,
+  ExternalLink,
+  X,
 } from 'lucide-react'
 import { LanguageSelector, LANGUAGES } from '@/components/code-editor/LanguageSelector'
 import type { LanguageOption } from '@/components/code-editor/LanguageSelector'
@@ -19,9 +21,72 @@ import type { ConsoleOutput } from '@/components/code-editor/ConsolePanel'
 import { CodeLiveCursors } from '@/components/code-editor/CodeLiveCursors'
 import { useToastStore } from '@/stores/useToastStore'
 import { useThemeStore } from '@/stores/useThemeStore'
-import { MOCK_PAGES, MOCK_PROJECTS, MOCK_CODE_SAMPLES } from '@/constants'
+import { MOCK_PAGES, MOCK_PROJECTS } from '@/constants'
+import { apiFetch } from '@/lib/api'
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error'
+
+const DEFAULT_CODE_SAMPLES: Record<string, string> = {
+  python: `# Python 예제
+print("Hello, SyncFlow!")
+
+numbers = [1, 2, 3, 4, 5]
+squares = [x ** 2 for x in numbers]
+print(f"제곱: {squares}")
+`,
+  javascript: `// JavaScript 예제
+console.log("Hello, SyncFlow!")
+
+const numbers = [1, 2, 3, 4, 5]
+const sum = numbers.reduce((a, b) => a + b, 0)
+console.log("합계:", sum)
+`,
+  java: `public class Main {
+  public static void main(String[] args) {
+    System.out.println("Hello, SyncFlow!");
+  }
+}
+`,
+  c: `#include <stdio.h>
+
+int main() {
+  printf("Hello, SyncFlow!\\n");
+  return 0;
+}
+`,
+  cpp: `#include <iostream>
+
+int main() {
+  std::cout << "Hello, SyncFlow!" << std::endl;
+  return 0;
+}
+`,
+  html: `<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <title>SyncFlow HTML</title>
+  <style>
+    body { font-family: sans-serif; padding: 20px; }
+    h1 { color: #6366f1; }
+  </style>
+</head>
+<body>
+  <h1>Hello, SyncFlow!</h1>
+  <p>HTML 미리보기가 아래에 표시됩니다.</p>
+  <script>
+    console.log("HTML 실행 완료")
+  </script>
+</body>
+</html>
+`,
+  css: `/* CSS 예제 */
+body {
+  font-family: sans-serif;
+  background: #f0f0f0;
+}
+`,
+}
 
 export function CodeEditorPage() {
   const { pageId } = useParams()
@@ -29,6 +94,7 @@ export function CodeEditorPage() {
   const addToast = useToastStore((s) => s.addToast)
   const { resolvedTheme } = useThemeStore()
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const cancelledRef = useRef(false)
 
   const page = MOCK_PAGES.find((p) => p.id === pageId) ?? {
     id: pageId ?? 'unknown',
@@ -39,16 +105,16 @@ export function CodeEditorPage() {
   const project = MOCK_PROJECTS.find((p) => p.id === page.projectId)
 
   const [language, setLanguage] = useState<LanguageOption>(LANGUAGES[0])
+  const [codeMap, setCodeMap] = useState<Record<string, string>>(DEFAULT_CODE_SAMPLES)
   const [saveStatus, setSaveStatus] = useState<SaveStatus>('saved')
   const [isRunning, setIsRunning] = useState(false)
   const [runTimer, setRunTimer] = useState(0)
   const [outputs, setOutputs] = useState<ConsoleOutput[]>([])
+  const [iframeUrl, setIframeUrl] = useState<string | null>(null)
   const [onlineUsers] = useState([
     { id: 'u2', name: '이테스터', color: 'bg-blue-500' },
     { id: 'u4', name: '최테스터', color: 'bg-green-500' },
   ])
-
-  const code = MOCK_CODE_SAMPLES[language.id] ?? MOCK_CODE_SAMPLES['python']
 
   // 자동 저장
   useEffect(() => {
@@ -73,59 +139,89 @@ export function CodeEditorPage() {
     editorRef.current = editor
   }, [])
 
-  const handleEditorChange = useCallback(() => {
-    setSaveStatus('unsaved')
-  }, [])
+  const handleEditorChange = useCallback(
+    (value: string | undefined) => {
+      setCodeMap((prev) => ({ ...prev, [language.id]: value ?? '' }))
+      setSaveStatus('unsaved')
+    },
+    [language.id],
+  )
 
-  const handleRun = useCallback(() => {
+  const handleRun = useCallback(async () => {
     if (isRunning) return
     setIsRunning(true)
     setRunTimer(0)
+    setIframeUrl(null)
+    cancelledRef.current = false
 
+    const currentCode = editorRef.current?.getValue() ?? codeMap[language.id] ?? ''
     const now = new Date()
     const ts = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
 
-    // 실행 시뮬레이션 (백엔드 연동 전까지 목업)
-    setTimeout(() => {
-      const mockOutputs: ConsoleOutput[] = [
-        { type: 'stderr', text: '[목업] 백엔드 연동 전이므로 샘플 출력을 표시합니다. 실제 코드 실행은 백엔드 연동 후 동작합니다.', timestamp: ts },
-        { type: 'stdout', text: `[${language.label}] 코드 실행 시작...`, timestamp: ts },
-      ]
+    try {
+      const res = await apiFetch('/api/code/execute', {
+        method: 'POST',
+        body: JSON.stringify({ language: language.id, code: currentCode }),
+      })
 
-      if (language.id === 'python') {
-        mockOutputs.push(
-          { type: 'stdout', text: 'Hello, SyncFlow!', timestamp: ts },
-          { type: 'stdout', text: '결과: [1, 4, 9, 16, 25]', timestamp: ts },
-        )
-      } else if (language.id === 'javascript') {
-        mockOutputs.push(
-          { type: 'stdout', text: 'Hello, SyncFlow!', timestamp: ts },
-          { type: 'stdout', text: 'Sum: 15', timestamp: ts },
-        )
-      } else if (language.id === 'java') {
-        mockOutputs.push(
-          { type: 'stdout', text: 'Hello, SyncFlow!', timestamp: ts },
-        )
-      } else if (language.id === 'c' || language.id === 'cpp') {
-        mockOutputs.push(
-          { type: 'stdout', text: 'Hello, SyncFlow!', timestamp: ts },
-        )
-      } else {
-        mockOutputs.push(
-          { type: 'stderr', text: `${language.label}은(는) 서버 사이드 실행을 지원하지 않습니다.`, timestamp: ts },
-        )
+      if (cancelledRef.current) return
+
+      const result: {
+        output: string
+        error: string | null
+        executionTime: number
+        iframeUrl: string | null
+      } = await res.json()
+
+      const newOutputs: ConsoleOutput[] = []
+
+      if (result.iframeUrl) {
+        setIframeUrl(result.iframeUrl)
+        newOutputs.push({ type: 'stdout', text: 'HTML 미리보기가 아래에 표시됩니다.', timestamp: ts })
       }
 
-      mockOutputs.push(
-        { type: 'stdout', text: `\n프로세스 종료 (코드: 0) — 실행 시간: ${((Math.random() * 0.5 + 0.1).toFixed(2))}s`, timestamp: ts },
-      )
+      if (result.output) {
+        const lines = result.output.split('\n')
+        for (const line of lines) {
+          if (line !== '') newOutputs.push({ type: 'stdout', text: line, timestamp: ts })
+        }
+      }
 
-      setOutputs((prev) => [...prev, ...mockOutputs])
-      setIsRunning(false)
-    }, 1500)
-  }, [isRunning, language])
+      if (result.error) {
+        const lines = result.error.split('\n')
+        for (const line of lines) {
+          if (line !== '') newOutputs.push({ type: 'stderr', text: line, timestamp: ts })
+        }
+      }
+
+      if (!result.output && !result.error && !result.iframeUrl) {
+        newOutputs.push({ type: 'stdout', text: '(출력 없음)', timestamp: ts })
+      }
+
+      newOutputs.push({
+        type: 'stdout',
+        text: `\n프로세스 종료 — 실행 시간: ${result.executionTime}ms`,
+        timestamp: ts,
+      })
+
+      setOutputs((prev) => [...prev, ...newOutputs])
+    } catch (err: any) {
+      if (cancelledRef.current) return
+      setOutputs((prev) => [
+        ...prev,
+        {
+          type: 'stderr',
+          text: `서버 연결 실패: ${err.message ?? '알 수 없는 오류'}`,
+          timestamp: ts,
+        },
+      ])
+    } finally {
+      if (!cancelledRef.current) setIsRunning(false)
+    }
+  }, [isRunning, language, codeMap])
 
   const handleStop = useCallback(() => {
+    cancelledRef.current = true
     setIsRunning(false)
     const now = new Date()
     const ts = `${now.getHours().toString().padStart(2, '0')}:${now.getMinutes().toString().padStart(2, '0')}:${now.getSeconds().toString().padStart(2, '0')}`
@@ -143,10 +239,18 @@ export function CodeEditorPage() {
     }, 500)
   }, [addToast])
 
-  const handleLanguageChange = useCallback((lang: LanguageOption) => {
-    setLanguage(lang)
-    setSaveStatus('unsaved')
-  }, [])
+  const handleLanguageChange = useCallback(
+    (lang: LanguageOption) => {
+      // 현재 코드 저장 후 언어 전환
+      const currentCode = editorRef.current?.getValue()
+      if (currentCode !== undefined) {
+        setCodeMap((prev) => ({ ...prev, [language.id]: currentCode }))
+      }
+      setLanguage(lang)
+      setSaveStatus('unsaved')
+    },
+    [language.id],
+  )
 
   return (
     <div className="flex h-full flex-col">
@@ -165,9 +269,7 @@ export function CodeEditorPage() {
               {page.name}
             </h1>
             {project && (
-              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                {project.name}
-              </p>
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{project.name}</p>
             )}
           </div>
         </div>
@@ -260,12 +362,13 @@ export function CodeEditorPage() {
         </div>
       </div>
 
-      {/* 에디터 + 콘솔 */}
+      {/* 에디터 + 미리보기 + 콘솔 */}
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Monaco Editor */}
-        <div className="flex-1">
+        <div className="flex-1 overflow-hidden">
           <Editor
-            defaultValue={code}
+            key={language.id}
+            defaultValue={codeMap[language.id] ?? ''}
             language={language.monacoId}
             theme={resolvedTheme === 'dark' ? 'vs-dark' : 'light'}
             onMount={handleEditorMount}
@@ -287,6 +390,43 @@ export function CodeEditorPage() {
             }}
           />
         </div>
+
+        {/* HTML 미리보기 */}
+        {iframeUrl && (
+          <div className="border-t border-neutral-200 dark:border-neutral-700">
+            <div className="flex items-center justify-between bg-neutral-50 px-3 py-1.5 dark:bg-neutral-800">
+              <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                HTML 미리보기
+              </span>
+              <div className="flex items-center gap-1">
+                <a
+                  href={iframeUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1 rounded px-2 py-0.5 text-[11px] text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                  title="새 탭에서 열기"
+                >
+                  <ExternalLink size={11} />
+                  새 탭
+                </a>
+                <button
+                  onClick={() => setIframeUrl(null)}
+                  className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                  title="닫기"
+                >
+                  <X size={13} />
+                </button>
+              </div>
+            </div>
+            <iframe
+              src={iframeUrl}
+              className="w-full border-none bg-white"
+              style={{ height: 280 }}
+              sandbox="allow-scripts"
+              title="HTML 미리보기"
+            />
+          </div>
+        )}
 
         {/* 콘솔 패널 */}
         <ConsolePanel outputs={outputs} onClear={() => setOutputs([])} />

@@ -16,7 +16,8 @@ import { UploadModule } from './upload/upload.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { TasksModule } from './tasks/tasks.module';
-import { AiModule } from './ai/ai.module';
+import { AiModule } from './ai/ai.module'
+import { CodeModule } from './code/code.module';
 
 @Module({
   imports: [
@@ -55,6 +56,7 @@ import { AiModule } from './ai/ai.module';
     DashboardModule,
     TasksModule,
     AiModule,
+    CodeModule,
   ],
   controllers: [AppController],
   providers: [AppService],

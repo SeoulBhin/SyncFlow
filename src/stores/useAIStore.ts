@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import { apiFetch } from '@/lib/api'
 
 export interface AIMessage {
   id: string
@@ -62,7 +63,7 @@ interface AIState {
   togglePanel: () => void
   openPanel: () => void
   closePanel: () => void
-  sendMessage: (content: string, referencedFiles?: string[]) => void
+  sendMessage: (content: string, referencedFiles?: string[]) => Promise<void>
   selectConversation: (id: string) => void
   newConversation: () => void
   setActiveProject: (projectId: string) => void
@@ -236,13 +237,17 @@ def release_connection(conn):
 이렇게 하면 **main.py**와 **auth.py**에서 DB 접근 시 커넥션 재사용이 가능합니다. **config.py**의 환경변수도 함께 참조했습니다.`,
 }
 
+function isUUID(value: string): boolean {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)
+}
+
 let msgCounter = 10
 
 export const useAIStore = create<AIState>((set, get) => ({
   isOpen: false,
   messages: MOCK_MESSAGES,
   conversations: MOCK_CONVERSATIONS,
-  activeConversationId: 'conv1',
+  activeConversationId: '',
   isLoading: false,
   usage: {
     daily: { used: 12, limit: 30 },
@@ -258,7 +263,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
 
-  sendMessage: (content: string, referencedFiles?: string[]) => {
+  sendMessage: async (content: string, referencedFiles?: string[]) => {
     const userMsg: AIMessage = {
       id: `m${++msgCounter}`,
       role: 'user',
@@ -278,50 +283,120 @@ export const useAIStore = create<AIState>((set, get) => ({
       },
     }))
 
-    // RAG 기반 목업 응답 — 참조 파일에 따라 다른 응답
-    const mentionedFile = referencedFiles?.[0]
-    const matchedKey = mentionedFile
-      ? Object.keys(MOCK_RAG_RESPONSES).find((k) => mentionedFile.includes(k))
-      : undefined
-    const responseText = MOCK_RAG_RESPONSES[matchedKey ?? 'default']
     const assistantId = `m${++msgCounter}`
+    set((s) => ({
+      messages: [
+        ...s.messages,
+        {
+          id: assistantId,
+          role: 'assistant' as const,
+          content: '',
+          timestamp: Date.now(),
+          isStreaming: true,
+          referencedFiles,
+        },
+      ],
+    }))
 
-    setTimeout(() => {
-      set((s) => ({
-        messages: [
-          ...s.messages,
-          {
-            id: assistantId,
-            role: 'assistant',
-            content: '',
-            timestamp: Date.now(),
-            isStreaming: true,
-            referencedFiles,
-          },
-        ],
-      }))
+    const { activeConversationId } = get()
 
-      let charIndex = 0
-      const interval = setInterval(() => {
-        charIndex += Math.floor(Math.random() * 3) + 2
-        if (charIndex >= responseText.length) {
-          charIndex = responseText.length
-          clearInterval(interval)
-          set((s) => ({
-            messages: s.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: responseText, isStreaming: false } : m,
-            ),
-            isLoading: false,
-          }))
-        } else {
-          set((s) => ({
-            messages: s.messages.map((m) =>
-              m.id === assistantId ? { ...m, content: responseText.slice(0, charIndex) } : m,
-            ),
-          }))
+    try {
+      const res = await apiFetch('/api/ai/chat', {
+        method: 'POST',
+        body: JSON.stringify({
+          content,
+          conversationId: isUUID(activeConversationId) ? activeConversationId : undefined,
+          referencedFiles: referencedFiles?.length ? referencedFiles : undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => `HTTP ${res.status}`)
+        throw new Error(errText)
+      }
+
+      const reader = res.body!.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ''
+      let fullText = ''
+
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        buffer += decoder.decode(value, { stream: true })
+        const lines = buffer.split('\n')
+        buffer = lines.pop() ?? ''
+
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue
+          const jsonStr = line.slice(6).trim()
+          if (!jsonStr) continue
+
+          try {
+            const event = JSON.parse(jsonStr) as {
+              text?: string
+              done?: boolean
+              conversationId?: string
+              error?: string
+            }
+
+            if (event.conversationId) {
+              const { activeConversationId: current } = get()
+              if (event.conversationId !== current) {
+                set({ activeConversationId: event.conversationId })
+              }
+            }
+
+            if (event.error) {
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === assistantId
+                    ? { ...m, content: `오류: ${event.error}`, isStreaming: false }
+                    : m,
+                ),
+                isLoading: false,
+              }))
+              return
+            }
+
+            if (event.text) {
+              fullText += event.text
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === assistantId ? { ...m, content: fullText } : m,
+                ),
+              }))
+            }
+
+            if (event.done) {
+              set((s) => ({
+                messages: s.messages.map((m) =>
+                  m.id === assistantId ? { ...m, isStreaming: false } : m,
+                ),
+                isLoading: false,
+              }))
+            }
+          } catch {
+            // SSE JSON 파싱 실패 무시
+          }
         }
-      }, 30)
-    }, 600)
+      }
+    } catch (err: unknown) {
+      const message = err instanceof Error ? err.message : '알 수 없는 오류'
+      set((s) => ({
+        messages: s.messages.map((m) =>
+          m.id === assistantId
+            ? {
+                ...m,
+                content: `AI 응답 호출에 실패했습니다. 백엔드 로그를 확인해주세요.\n\n오류: ${message}`,
+                isStreaming: false,
+              }
+            : m,
+        ),
+        isLoading: false,
+      }))
+    }
   },
 
   selectConversation: (id: string) => set({ activeConversationId: id }),

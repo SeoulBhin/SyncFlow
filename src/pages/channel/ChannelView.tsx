@@ -108,7 +108,7 @@ export function ChannelView() {
     cleanupSocket,
   } = useChatStore()
 
-  const { activeGroupId } = useGroupContextStore()
+  const { activeGroupId, activeOrgId } = useGroupContextStore()
   const { openThread } = useThreadStore()
   const { openPanel } = useDetailPanelStore()
 
@@ -144,7 +144,7 @@ export function ChannelView() {
   const markChannelRead = useChannelsStore((s) => s.markChannelRead)
   useEffect(() => {
     if (!urlChannelId) return
-    void apiFetch(`/channels/${urlChannelId}/read`, { method: 'PUT' }).catch(() => {})
+    void apiFetch(`/api/channels/${urlChannelId}/read`, { method: 'PUT' }).catch(() => {})
     markChannelRead(urlChannelId)
   }, [urlChannelId, markChannelRead])
 
@@ -158,10 +158,10 @@ export function ChannelView() {
   // ── Channel load when group changes ───────────────────────────────────────
 
   useEffect(() => {
-    if (activeGroupId) {
-      void loadChannels(activeGroupId)
+    if (activeOrgId) {
+      void loadChannels(activeOrgId)
     }
-  }, [activeGroupId, loadChannels])
+  }, [activeOrgId, loadChannels])
 
   // ── Scroll to bottom ──────────────────────────────────────────────────────
 

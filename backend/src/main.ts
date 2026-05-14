@@ -14,6 +14,11 @@ async function bootstrap() {
     prefix: '/uploads',
   });
 
+  // Static file serving for HTML code-run results
+  app.useStaticAssets(path.join(process.cwd(), 'code-runs'), {
+    prefix: '/code-runs',
+  });
+
   // Global prefix: /api
   app.setGlobalPrefix('api');
 
