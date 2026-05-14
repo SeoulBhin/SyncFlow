@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useRef } from 'react'
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import type { editor as MonacoEditor } from 'monaco-editor'
@@ -7,22 +7,28 @@ import {
   Play,
   Square,
   Save,
-  Users,
   Cloud,
   CloudOff,
   Loader,
   ExternalLink,
   X,
 } from 'lucide-react'
+import * as Y from 'yjs'
+import { HocuspocusProvider } from '@hocuspocus/provider'
+import { MonacoBinding } from 'y-monaco'
 import { LanguageSelector, LANGUAGES } from '@/components/code-editor/LanguageSelector'
 import type { LanguageOption } from '@/components/code-editor/LanguageSelector'
 import { ConsolePanel } from '@/components/code-editor/ConsolePanel'
 import type { ConsoleOutput } from '@/components/code-editor/ConsolePanel'
 import { CodeLiveCursors } from '@/components/code-editor/CodeLiveCursors'
+import { PresenceAvatars } from '@/components/editor/PresenceAvatars'
 import { useToastStore } from '@/stores/useToastStore'
 import { useThemeStore } from '@/stores/useThemeStore'
+import { useAuthStore } from '@/stores/useAuthStore'
 import { MOCK_PAGES, MOCK_PROJECTS } from '@/constants'
 import { apiFetch } from '@/lib/api'
+
+const PRESENCE_COLORS = ['#958DF1', '#F98181', '#FBBC88', '#70CFF8', '#94FADB', '#B9F18D', '#F9A8D4']
 
 type SaveStatus = 'saved' | 'saving' | 'unsaved' | 'error'
 
@@ -111,10 +117,100 @@ export function CodeEditorPage() {
   const [runTimer, setRunTimer] = useState(0)
   const [outputs, setOutputs] = useState<ConsoleOutput[]>([])
   const [iframeUrl, setIframeUrl] = useState<string | null>(null)
-  const [onlineUsers] = useState([
-    { id: 'u2', name: '이테스터', color: 'bg-blue-500' },
-    { id: 'u4', name: '최테스터', color: 'bg-green-500' },
-  ])
+
+  // presence + 실시간 공동 편집: HocuspocusProvider + Y.Doc
+  const currentUser = useAuthStore((s) => s.user)
+  const [presenceProvider, setPresenceProvider] = useState<HocuspocusProvider | null>(null)
+  const [isConnected, setIsConnected] = useState(false)
+  const [isSynced, setIsSynced] = useState(false)
+  const [monacoEditor, setMonacoEditor] = useState<MonacoEditor.IStandaloneCodeEditor | null>(null)
+  const [isStable, setIsStable] = useState(true)
+  const lastEditAtRef = useRef<number>(0)
+  const monacoBindingRef = useRef<InstanceType<typeof MonacoBinding> | null>(null)
+
+  const presenceUser = useMemo(() => {
+    const name = currentUser?.name ?? currentUser?.email ?? '익명 사용자'
+    const color = PRESENCE_COLORS[
+      name.split('').reduce((a, c) => a + c.charCodeAt(0), 0) % PRESENCE_COLORS.length
+    ]
+    return { id: currentUser?.id, email: currentUser?.email, name, color }
+  }, [currentUser])
+
+  useEffect(() => {
+    if (!pageId) return
+    const ydoc = new Y.Doc()
+    const token = localStorage.getItem('accessToken') ?? ''
+    const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:3001'
+    const p = new HocuspocusProvider({
+      url: wsUrl,
+      name: pageId,
+      document: ydoc,
+      token,
+      onConnect: () => setIsConnected(true),
+      onDisconnect: () => { setIsConnected(false); setIsSynced(false) },
+      onSynced: () => setIsSynced(true),
+    })
+    setPresenceProvider(p)
+    return () => {
+      p.destroy()
+      ydoc.destroy()
+      setPresenceProvider(null)
+      setIsConnected(false)
+      setIsSynced(false)
+    }
+  }, [pageId])
+
+  // awareness에 내 유저 정보 등록 (remote cursor label 포함)
+  useEffect(() => {
+    if (!presenceProvider) return
+    presenceProvider.awareness.setLocalStateField('user', presenceUser)
+  }, [presenceProvider, presenceUser])
+
+  // Monaco ↔ Y.Text 바인딩: 편집기 마운트 + provider + 언어가 모두 준비되면 연결
+  useEffect(() => {
+    const doc = presenceProvider?.document
+    if (!monacoEditor || !doc || !presenceProvider) return
+    const ytext = doc.getText(language.id)
+    const model = monacoEditor.getModel()
+    if (!model) return
+    const binding = new MonacoBinding(ytext, model, new Set([monacoEditor]), presenceProvider.awareness)
+    monacoBindingRef.current = binding
+    return () => {
+      binding.destroy()
+      monacoBindingRef.current = null
+    }
+  }, [monacoEditor, presenceProvider, language.id])
+
+  // Y.Text 초기값 설정: 동기화 완료 후 문서가 비어있으면 기본 샘플 삽입
+  useEffect(() => {
+    const doc = presenceProvider?.document
+    if (!isSynced || !doc) return
+    const ytext = doc.getText(language.id)
+    if (ytext.toString() === '') {
+      doc.transact(() => {
+        ytext.insert(0, DEFAULT_CODE_SAMPLES[language.id] ?? '')
+      })
+    }
+  }, [isSynced, presenceProvider, language.id])
+
+  // 편집 안정화 감지: Y.Text 변경(로컬·원격 모두)마다 lastEditAt 갱신
+  useEffect(() => {
+    const doc = presenceProvider?.document
+    if (!doc) return
+    const ytext = doc.getText(language.id)
+    const observer = () => { lastEditAtRef.current = Date.now() }
+    ytext.observe(observer)
+    return () => ytext.unobserve(observer)
+  }, [presenceProvider, language.id])
+
+  // 안정화 상태 폴링: 마지막 편집 후 1500ms 경과 → isStable
+  useEffect(() => {
+    const interval = setInterval(() => {
+      if (lastEditAtRef.current === 0) { setIsStable(true); return }
+      setIsStable(Date.now() - lastEditAtRef.current >= 1500)
+    }, 200)
+    return () => clearInterval(interval)
+  }, [])
 
   // 자동 저장
   useEffect(() => {
@@ -137,6 +233,7 @@ export function CodeEditorPage() {
 
   const handleEditorMount = useCallback((editor: MonacoEditor.IStandaloneCodeEditor) => {
     editorRef.current = editor
+    setMonacoEditor(editor)
   }, [])
 
   const handleEditorChange = useCallback(
@@ -148,7 +245,7 @@ export function CodeEditorPage() {
   )
 
   const handleRun = useCallback(async () => {
-    if (isRunning) return
+    if (isRunning || !isConnected || !isStable || !isSynced) return
     setIsRunning(true)
     setRunTimer(0)
     setIframeUrl(null)
@@ -218,7 +315,7 @@ export function CodeEditorPage() {
     } finally {
       if (!cancelledRef.current) setIsRunning(false)
     }
-  }, [isRunning, language, codeMap])
+  }, [isRunning, isConnected, isStable, isSynced, language, codeMap])
 
   const handleStop = useCallback(() => {
     cancelledRef.current = true
@@ -251,6 +348,15 @@ export function CodeEditorPage() {
     },
     [language.id],
   )
+
+  const canRun = !isRunning && isConnected && isStable && isSynced
+  const runLabel = isRunning
+    ? '실행 중...'
+    : !isConnected
+      ? '연결 대기 중...'
+      : !isStable || !isSynced
+        ? '편집 중...'
+        : '실행'
 
   return (
     <div className="flex h-full flex-col">
@@ -299,21 +405,8 @@ export function CodeEditorPage() {
             )}
           </div>
 
-          {/* 온라인 사용자 */}
-          <div className="flex items-center gap-1 ml-2">
-            <Users size={14} className="text-neutral-400" />
-            <div className="flex -space-x-1.5">
-              {onlineUsers.map((u) => (
-                <div
-                  key={u.id}
-                  className={`h-6 w-6 rounded-full ${u.color} flex items-center justify-center text-[10px] font-medium text-white ring-2 ring-surface dark:ring-surface-dark-elevated`}
-                  title={u.name}
-                >
-                  {u.name[0]}
-                </div>
-              ))}
-            </div>
-          </div>
+          {/* 접속자 presence 아바타 */}
+          <PresenceAvatars provider={presenceProvider} localUser={presenceUser} includeSelf={true} />
 
           <div className="mx-1 h-5 w-px bg-neutral-200 dark:bg-neutral-700" />
 
@@ -353,10 +446,16 @@ export function CodeEditorPage() {
           ) : (
             <button
               onClick={handleRun}
-              className="flex items-center gap-1.5 rounded-lg bg-success px-3 py-1.5 text-sm font-medium text-white transition-colors hover:bg-green-600"
+              disabled={!canRun}
+              title={canRun ? '코드 실행' : runLabel}
+              className={`flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-sm font-medium text-white transition-colors ${
+                canRun
+                  ? 'bg-success hover:bg-green-600'
+                  : 'cursor-not-allowed bg-neutral-400 dark:bg-neutral-600'
+              }`}
             >
               <Play size={14} />
-              실행
+              {runLabel}
             </button>
           )}
         </div>

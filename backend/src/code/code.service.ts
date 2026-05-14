@@ -81,6 +81,18 @@ export class CodeService {
     return this.runDocker(config, code, startTime)
   }
 
+  private async ensureImage(image: string): Promise<void> {
+    try {
+      await execAsync(`docker image inspect ${image}`)
+    } catch {
+      try {
+        await execAsync(`docker pull ${image}`, { timeout: 120000 })
+      } catch {
+        throw new Error(`Docker 이미지를 준비하지 못했습니다: ${image}`)
+      }
+    }
+  }
+
   private async runDocker(
     config: DockerConfig,
     code: string,
@@ -92,6 +104,17 @@ export class CodeService {
     try {
       fs.mkdirSync(tmpDir, { recursive: true })
       fs.writeFileSync(path.join(tmpDir, config.fileName), code, 'utf8')
+
+      try {
+        await this.ensureImage(config.image)
+      } catch (err: any) {
+        return {
+          output: '',
+          error: err.message ?? 'Docker 이미지를 준비하지 못했습니다.',
+          executionTime: Date.now() - startTime,
+          iframeUrl: null,
+        }
+      }
 
       const dockerPath = this.toDockerPath(tmpDir)
       const cmd = [
