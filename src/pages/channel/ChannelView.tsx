@@ -6,13 +6,14 @@ import {
   useCallback,
   useMemo,
 } from 'react'
-import { useParams } from 'react-router-dom'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Send,
   Smile,
   Paperclip,
   CheckCheck,
   MessageCircle,
+  MessageSquare,
   X,
   Hash,
   Reply,
@@ -27,11 +28,13 @@ import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useThreadStore } from '@/stores/useThreadStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
+import { useSidebarStore } from '@/stores/useSidebarStore'
+import { useProjectsStore } from '@/stores/useProjectsStore'
+import { useAIStore } from '@/stores/useAIStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
 import {
   EMOJI_LIST,
-  MOCK_CHANNEL_MEMBERS,
   MOCK_CHANNELS,
   MOCK_ORG_MEMBERS,
 } from '@/constants'
@@ -108,9 +111,14 @@ export function ChannelView() {
     cleanupSocket,
   } = useChatStore()
 
-  const { activeGroupId, activeOrgId } = useGroupContextStore()
+  const { activeGroupId, activeOrgId, setActiveGroup: setActiveGroupCtx } = useGroupContextStore()
+  const navigate = useNavigate()
+  const { setActiveGroup: setSidebarActiveGroup, setActiveProject: setSidebarActiveProject } = useSidebarStore()
+  const projects = useProjectsStore((s) => s.projects)
+  const allChannelDetails = useChannelsStore((s) => s.channels)
   const { openThread } = useThreadStore()
   const { openPanel } = useDetailPanelStore()
+  const { openPanel: openAIPanel, sendMessage: sendAIMessage } = useAIStore()
 
   const [inputText, setInputText] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -123,6 +131,20 @@ export function ChannelView() {
   const [pendingLinks, setPendingLinks] = useState<string[]>([])
   /** 현재 업로드 중인 파일명 목록 */
   const [uploadingFileNames, setUploadingFileNames] = useState<string[]>([])
+  /** 채널 멤버 목록 (멘션용) */
+  const [channelMembers, setChannelMembers] = useState<Array<{ id: string; name: string; position: string }>>([])
+
+  useEffect(() => {
+    if (!activeChannelId) return
+    apiFetch(`/api/channels/${activeChannelId}/members`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Array<{ userId: string; userName: string }>) => {
+        setChannelMembers(
+          data.map((m) => ({ id: m.userId, name: m.userName, position: '멤버' })),
+        )
+      })
+      .catch(() => setChannelMembers([]))
+  }, [activeChannelId])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -196,9 +218,10 @@ export function ChannelView() {
     [typingUsers, activeChannelId],
   )
 
-  // ── Channel / DM split ────────────────────────────────────────────────────
+  // ── Channel / ProjectChat / DM split ─────────────────────────────────────
 
-  const subChannels = channels.filter((c) => c.type !== 'dm')
+  const regularChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'project')
+  const projectChannels = channels.filter((c) => c.type === 'project')
   const dmChannels = channels.filter((c) => c.type === 'dm')
 
   const activeChannel = channels.find((c) => c.id === activeChannelId)
@@ -207,11 +230,36 @@ export function ChannelView() {
 
   const allMentionItems = [
     { id: 'ai', name: 'AI', position: 'AI 어시스턴트', isAI: true },
-    ...MOCK_CHANNEL_MEMBERS.map((m) => ({ ...m, isAI: false })),
+    ...channelMembers.map((m) => ({ ...m, isAI: false })),
   ]
   const filteredMembers = allMentionItems.filter((m) =>
     m.name.toLowerCase().includes(mentionFilter.toLowerCase()),
   )
+
+  // ── Navigation helpers (store + URL 동기화) ───────────────────────────────
+
+  const openChannel = useCallback((channelId: string, channelName: string) => {
+    setActiveGroupCtx(channelId, channelName)
+    setSidebarActiveGroup(channelId)
+    setActiveChannel(channelId)
+    navigate(`/app/channel/${channelId}`)
+  }, [setActiveGroupCtx, setSidebarActiveGroup, setActiveChannel, navigate])
+
+  const openProjectChat = useCallback((channelId: string, channelName: string) => {
+    const detail = allChannelDetails.find((c) => c.id === channelId)
+    const projectId = detail?.projectId ?? null
+    setActiveGroupCtx(channelId, channelName)
+    if (projectId) setSidebarActiveProject(projectId)
+    setActiveChannel(channelId)
+    navigate(`/app/channel/${channelId}`)
+  }, [allChannelDetails, setActiveGroupCtx, setSidebarActiveProject, setActiveChannel, navigate])
+
+  const openDM = useCallback((dmId: string, dmName: string) => {
+    setActiveGroupCtx(dmId, dmName)
+    setSidebarActiveGroup(dmId)
+    setActiveChannel(dmId)
+    navigate(`/app/channel/${dmId}`)
+  }, [setActiveGroupCtx, setSidebarActiveGroup, setActiveChannel, navigate])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -239,10 +287,19 @@ export function ChannelView() {
     const content = [inputText.trim(), ...pendingLinks].filter(Boolean).join('\n')
     if (!content.trim()) return
 
+    // @AI 멘션 감지: AI 패널로 전달 (channelId 포함하여 멤버 목록 hallucination 방지)
+    const hasAIMention = /@AI\b/i.test(inputText.trim())
+    if (hasAIMention) {
+      const aiQuery = inputText.trim().replace(/@AI\s*/gi, '').trim() || inputText.trim()
+      openPanel('ai')
+      openAIPanel()
+      void sendAIMessage(aiQuery, undefined, activeChannelId ?? undefined)
+    }
+
     sendMessage(activeChannelId, content)
     setInputText('')
     setPendingLinks([])
-  }, [inputText, pendingLinks, uploadingFileNames, activeChannelId, sendMessage])
+  }, [inputText, pendingLinks, uploadingFileNames, activeChannelId, sendMessage, openPanel, openAIPanel, sendAIMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -389,16 +446,16 @@ export function ChannelView() {
         </div>
 
         <div className="flex-1 overflow-y-auto py-2">
-          {/* 채널 목록 */}
-          {subChannels.length > 0 && (
+          {/* 일반 채널 목록 */}
+          {regularChannels.length > 0 && (
             <div className="mb-2">
               <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
                 채널
               </p>
-              {subChannels.map((ch) => (
+              {regularChannels.map((ch) => (
                 <button
                   key={ch.id}
-                  onClick={() => setActiveChannel(ch.id)}
+                  onClick={() => openChannel(ch.id, ch.name)}
                   className={cn(
                     'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
                     ch.id === activeChannelId
@@ -418,6 +475,42 @@ export function ChannelView() {
             </div>
           )}
 
+          {/* 프로젝트 채팅 목록 */}
+          {projectChannels.length > 0 && (
+            <div className="mb-2">
+              <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+                프로젝트 채팅
+              </p>
+              {projectChannels.map((ch) => {
+                const detail = allChannelDetails.find((c) => c.id === ch.id)
+                const project = detail?.projectId
+                  ? projects.find((p) => p.id === detail.projectId)
+                  : null
+                const label = project ? `${project.name} / 프로젝트 채팅` : ch.name
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => openProjectChat(ch.id, ch.name)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
+                      ch.id === activeChannelId
+                        ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                    )}
+                  >
+                    <MessageSquare size={13} className="shrink-0 text-primary-500" />
+                    <span className="flex-1 truncate text-left">{label}</span>
+                    {ch.unreadCount > 0 && (
+                      <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                        {ch.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* DM 목록 */}
           {dmChannels.length > 0 && (
             <div>
@@ -427,7 +520,7 @@ export function ChannelView() {
               {dmChannels.map((dm) => (
                 <button
                   key={dm.id}
-                  onClick={() => setActiveChannel(dm.id)}
+                  onClick={() => openDM(dm.id, dm.name)}
                   className={cn(
                     'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
                     dm.id === activeChannelId

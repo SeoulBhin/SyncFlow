@@ -34,6 +34,12 @@ const DAILY_LIMITS: Record<string, number> = {
   team: Infinity,
 }
 
+const MONTHLY_LIMITS: Record<string, number> = {
+  free: 300,
+  pro: 3000,
+  team: Infinity,
+}
+
 @Injectable()
 export class AiService {
   private readonly logger = new Logger(AiService.name)
@@ -54,6 +60,51 @@ export class AiService {
     this.genAI = new GoogleGenerativeAI(this.config.getOrThrow<string>('GEMINI_API_KEY'))
     this.modelName = this.config.get<string>('GEMINI_MODEL', 'gemini-2.5-flash')
     this.logger.log(`AI 모델: ${this.modelName}`)
+  }
+
+  // ── 멤버 목록 질문 감지 (hallucination 방지) ──────────────────────────────
+
+  private isMemberListQuery(content: string): boolean {
+    return /팀원|멤버|참여자|채널.*사람|사람.*채널|누가\s*있|있.*누구|참가자|구성원|인원|멤버\s*목록|목록.*멤버|팀\s*목록|목록.*팀|who.*in|channel.*member/i.test(
+      content,
+    )
+  }
+
+  private async fetchChannelMembers(
+    channelId: string,
+  ): Promise<Array<{ userId: string; userName: string }>> {
+    const rows = await this.dataSource.query<Array<{ user_id: string; user_name: string }>>(
+      `SELECT user_id, user_name FROM channel_members WHERE channel_id = $1 ORDER BY joined_at ASC`,
+      [channelId],
+    )
+    return rows.map((r) => ({ userId: r.user_id, userName: r.user_name || '(이름 없음)' }))
+  }
+
+  private async streamMemberListResponse(
+    channelId: string,
+    conversationId: string,
+    content: string,
+    res: Response,
+  ): Promise<void> {
+    const members = await this.fetchChannelMembers(channelId)
+
+    let reply: string
+    if (members.length === 0) {
+      reply = '현재 채널에 표시할 멤버가 없습니다.'
+    } else {
+      const list = members.map((m) => `- ${m.userName}`).join('\n')
+      reply = `현재 채널의 멤버는 총 ${members.length}명입니다.\n\n${list}`
+    }
+
+    res.write(
+      `data: ${JSON.stringify({ text: reply, done: false, conversationId })}\n\n`,
+    )
+    res.write(
+      `data: ${JSON.stringify({ text: '', done: true, conversationId })}\n\n`,
+    )
+    res.end()
+
+    this.saveConversationMessages(conversationId, content, reply, null, null).catch(() => {})
   }
 
   // ── SSE 스트리밍 채팅 ─────────────────────────────────────────────────────
@@ -80,6 +131,12 @@ export class AiService {
           title,
         }),
       )
+    }
+
+    // 채널 멤버 목록 질문 → Gemini 호출 없이 실제 DB 결과로 직접 응답
+    if (dto.channelId && this.isMemberListQuery(dto.content)) {
+      await this.streamMemberListResponse(dto.channelId, conversation.id, dto.content, res)
+      return
     }
 
     // 프로젝트 RAG 검색
@@ -283,17 +340,36 @@ export class AiService {
 
   // ── 사용량 관리 ───────────────────────────────────────────────────────────
 
-  async getDailyUsage(userId: string): Promise<{ used: number; limit: number; plan: string }> {
+  async getDailyUsage(userId: string): Promise<{
+    plan: string
+    daily: { used: number; limit: number }
+    monthly: { used: number; limit: number }
+    unlimited: boolean
+  }> {
     const isUnlimited = await this.isUnlimitedUser(userId)
     if (isUnlimited) {
-      return { used: 0, limit: -1, plan: 'admin' }
+      return {
+        plan: 'admin',
+        daily: { used: 0, limit: -1 },
+        monthly: { used: 0, limit: -1 },
+        unlimited: true,
+      }
     }
 
     const plan = await this.getUserPlan(userId)
-    const limit = DAILY_LIMITS[plan] ?? DAILY_LIMITS.free
-    const used = await this.countTodayUserMessages(userId)
+    const dailyLimit = DAILY_LIMITS[plan] ?? DAILY_LIMITS.free
+    const monthlyLimit = MONTHLY_LIMITS[plan] ?? MONTHLY_LIMITS.free
+    const [dailyUsed, monthlyUsed] = await Promise.all([
+      this.countTodayUserMessages(userId),
+      this.countThisMonthUserMessages(userId),
+    ])
 
-    return { used, limit: isFinite(limit) ? limit : -1, plan }
+    return {
+      plan,
+      daily: { used: dailyUsed, limit: isFinite(dailyLimit) ? dailyLimit : -1 },
+      monthly: { used: monthlyUsed, limit: isFinite(monthlyLimit) ? monthlyLimit : -1 },
+      unlimited: false,
+    }
   }
 
   // ── 기존 멀티턴 채팅 (ai_chat_history 기반, 하위 호환) ──────────────────
@@ -601,6 +677,23 @@ ${content}
          WHERE ac.user_id = $1
            AND am.role = 'user'
            AND am.created_at >= CURRENT_DATE`,
+        [userId],
+      )
+      return parseInt(rows[0]?.count ?? '0', 10)
+    } catch {
+      return 0
+    }
+  }
+
+  private async countThisMonthUserMessages(userId: string): Promise<number> {
+    try {
+      const rows = await this.dataSource.query<Array<{ count: string }>>(
+        `SELECT COUNT(*) AS count
+         FROM ai_messages am
+         JOIN ai_conversations ac ON ac.id = am.conversation_id
+         WHERE ac.user_id = $1
+           AND am.role = 'user'
+           AND am.created_at >= DATE_TRUNC('month', CURRENT_DATE)`,
         [userId],
       )
       return parseInt(rows[0]?.count ?? '0', 10)

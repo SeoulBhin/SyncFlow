@@ -2,6 +2,7 @@ import {
   Injectable,
   ForbiddenException,
   NotFoundException,
+  Logger,
 } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository, In } from 'typeorm';
@@ -22,6 +23,8 @@ export interface ChannelWithUnread extends Channel {
 
 @Injectable()
 export class ChannelsService {
+  private readonly logger = new Logger(ChannelsService.name);
+
   constructor(
     @InjectRepository(Channel)
     private readonly channelRepo: Repository<Channel>,
@@ -118,6 +121,11 @@ export class ChannelsService {
     const type = dto.type ?? 'channel';
 
     // DM 자기 자신과의 채널 방어 — 백엔드 차원에서 거부
+    if (type === 'dm') {
+      this.logger.debug(
+        `createChannel DM: requestUserId=${userId} targetUserId=${dto.targetUserId} isSelf=${dto.targetUserId === userId}`,
+      );
+    }
     if (type === 'dm' && dto.targetUserId === userId) {
       throw new ForbiddenException('자신과는 DM을 만들 수 없습니다');
     }

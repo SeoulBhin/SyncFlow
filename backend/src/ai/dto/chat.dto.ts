@@ -22,6 +22,10 @@ export class ChatDto {
   projectId?: string
 
   @IsOptional()
+  @IsUUID()
+  channelId?: string
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   referencedFiles?: string[]

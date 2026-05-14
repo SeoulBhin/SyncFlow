@@ -34,6 +34,7 @@ export function SidebarProjectList() {
   const renamePage = usePageStore((s) => s.renamePage)
   const loadPagesByProject = usePageStore((s) => s.loadByProject)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
+  const activeGroupId = useGroupContextStore((s) => s.activeGroupId)
   const setActiveGroup = useGroupContextStore((s) => s.setActiveGroup)
   const { projects, loadedForOrgId, fetchForOrg, removeProject: removeProjectFromStore } =
     useProjectsStore()
@@ -213,12 +214,18 @@ export function SidebarProjectList() {
                     const unread = projectChannel.unreadCount ?? 0
                     return (
                       <button
-                        onClick={() => {
+                        onClick={(e) => {
+                          e.stopPropagation()
                           setActiveGroup(projectChannel.id, projectChannel.name)
                           setActiveChatChannel(projectChannel.id)
                           navigate(`/app/channel/${projectChannel.id}`)
                         }}
-                        className="flex w-full items-center gap-2 rounded-lg px-2 py-1 text-xs text-neutral-600 transition-colors hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                        className={cn(
+                          'flex w-full items-center gap-2 rounded-lg px-2 py-1 text-xs transition-colors',
+                          projectChannel.id === activeGroupId
+                            ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                            : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                        )}
                       >
                         <MessageSquare size={12} className="shrink-0 text-primary-500" />
                         <span className="flex-1 truncate text-left">프로젝트 채팅</span>

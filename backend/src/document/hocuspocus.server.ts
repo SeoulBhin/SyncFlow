@@ -12,9 +12,6 @@ export function createHocuspocusServer(
   pageRepository: Repository<Page>,
   pageVersionRepository: Repository<PageVersion>,
 ) {
-  // 1.5초 디바운싱: 계속 타이핑 중이면 기다렸다가 저장
-  const saveTimers = new Map<string, ReturnType<typeof setTimeout>>()
-
   return new Server({
     port: 3001,
 
@@ -73,26 +70,14 @@ export function createHocuspocusServer(
     },
 
     async onStoreDocument(data) {
-      // Y.encodeStateAsUpdate: toJSON() deprecated 대체 — 바이너리 상태를 base64로 저장
+      // Y.encodeStateAsUpdate: 바이너리 상태를 base64로 직렬화
       const content = Buffer.from(Y.encodeStateAsUpdate(data.document)).toString('base64')
-      const existing = saveTimers.get(data.documentName)
-      if (existing) clearTimeout(existing)
-
-      const timer = setTimeout(async () => {
-        try {
-          // 1. 현재 내용 저장
-          await pageRepository.update(data.documentName, { content } as any)
-          // 2. 버전 스냅샷 저장
-          // 자동 저장 경로에는 사용자 ID가 없어 created_by 필수 버전 행은 만들지 않는다.
-          console.log(`문서 저장 완료: ${data.documentName}`)
-        } catch {
-          // TODO: Part 3 완료 전까지 DB 없어서 저장 실패 — 무시
-          console.log(`[dev] DB 저장 스킵: ${data.documentName}`)
-        }
-        saveTimers.delete(data.documentName)
-      }, 1500)
-
-      saveTimers.set(data.documentName, timer)
+      try {
+        await pageRepository.update(data.documentName, { content } as any)
+        console.log(`[hocuspocus] 문서 저장 완료: ${data.documentName}`)
+      } catch (err) {
+        console.error(`[hocuspocus] DB 저장 실패 (${data.documentName}): ${(err as Error).message}`)
+      }
     },
 
     async onDisconnect(data) {

@@ -159,6 +159,9 @@ export function DocumentEditorPage() {
   // ── Hocuspocus 실시간 협업 설정 ──────────────────────────────
   const [connStatus, setConnStatus] = useState<ConnStatus>('connecting')
   const [isSynced, setIsSynced] = useState(false)
+  const [isSaving, setIsSaving] = useState(false)
+  const [hasSaved, setHasSaved] = useState(false)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const hasMigratedRef = useRef(false)
   // StrictMode double-cleanup 방지용 mount 카운터
   const _ydocMountRef = useRef(0)
@@ -166,10 +169,16 @@ export function DocumentEditorPage() {
   // 비로그인 시 창마다 구분 가능한 Guest ID (세션 고정)
   const guestSuffixRef = useRef(Math.random().toString(36).slice(2, 6).toUpperCase())
 
-  // pageId 변경 시 sync/migration 상태 초기화
+  // pageId 변경 시 sync/migration/저장 상태 초기화
   useEffect(() => {
     setIsSynced(false)
+    setIsSaving(false)
+    setHasSaved(false)
     hasMigratedRef.current = false
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = null
+    }
   }, [pageId])
 
   // Y.Doc: pageId가 바뀌면 새로 생성
@@ -218,11 +227,12 @@ export function DocumentEditorPage() {
     }
   }, [provider])
 
-  // 연결 상태 → 저장 상태 표시로 매핑
+  // 연결 상태 + 편집 감지 → 저장 상태 표시로 매핑
   const saveStatus: SaveStatus =
-    connStatus === 'connected' ? 'saved' :
+    connStatus === 'error' ? 'error' :
+    connStatus === 'disconnected' ? 'unsaved' :
     connStatus === 'connecting' ? 'saving' :
-    connStatus === 'error' ? 'error' : 'unsaved'
+    isSaving ? 'saving' : 'saved'
 
   const [showVersionHistory, setShowVersionHistory] = useState(false)
   const [showTOC, setShowTOC] = useState(false)
@@ -274,8 +284,16 @@ export function DocumentEditorPage() {
       },
     },
     onUpdate: ({ editor: ed }) => {
-      // Hocuspocus onStoreDocument가 자동 저장 — REST API PUT 호출 불필요
-      // 슬래시 커맨드 쿼리 업데이트만 처리
+      // 편집 감지 → "저장 중..." 표시, Hocuspocus debounce(2000ms) 후 DB 저장 완료로 간주
+      setIsSaving(true)
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+      saveTimerRef.current = setTimeout(() => {
+        setIsSaving(false)
+        setHasSaved(true)
+        saveTimerRef.current = null
+      }, 2500)
+
+      // 슬래시 커맨드 쿼리 업데이트
       if (slashMenuOpen && ed) {
         const { $from } = ed.state.selection
         const text = $from.parent.textContent.slice(0, $from.parentOffset)
@@ -437,13 +455,19 @@ export function DocumentEditorPage() {
             {saveStatus === 'saved' && (
               <span className="flex items-center gap-1 text-success">
                 <Cloud size={14} />
-                자동 저장 중
+                {hasSaved ? '저장됨' : '자동 저장'}
               </span>
             )}
-            {saveStatus === 'saving' && (
+            {saveStatus === 'saving' && connStatus === 'connecting' && (
               <span className="flex items-center gap-1 text-primary-500">
                 <Loader size={14} className="animate-spin" />
                 연결 중...
+              </span>
+            )}
+            {saveStatus === 'saving' && connStatus === 'connected' && (
+              <span className="flex items-center gap-1 text-primary-500">
+                <Loader size={14} className="animate-spin" />
+                저장 중...
               </span>
             )}
             {saveStatus === 'unsaved' && (

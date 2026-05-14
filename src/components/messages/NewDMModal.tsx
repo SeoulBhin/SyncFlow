@@ -9,6 +9,19 @@ import { useChannelsStore, type ChannelSummary } from '@/stores/useChannelsStore
 import { useChatStore } from '@/stores/useChatStore'
 import { api } from '@/utils/api'
 
+// localStorage의 JWT에서 sub(userId)를 직접 파싱 — zustand user 캐시 오염 우회
+function parseJwtUserId(token: string | null): string | null {
+  if (!token) return null
+  try {
+    const b64 = token.split('.')[1]
+    if (!b64) return null
+    const payload = JSON.parse(atob(b64.replace(/-/g, '+').replace(/_/g, '/'))) as Record<string, unknown>
+    return typeof payload.sub === 'string' ? payload.sub : null
+  } catch {
+    return null
+  }
+}
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -40,14 +53,16 @@ export function NewDMModal({ isOpen, onClose }: Props) {
   useEffect(() => {
     if (!isOpen || !activeOrgId) return
     setLoading(true)
+    // JWT에서 직접 파싱한 userId를 우선 사용. 멀티탭 로그인으로 토큰이 바뀌어도 실제 요청자 ID와 일치.
+    const jwtUserId = parseJwtUserId(localStorage.getItem('accessToken'))
+    const selfId = jwtUserId ?? currentUserId
     api
       .get<OrgMember[]>(`/groups/${activeOrgId}/members`)
       .then((ms) =>
         setMembers(
-          // userId 또는 user.id 중 하나라도 본인과 일치하면 제외 — store user가 비어있어도 안전
           ms.filter((m) => {
-            if (!currentUserId) return true
-            return m.userId !== currentUserId && m.user?.id !== currentUserId
+            if (!selfId) return false // 본인 ID를 알 수 없으면 아무도 표시하지 않음 (자기 자신 DM 방지)
+            return m.userId !== selfId && m.user?.id !== selfId
           }),
         ),
       )
@@ -68,14 +83,13 @@ export function NewDMModal({ isOpen, onClose }: Props) {
   )
 
   // 같은 사용자와 이미 1:1 DM 채널이 있으면 바로 거기로 이동 (중복 생성 방지)
+  // otherUser.userId는 백엔드 getGroupChannels에서 채워주는 상대방 UUID
   const findExistingDm = (otherUserId: string): ChannelSummary | undefined =>
     channels.find(
       (c) =>
         c.type === 'dm' &&
         c.groupId === activeOrgId &&
-        // DM 채널 이름 컨벤션: '{내 이름}, {상대 이름}' 또는 상대 이름. name으로 단정 못 하니
-        // 가장 안전한 길은 백엔드의 채널 멤버 정보를 참조하는 건데 일단 이름 매치만 시도
-        (c.name === '' || c.name?.includes(otherUserId)),
+        c.otherUser?.userId === otherUserId,
     )
 
   const handleStartDM = async (member: OrgMember) => {
@@ -83,6 +97,21 @@ export function NewDMModal({ isOpen, onClose }: Props) {
       addToast('error', '조직이 선택되지 않았습니다.')
       return
     }
+
+    // 멀티탭 오염 방지: 실제 JWT에서 파싱한 userId가 상대방과 같으면 요청 자체를 차단
+    const jwtUserId = parseJwtUserId(localStorage.getItem('accessToken'))
+    if (jwtUserId && jwtUserId === member.userId) {
+      addToast('error', '자신과는 DM을 시작할 수 없습니다.')
+      return
+    }
+
+    console.log('[NewDMModal] handleStartDM', {
+      targetUserId: member.userId,
+      targetName: member.user.name,
+      jwtUserId,
+      storeUserId: currentUserId,
+    })
+
     const existing = findExistingDm(member.userId)
     if (existing) {
       setActiveChatChannel(existing.id)

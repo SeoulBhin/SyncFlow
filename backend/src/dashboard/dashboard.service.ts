@@ -6,6 +6,7 @@ import { ChannelMember } from '../channels/entities/channel-member.entity';
 import { Meeting } from '../meetings/entities/meeting.entity';
 import { Message } from '../messages/entities/message.entity';
 import { Page } from '../pages/entities/page.entity';
+import { Project } from '../projects/entities/project.entity';
 
 @Injectable()
 export class DashboardService {
@@ -16,6 +17,7 @@ export class DashboardService {
     @InjectRepository(Meeting) private meetingRepo: Repository<Meeting>,
     @InjectRepository(Message) private messageRepo: Repository<Message>,
     @InjectRepository(Page) private pageRepo: Repository<Page>,
+    @InjectRepository(Project) private projectRepo: Repository<Project>,
   ) {}
 
   async getDashboard(userId: string, orgId?: string) {
@@ -157,6 +159,76 @@ export class DashboardService {
       duration: this.calcDuration(m.startedAt, m.endedAt),
       participants: [],
     }));
+  }
+
+  async searchResources(
+    userId: string,
+    q: string,
+  ): Promise<Array<{ id: string; type: string; title: string; subtitle?: string; path?: string }>> {
+    if (!q.trim()) return []
+    const pattern = `%${q.trim()}%`
+
+    const [channelRows, pageRows, projectRows] = await Promise.all([
+      // 채널: 사용자가 멤버인 채널(DM 제외)
+      this.memberRepo
+        .createQueryBuilder('cm')
+        .innerJoin('cm.channel', 'c')
+        .select(['c.id AS id', 'c.name AS name', 'c.description AS description'])
+        .where('cm.userId = :userId', { userId })
+        .andWhere("c.type != 'dm'")
+        .andWhere('LOWER(c.name) LIKE LOWER(:pattern)', { pattern })
+        .limit(10)
+        .getRawMany<{ id: string; name: string; description: string | null }>(),
+
+      // 페이지: 사용자가 만든 페이지
+      this.pageRepo
+        .createQueryBuilder('p')
+        .select(['p.id AS id', 'p.title AS title', 'p.type AS type'])
+        .where('p.createdBy = :userId', { userId })
+        .andWhere('LOWER(p.title) LIKE LOWER(:pattern)', { pattern })
+        .limit(10)
+        .getRawMany<{ id: string; title: string; type: string }>(),
+
+      // 프로젝트: 그룹 내 프로젝트
+      this.projectRepo
+        .createQueryBuilder('pr')
+        .select(['pr.id AS id', 'pr.name AS name', 'pr.description AS description'])
+        .where('LOWER(pr.name) LIKE LOWER(:pattern)', { pattern })
+        .limit(10)
+        .getRawMany<{ id: string; name: string; description: string | null }>(),
+    ])
+
+    const results: Array<{ id: string; type: string; title: string; subtitle?: string; path?: string }> = []
+
+    for (const ch of channelRows) {
+      results.push({
+        id: ch.id,
+        type: 'channel',
+        title: ch.name,
+        subtitle: ch.description ?? undefined,
+        path: `/app/channel/${ch.id}`,
+      })
+    }
+
+    for (const pg of pageRows) {
+      results.push({
+        id: pg.id,
+        type: 'page',
+        title: pg.title ?? '제목 없음',
+        path: pg.type === 'code' ? `/app/code/${pg.id}` : `/app/editor/${pg.id}`,
+      })
+    }
+
+    for (const pr of projectRows) {
+      results.push({
+        id: pr.id,
+        type: 'project',
+        title: pr.name,
+        subtitle: pr.description ?? undefined,
+      })
+    }
+
+    return results
   }
 
   private formatDate(date: Date): string {
