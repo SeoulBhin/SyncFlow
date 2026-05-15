@@ -14,7 +14,7 @@
 | [ERD.md](./ERD.md) | DB 스키마 SQL (CREATE TABLE) | ✅ |
 | [PROJECT.md](./PROJECT.md) | 프로젝트 개요, 권한 모델 | 권장 |
 | `README.md` (루트) | 프로젝트 구조, 명령어, 코드 스타일, 진행 현황 | ✅ |
-| `UI.md` (루트) | 프론트 UI 기능 + Mock 데이터 전환 가이드 | 프론트 연동 시 |
+| `UI.md` (.docs/) | 프론트 UI 기능 + Mock 데이터 전환 가이드 | 프론트 연동 시 |
 
 ---
 
@@ -1001,7 +1001,7 @@ createTask: async (task: CreateTaskDto) => {
 | [UIplan.md](./UIplan.md) | UI 설계/리팩토링 플랜 |
 | [checklist.md](./checklist.md) | 기능 체크리스트 |
 | `README.md` (루트) | 설치, 실행, 프로젝트 구조, 진행 현황, 개발 일지 |
-| `UI.md` (루트) | 프론트 UI 기능 목록, **Mock 데이터 전환 가이드** |
+| `UI.md` (.docs/) | 프론트 UI 기능 목록, **Mock 데이터 전환 가이드** |
 
 ---
 
