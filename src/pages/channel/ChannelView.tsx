@@ -185,6 +185,17 @@ export function ChannelView() {
     }
   }, [activeOrgId, loadChannels])
 
+  // 현재 보고 있는 채널이 삭제됐을 때(채널 목록에서 사라졌을 때) 첫 번째 일반 채널로 이동
+  useEffect(() => {
+    if (!urlChannelId || channels.length === 0) return
+    const exists = channels.find((c) => c.id === urlChannelId)
+    if (!exists) {
+      const first = channels.find((c) => c.type === 'channel') ?? channels[0]
+      if (first) navigate(`/app/channel/${first.id}`)
+      else navigate('/app')
+    }
+  }, [channels, urlChannelId, navigate])
+
   // ── Scroll to bottom ──────────────────────────────────────────────────────
 
   const activeMessages = activeChannelId ? (messages[activeChannelId] ?? []) : []
@@ -221,10 +232,22 @@ export function ChannelView() {
   // ── Channel / ProjectChat / DM split ─────────────────────────────────────
 
   const regularChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'project')
-  const projectChannels = channels.filter((c) => c.type === 'project')
   const dmChannels = channels.filter((c) => c.type === 'dm')
-
   const activeChannel = channels.find((c) => c.id === activeChannelId)
+
+  // 현재 활성 채널이 일반 채널(type='channel')이면 그 채널에 소속된 프로젝트 채팅만 표시
+  // 일반 채널이 아닌 경우(프로젝트 채팅 등) 전체 프로젝트 채팅 표시
+  const activeRegularChannelId = activeChannel?.type === 'channel' ? activeChannelId : null
+  const projectChannels = channels.filter((c) => {
+    if (c.type !== 'project') return false
+    if (!activeRegularChannelId) return true // 일반 채널 컨텍스트 없으면 전부 표시
+    const detail = allChannelDetails.find((d) => d.id === c.id)
+    if (!detail?.projectId) return true
+    const project = projects.find((p) => p.id === detail.projectId)
+    if (!project) return true
+    if (!project.channelId) return true // channelId 없는 레거시 프로젝트는 항상 표시
+    return project.channelId === activeRegularChannelId
+  })
 
   // ── Mention list ──────────────────────────────────────────────────────────
 
@@ -487,7 +510,7 @@ export function ChannelView() {
                 const project = detail?.projectId
                   ? projects.find((p) => p.id === detail.projectId)
                   : null
-                const label = project ? `${project.name} / 프로젝트 채팅` : ch.name
+                const label = project?.name ?? ch.name
                 return (
                   <button
                     key={ch.id}

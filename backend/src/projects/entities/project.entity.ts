@@ -19,6 +19,10 @@ export class Project {
   @Column({ name: 'group_id', type: 'uuid' })
   groupId: string
 
+  /** 프로젝트를 생성한 채널(regular channel) ID. 채널 소속 프로젝트 필터링에 사용. */
+  @Column({ name: 'channel_id', type: 'uuid', nullable: true })
+  channelId: string | null
+
   @Column({ type: 'varchar', length: 200 })
   name: string
 

@@ -555,6 +555,7 @@ export function SlackSidebar() {
     <CreateProjectModal
       isOpen={showCreateProject}
       onClose={() => setShowCreateProject(false)}
+      initialChannelId={activeGroupId}
     />
   )
 
@@ -563,7 +564,10 @@ export function SlackSidebar() {
       isOpen={showCreateChannel}
       onClose={() => setShowCreateChannel(false)}
       onCreated={() => {
-        if (activeOrgId) void fetchChannelsForOrg(activeOrgId)
+        if (activeOrgId) {
+          void fetchChannelsForOrg(activeOrgId)
+          void useChatStore.getState().loadChannels(activeOrgId)
+        }
       }}
     />
   )

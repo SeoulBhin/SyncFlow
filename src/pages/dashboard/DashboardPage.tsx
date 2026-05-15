@@ -179,7 +179,7 @@ export function DashboardPage() {
   const user = useAuthStore((s) => s.user)
   const addToast = useToastStore((s) => s.addToast)
   const navigate = useNavigate()
-  const { activeOrgId, activeGroupName } = useGroupContextStore()
+  const { activeOrgId, activeGroupName, setActiveOrg, myGroups } = useGroupContextStore()
   const meetingStore = useMeetingStore()
   const [inviteCode, setInviteCode] = useState('')
   const [showCreateGroup, setShowCreateGroup] = useState(false)
@@ -332,7 +332,13 @@ export function DashboardPage() {
                   key={channel.id}
                   hoverable
                   className="cursor-pointer"
-                  onClick={() => navigate(`/app/group/${channel.id}`)}
+                  onClick={() => {
+                    if (channel.groupId) {
+                      const group = myGroups.find((g) => g.id === channel.groupId)
+                      setActiveOrg(channel.groupId, group?.name ?? '')
+                    }
+                    navigate(`/app/channel/${channel.id}`)
+                  }}
                 >
                   <div className="flex items-start justify-between">
                     <div>
@@ -380,9 +386,10 @@ export function DashboardPage() {
               {recentPages.map((page) => (
                 <button
                   key={page.id}
+                  onClick={() => navigate(page.type === 'code' ? `/app/code/${page.id}` : `/app/editor/${page.id}`)}
                   className="flex w-full items-center gap-3 px-5 py-3 text-left transition-colors hover:bg-neutral-50 dark:hover:bg-neutral-800/50"
                 >
-                  {page.type === 'doc' ? (
+                  {page.type !== 'code' ? (
                     <FileText size={16} className="shrink-0 text-primary-500" />
                   ) : (
                     <Code size={16} className="shrink-0 text-accent" />

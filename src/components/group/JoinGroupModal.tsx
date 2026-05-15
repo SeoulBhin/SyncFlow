@@ -55,9 +55,16 @@ export function JoinGroupModal({ isOpen, onClose, onJoined }: Props) {
       addToast('success', `조직 "${res.group.name}"에 참여했습니다.`)
       onJoined?.()
       handleClose()
+      window.location.reload()
     } catch (e) {
       const msg = e instanceof Error ? e.message : '참여 실패'
-      setError(msg)
+      if (msg.includes('이미 그룹에 참여')) {
+        // 이미 가입됐지만 UI가 반영 안 된 상태 → 새로고침으로 동기화
+        handleClose()
+        window.location.reload()
+      } else {
+        setError(msg)
+      }
     } finally {
       setSubmitting(false)
     }

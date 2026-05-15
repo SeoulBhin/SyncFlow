@@ -4,6 +4,8 @@ import { api } from '@/utils/api'
 export interface ProjectSummary {
   id: string
   groupId: string
+  /** 프로젝트가 소속된 채널 ID. null이면 그룹 전체 소속(레거시). */
+  channelId?: string | null
   name: string
   description?: string | null
   deadline?: string | null

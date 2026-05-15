@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import {
   FolderOpen,
@@ -14,24 +14,75 @@ import { Button } from '@/components/common/Button'
 import { MemberPanel } from '@/components/group/MemberPanel'
 import { GroupSettingsModal } from '@/components/group/GroupSettingsModal'
 import { CreateProjectModal } from '@/components/group/CreateProjectModal'
-import {
-  MOCK_GROUPS,
-  MOCK_PROJECT_DETAILS,
-  MOCK_GROUP_MEMBERS,
-  MOCK_INVITE_CODES,
-} from '@/constants'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useToastStore } from '@/stores/useToastStore'
+import { api } from '@/utils/api'
 
 type Tab = 'projects' | 'members'
+
+interface Group {
+  id: string
+  name: string
+  description: string | null
+  inviteCode: string | null
+  myRole: string | null
+}
+
+interface Project {
+  id: string
+  name: string
+  description: string | null
+  deadline: string | null
+  sortOrder: number
+}
+
+interface Member {
+  id: number
+  userId: string
+  role: string
+  user: { id: string; name: string; email: string; avatarUrl: string | null }
+}
 
 export function GroupPage() {
   const { groupId } = useParams<{ groupId: string }>()
   const navigate = useNavigate()
+  const user = useAuthStore((s) => s.user)
+  const addToast = useToastStore((s) => s.addToast)
+
   const [tab, setTab] = useState<Tab>('projects')
   const [showSettings, setShowSettings] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
   const [editProject, setEditProject] = useState<{ id: string; name: string; description: string; dueDate?: string } | undefined>()
+  const [group, setGroup] = useState<Group | null>(null)
+  const [projects, setProjects] = useState<Project[]>([])
+  const [members, setMembers] = useState<Member[]>([])
+  const [loading, setLoading] = useState(true)
 
-  const group = MOCK_GROUPS.find((g) => g.id === groupId)
+  useEffect(() => {
+    if (!groupId) return
+    setLoading(true)
+    Promise.all([
+      api.get<any>(`/groups/${groupId}`),
+      api.get<Project[]>(`/groups/${groupId}/projects`),
+      api.get<Member[]>(`/groups/${groupId}/members`),
+    ])
+      .then(([g, p, m]) => {
+        setGroup(g)
+        setProjects(p)
+        setMembers(m)
+      })
+      .catch(() => addToast('error', '데이터를 불러오지 못했습니다.'))
+      .finally(() => setLoading(false))
+  }, [groupId])
+
+  if (loading) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <div className="h-6 w-6 animate-spin rounded-full border-4 border-primary-600 border-t-transparent" />
+      </div>
+    )
+  }
+
   if (!group) {
     return (
       <div className="flex flex-1 items-center justify-center p-6">
@@ -40,9 +91,16 @@ export function GroupPage() {
     )
   }
 
-  const projects = MOCK_PROJECT_DETAILS.filter((p) => p.groupId === groupId)
-  const members = MOCK_GROUP_MEMBERS[groupId!] ?? []
-  const inviteCode = MOCK_INVITE_CODES[groupId!] ?? '------'
+  const currentUserRole = (members.find((m) => m.user.id === user?.id)?.role ?? 'member') as 'owner' | 'admin' | 'member' | 'guest'
+
+  const memberList = members.map((m) => ({
+    id: m.user.id,
+    name: m.user.name,
+    email: m.user.email,
+    avatar: m.user.avatarUrl ?? undefined,
+    role: m.role as 'owner' | 'admin' | 'member' | 'guest',
+    isOnline: false,
+  }))
 
   return (
     <div className="mx-auto max-w-6xl p-6">
@@ -112,14 +170,14 @@ export function GroupPage() {
                   key={project.id}
                   hoverable
                   className="cursor-pointer"
-                  onClick={() => navigate(`/group/${groupId}/project/${project.id}`)}
+                  onClick={() => navigate(`/app/project/${project.id}`)}
                 >
                   <div className="mb-3 flex items-start justify-between">
                     <h3 className="font-semibold text-neutral-800 dark:text-neutral-100">{project.name}</h3>
                     <button
                       onClick={(e) => {
                         e.stopPropagation()
-                        setEditProject({ id: project.id, name: project.name, description: project.description, dueDate: project.dueDate })
+                        setEditProject({ id: project.id, name: project.name, description: project.description ?? '', dueDate: project.deadline ?? undefined })
                       }}
                       className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
                     >
@@ -127,29 +185,16 @@ export function GroupPage() {
                     </button>
                   </div>
                   <p className="mb-4 text-sm text-neutral-500 dark:text-neutral-400">{project.description}</p>
-                  <div className="mb-3">
-                    <div className="mb-1 flex items-center justify-between text-xs text-neutral-400 dark:text-neutral-500">
-                      <span>진행률</span>
-                      <span>{project.progress}%</span>
-                    </div>
-                    <div className="h-1.5 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-700">
-                      <div className="h-full rounded-full bg-primary-500 transition-all" style={{ width: `${project.progress}%` }} />
-                    </div>
-                  </div>
                   <div className="flex items-center gap-4 text-xs text-neutral-400 dark:text-neutral-500">
-                    {project.dueDate && (
+                    {project.deadline && (
                       <span className="flex items-center gap-1">
                         <Calendar size={12} />
-                        {project.dueDate}
+                        {project.deadline}
                       </span>
                     )}
                     <span className="flex items-center gap-1">
                       <FileText size={12} />
-                      {project.pageCount}페이지
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <Users size={12} />
-                      {project.memberCount}명
+                      0페이지
                     </span>
                   </div>
                 </Card>
@@ -161,20 +206,28 @@ export function GroupPage() {
 
       {tab === 'members' && (
         <Card>
-          <MemberPanel members={members} />
+          <MemberPanel
+            members={memberList as any}
+            currentUserId={user?.id}
+            currentUserRole={currentUserRole}
+          />
         </Card>
       )}
 
       <GroupSettingsModal
         isOpen={showSettings}
         onClose={() => setShowSettings(false)}
+        groupId={groupId}
         groupName={group.name}
-        inviteCode={inviteCode}
+        inviteCode={group.inviteCode ?? '------'}
+        onDeleted={() => navigate('/app')}
       />
       <CreateProjectModal
         isOpen={showCreateProject || !!editProject}
         onClose={() => { setShowCreateProject(false); setEditProject(undefined) }}
+        groupId={groupId}
         editData={editProject}
+        onCreated={(project) => setProjects((prev) => [...prev, project as Project])}
       />
     </div>
   )

@@ -5,6 +5,7 @@ import { useToastStore } from '@/stores/useToastStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useProjectsStore, type ProjectSummary } from '@/stores/useProjectsStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
+import { useChatStore } from '@/stores/useChatStore'
 import { api } from '@/utils/api'
 
 interface Props {
@@ -12,9 +13,11 @@ interface Props {
   onClose: () => void
   editData?: { id: string; name: string; description: string; deadline?: string }
   onCreated?: (project: ProjectSummary) => void
+  /** 프로젝트를 특정 채널에 소속시킬 때 전달. 미전달 시 그룹 전체 소속. */
+  initialChannelId?: string | null
 }
 
-export function CreateProjectModal({ isOpen, onClose, editData, onCreated }: Props) {
+export function CreateProjectModal({ isOpen, onClose, editData, onCreated, initialChannelId }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
   const addProject = useProjectsStore((s) => s.addProject)
@@ -53,14 +56,18 @@ export function CreateProjectModal({ isOpen, onClose, editData, onCreated }: Pro
       } else {
         const created = await api.post<ProjectSummary>('/projects', {
           groupId: activeOrgId,
+          channelId: initialChannelId ?? undefined,
           name: name.trim(),
           description: description.trim() || undefined,
           deadline: deadline || undefined,
         })
         addProject(created)
         // 백엔드가 프로젝트 생성과 동시에 type='project' 채널을 자동 생성하므로
-        // channels store도 새로 fetch해야 사이드바에 "프로젝트 채팅" 항목이 노출됨
-        if (activeOrgId) void fetchChannelsForOrg(activeOrgId)
+        // 두 채널 스토어를 모두 갱신해야 SlackSidebar + ChannelView 좌측 패널에 즉시 반영됨
+        if (activeOrgId) {
+          void fetchChannelsForOrg(activeOrgId)
+          void useChatStore.getState().loadChannels(activeOrgId)
+        }
         addToast('success', `프로젝트 "${created.name}"이(가) 생성되었습니다.`)
         onCreated?.(created)
       }
@@ -79,6 +86,12 @@ export function CreateProjectModal({ isOpen, onClose, editData, onCreated }: Pro
     try {
       await api.delete(`/projects/${editData.id}`)
       removeProject(editData.id)
+      // 프로젝트 삭제 시 연결된 type='project' 채널도 DB에서 CASCADE 삭제됨
+      // 두 스토어 모두 갱신해 사이드바와 ChannelView 좌측 패널에서 즉시 제거
+      if (activeOrgId) {
+        void fetchChannelsForOrg(activeOrgId)
+        void useChatStore.getState().loadChannels(activeOrgId)
+      }
       addToast('success', '프로젝트가 삭제되었습니다.')
       setShowDeleteConfirm(false)
       handleClose()

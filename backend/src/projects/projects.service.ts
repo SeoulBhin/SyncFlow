@@ -43,6 +43,7 @@ export class ProjectsService {
 
     const project = this.projectRepo.create({
       groupId: dto.groupId,
+      channelId: dto.channelId ?? null,
       name: dto.name,
       description: dto.description ?? null,
       deadline: dto.deadline ?? null,
@@ -77,8 +78,9 @@ export class ProjectsService {
         }),
       )
     } catch (e) {
-      this.logger.warn(
+      this.logger.error(
         `프로젝트 채널 자동 생성 실패 (project=${project.id}): ${(e as Error).message}`,
+        (e as Error).stack,
       )
     }
 
@@ -136,6 +138,8 @@ export class ProjectsService {
   async deleteProject(projectId: string, userId: string) {
     const project = await this.findProjectOrThrow(projectId)
     await this.requireGroupMember(project.groupId, userId, ['owner', 'admin'])
+    // TypeORM sync가 Prisma FK cascade를 drop했을 수 있으므로 연결된 project 채널 명시적 삭제
+    await this.channelRepo.delete({ projectId })
     await this.projectRepo.delete(projectId)
     return { message: '프로젝트가 삭제되었습니다' }
   }

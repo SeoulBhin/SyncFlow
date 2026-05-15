@@ -71,7 +71,16 @@ export function SidebarProjectList() {
     return null
   }
 
-  if (projects.length === 0) {
+  // 활성 채널이 일반 채널(type='channel')이면 해당 채널 소속 프로젝트만 표시
+  // channelId가 없는 레거시 프로젝트는 항상 표시
+  const activeChannelType = channels.find((c) => c.id === activeGroupId)?.type
+  const visibleProjects = projects.filter((p) => {
+    if (!activeGroupId || activeChannelType !== 'channel') return true
+    if (!p.channelId) return true // 채널 미지정 레거시 프로젝트는 항상 노출
+    return p.channelId === activeGroupId
+  })
+
+  if (visibleProjects.length === 0) {
     return (
       <div className="px-3 py-3 text-center">
         <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-200 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
@@ -123,6 +132,12 @@ export function SidebarProjectList() {
     try {
       await api.delete(`/projects/${projectId}`)
       removeProjectFromStore(projectId)
+      // 프로젝트 삭제 시 DB에서 연결된 type='project' 채널도 CASCADE 삭제됨
+      // 두 채널 스토어를 갱신해 ChannelView 좌측 패널과 사이드바에서 즉시 제거
+      if (activeOrgId) {
+        void useChannelsStore.getState().fetchForOrg(activeOrgId)
+        void useChatStore.getState().loadChannels(activeOrgId)
+      }
       addToast('success', `프로젝트 "${projectName}"이(가) 삭제되었습니다.`)
     } catch (e) {
       const msg = e instanceof Error ? e.message : '프로젝트 삭제 실패'
@@ -135,7 +150,7 @@ export function SidebarProjectList() {
   return (
     <>
       <div className="space-y-0.5">
-        {projects.map((project) => {
+        {visibleProjects.map((project) => {
           const isExpanded = activeProjectId === project.id
           const pages = realPages.filter((p) => p.projectId === project.id)
 

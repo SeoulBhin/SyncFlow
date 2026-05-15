@@ -21,6 +21,7 @@ import { BillingHistoryPage } from '@/pages/billing/BillingHistoryPage'
 import { MeetingHistoryPage } from '@/pages/meeting/MeetingHistoryPage'
 import { MeetingRoomPage } from '@/pages/meeting/MeetingRoomPage'
 import { MeetingSummaryPage } from '@/pages/meeting/MeetingSummaryPage'
+import { ProjectPage } from '@/pages/project/ProjectPage'
 import { NotFoundPage } from '@/pages/errors/NotFoundPage'
 import { ErrorPage } from '@/pages/errors/ErrorPage'
 
@@ -48,6 +49,7 @@ export const router = createBrowserRouter([
       { path: 'channel/:channelId', element: <ChannelView /> },
       { path: 'profile', element: <ProfilePage /> },
       { path: 'group/:groupId', element: <GroupPage /> },
+      { path: 'project/:projectId', element: <ProjectPage /> },
       { path: 'editor/:pageId', element: <DocumentEditorPage /> },
       { path: 'code/:pageId', element: <CodeEditorPage /> },
       { path: 'tasks', element: <TasksPage /> },
