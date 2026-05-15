@@ -439,7 +439,8 @@ export function ChannelView() {
     <div className="flex h-full">
       {/* 좌측: 채널 / DM 목록 */}
       <div className="hidden w-[220px] shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 sm:flex">
-        <div className="border-b border-neutral-200 px-4 py-3 dark:border-neutral-700">
+        {/* 헤더는 사이드바/메시지패널/스레드패널과 같은 h-14 라인에 맞춤 */}
+        <div className="flex h-14 shrink-0 items-center border-b border-neutral-200 px-4 dark:border-neutral-700">
           <h2 className="text-sm font-bold text-neutral-700 dark:text-neutral-200">
             메시지
           </h2>
@@ -517,29 +518,34 @@ export function ChannelView() {
               <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
                 DM
               </p>
-              {dmChannels.map((dm) => (
-                <button
-                  key={dm.id}
-                  onClick={() => openDM(dm.id, dm.name)}
-                  className={cn(
-                    'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
-                    dm.id === activeChannelId
-                      ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                      : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                  )}
-                >
-                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-[9px] font-bold text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200">
-                    {dm.name[0]}
-                    <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-neutral-50 bg-neutral-400 dark:border-neutral-900" />
-                  </span>
-                  <span className="flex-1 truncate text-left">{dm.name}</span>
-                  {dm.unreadCount > 0 && (
-                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
-                      {dm.unreadCount}
+              {dmChannels.map((dm) => {
+                // DM 채널의 row.name 은 처음 만든 사람이 입력한 값이라 양쪽 입장이 어긋남.
+                // 본인 입장의 상대 이름(otherUser.userName)을 항상 우선 사용.
+                const displayName = dm.otherUser?.userName?.trim() || dm.name || 'DM'
+                return (
+                  <button
+                    key={dm.id}
+                    onClick={() => openDM(dm.id, displayName)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
+                      dm.id === activeChannelId
+                        ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                    )}
+                  >
+                    <span className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-[9px] font-bold text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200">
+                      {displayName[0] ?? '?'}
+                      <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-neutral-50 bg-neutral-400 dark:border-neutral-900" />
                     </span>
-                  )}
-                </button>
-              ))}
+                    <span className="flex-1 truncate text-left">{displayName}</span>
+                    {dm.unreadCount > 0 && (
+                      <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                        {dm.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 

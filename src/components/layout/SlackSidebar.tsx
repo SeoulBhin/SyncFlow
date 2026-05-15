@@ -63,10 +63,10 @@ function CollapsibleSection({
       <div className="group flex items-center pr-1">
         <button
           onClick={() => setOpen((v) => !v)}
-          className="flex flex-1 items-center gap-1 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600 dark:hover:text-neutral-300"
+          className="flex flex-1 items-center gap-2.5 px-3 py-1.5 text-[10px] font-semibold uppercase tracking-wider text-neutral-400 transition-colors hover:text-neutral-600 dark:hover:text-neutral-300"
         >
           <ChevronRight
-            size={12}
+            size={14}
             className={cn('transition-transform', open && 'rotate-90')}
           />
           {title}

@@ -13,7 +13,10 @@ import { Message } from '../messages/entities/message.entity';
 import { CreateChannelDto } from './dto/create-channel.dto';
 
 /** 6자리 대문자 영숫자 초대 코드 발급기 (혼동 가능 문자 0/O, 1/I 제외) */
-const generateInviteCode = customAlphabet('ABCDEFGHJKLMNPQRSTUVWXYZ23456789', 6);
+const generateInviteCode = customAlphabet(
+  'ABCDEFGHJKLMNPQRSTUVWXYZ23456789',
+  6,
+);
 
 export interface ChannelWithUnread extends Channel {
   unreadCount: number;
@@ -65,7 +68,9 @@ export class ChannelsService {
     if (channels.length === 0) return [];
 
     // DM 채널만 골라서 모든 멤버 fetch (상대방 식별)
-    const dmChannelIds = channels.filter((c) => c.type === 'dm').map((c) => c.id);
+    const dmChannelIds = channels
+      .filter((c) => c.type === 'dm')
+      .map((c) => c.id);
     const dmAllMembers =
       dmChannelIds.length > 0
         ? await this.memberRepo.find({ where: { channelId: In(dmChannelIds) } })
@@ -117,7 +122,9 @@ export class ChannelsService {
     dto: CreateChannelDto,
     userId: string,
     userName: string,
-  ): Promise<Channel> {
+  ): Promise<
+    Channel & { otherUser?: { userId: string; userName: string } | null }
+  > {
     const type = dto.type ?? 'channel';
 
     // DM 자기 자신과의 채널 방어 — 백엔드 차원에서 거부
@@ -131,13 +138,21 @@ export class ChannelsService {
     }
 
     // DM 같은 사람과 이미 채널이 있으면 중복 생성하지 않고 그걸 반환
+    // — 이때도 호출자 입장의 otherUser 를 채워서 응답해야 사이드바/헤더가 상대 이름으로 표시됨
     if (type === 'dm' && dto.targetUserId) {
-      const existing = await this.findExistingDm(dto.groupId, userId, dto.targetUserId);
-      if (existing) return existing;
+      const existing = await this.findExistingDm(
+        dto.groupId,
+        userId,
+        dto.targetUserId,
+      );
+      if (existing) {
+        return this.attachDmOtherUser(existing, userId);
+      }
     }
 
     // 일반 채널만 초대 코드 발급. DM/프로젝트는 null.
-    const inviteCode = type === 'channel' ? await this.issueUniqueInviteCode() : null;
+    const inviteCode =
+      type === 'channel' ? await this.issueUniqueInviteCode() : null;
 
     const channel = this.channelRepo.create({
       groupId: dto.groupId,
@@ -162,9 +177,33 @@ export class ChannelsService {
           userName: dto.targetUserName ?? '',
         }),
       );
+      return this.attachDmOtherUser(saved, userId);
     }
 
     return saved;
+  }
+
+  /**
+   * DM 채널에 "현재 사용자 입장의 상대방" 정보를 붙여 반환한다.
+   * 채널 row 의 name 은 처음 만든 사람이 입력한 값이라 양쪽 입장이 달라질 수 있으므로,
+   * 표시명은 항상 이 otherUser 를 기반으로 해야 한다.
+   */
+  private async attachDmOtherUser(
+    channel: Channel,
+    currentUserId: string,
+  ): Promise<
+    Channel & { otherUser: { userId: string; userName: string } | null }
+  > {
+    const members = await this.memberRepo.find({
+      where: { channelId: channel.id },
+    });
+    const other = members.find((m) => m.userId !== currentUserId);
+    return {
+      ...channel,
+      otherUser: other
+        ? { userId: other.userId, userName: other.userName }
+        : null,
+    };
   }
 
   /**
@@ -178,12 +217,22 @@ export class ChannelsService {
   ): Promise<Channel | null> {
     const candidates = await this.channelRepo
       .createQueryBuilder('c')
-      .innerJoin('channel_members', 'ma', 'ma.channel_id = c.id AND ma.user_id = :a', {
-        a: userIdA,
-      })
-      .innerJoin('channel_members', 'mb', 'mb.channel_id = c.id AND mb.user_id = :b', {
-        b: userIdB,
-      })
+      .innerJoin(
+        'channel_members',
+        'ma',
+        'ma.channel_id = c.id AND ma.user_id = :a',
+        {
+          a: userIdA,
+        },
+      )
+      .innerJoin(
+        'channel_members',
+        'mb',
+        'mb.channel_id = c.id AND mb.user_id = :b',
+        {
+          b: userIdB,
+        },
+      )
       .where('c.group_id = :groupId', { groupId })
       .andWhere("c.type = 'dm'")
       .getMany();
@@ -193,7 +242,9 @@ export class ChannelsService {
   /** 본인이 채널에서 나감 (DM은 양쪽 모두 나가면 채널 자동 삭제) */
   async leaveChannel(channelId: string, userId: string): Promise<void> {
     const channel = await this.findOne(channelId);
-    const member = await this.memberRepo.findOne({ where: { channelId, userId } });
+    const member = await this.memberRepo.findOne({
+      where: { channelId, userId },
+    });
     if (!member) {
       throw new NotFoundException('채널 멤버가 아닙니다');
     }
@@ -260,7 +311,10 @@ export class ChannelsService {
     await this.channelRepo.delete(channelId);
   }
 
-  async markRead(channelId: string, userId: string): Promise<{ unreadCount: number }> {
+  async markRead(
+    channelId: string,
+    userId: string,
+  ): Promise<{ unreadCount: number }> {
     let member = await this.memberRepo.findOne({
       where: { channelId, userId },
     });
@@ -355,7 +409,9 @@ export class ChannelsService {
   private async issueUniqueInviteCode(): Promise<string> {
     for (let i = 0; i < 5; i++) {
       const code = generateInviteCode();
-      const exists = await this.channelRepo.exist({ where: { inviteCode: code } });
+      const exists = await this.channelRepo.exist({
+        where: { inviteCode: code },
+      });
       if (!exists) return code;
     }
     throw new Error('초대 코드 발급에 실패했습니다');

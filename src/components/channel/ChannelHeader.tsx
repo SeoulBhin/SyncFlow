@@ -50,6 +50,12 @@ export function ChannelHeader() {
 
   const description = realChannel?.description ?? mockChannel?.description ?? ''
   const isDM = realChannel?.type === 'dm'
+  // DM 채널은 양쪽이 같은 row.name 을 갖기 때문에, 본인 입장의 상대방 이름(otherUser.userName)을 우선 사용.
+  // otherUser 가 비어있는 경우(레거시 row 등) 에만 activeGroupName 으로 폴백.
+  const displayChannelName =
+    isDM && realChannel?.otherUser?.userName
+      ? realChannel.otherUser.userName
+      : (activeGroupName ?? '채널')
 
   const [showInviteModal, setShowInviteModal] = useState(false)
   const [showSettings, setShowSettings] = useState(false)
@@ -108,7 +114,7 @@ export function ChannelHeader() {
   }
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
+    <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
       <div className="flex items-center gap-2">
         {isExternal ? (
           <Globe size={16} className="text-orange-500" />
@@ -116,7 +122,7 @@ export function ChannelHeader() {
           <Hash size={16} className="text-neutral-400" />
         )}
         <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-          {activeGroupName ?? '채널'}
+          {displayChannelName}
         </span>
         {isExternal && connectedOrgs.length > 0 && (
           <div className="hidden items-center gap-1 sm:flex">

@@ -4,17 +4,34 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
-import { TaskModal } from '@/components/tasks/TaskModal'
+import { TaskModal, type TaskMember } from '@/components/tasks/TaskModal'
 import { KanbanBoard } from '@/components/tasks/KanbanBoard'
 import { CalendarView } from '@/components/tasks/CalendarView'
 import { GanttChart } from '@/components/tasks/GanttChart'
 import { ListView } from '@/components/tasks/ListView'
 import { MOCK_MILESTONES, MOCK_USERS, MOCK_MEETINGS } from '@/constants'
-import type { MockTask, TaskStatus } from '@/constants'
+import type { MockTask, TaskStatus, TaskPriority } from '@/constants'
 import { useTasksStore } from '@/stores/useTasksStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import type { ApiTask, ApiTaskStatus } from '@/types'
+import { api } from '@/utils/api'
 import { EmptyState } from '@/components/empty-states/EmptyState'
+
+// 프론트 우선순위(normal) ↔ 백엔드 우선순위(medium) 매핑
+const FRONT_TO_API_PRIORITY: Record<TaskPriority, 'low' | 'medium' | 'high' | 'urgent'> = {
+  low: 'low',
+  normal: 'medium',
+  high: 'high',
+  urgent: 'urgent',
+}
+
+interface OrgMemberRow {
+  id: number
+  userId: string
+  role: string
+  user: { id: string; name: string; email?: string; avatarUrl?: string | null }
+}
 
 type ViewTab = 'kanban' | 'calendar' | 'gantt' | 'list'
 
@@ -58,6 +75,7 @@ export function TasksPage() {
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<MockTask | null>(null)
   const [selectedGroup, setSelectedGroup] = useState<string>('all')
+  const [members, setMembers] = useState<TaskMember[]>([])
 
   const apiTasks = useTasksStore((s) => s.tasks)
   const isLoading = useTasksStore((s) => s.isLoading)
@@ -67,10 +85,35 @@ export function TasksPage() {
   const updateTaskApi = useTasksStore((s) => s.updateTask)
   const removeTask = useTasksStore((s) => s.removeTask)
   const addToast = useToastStore((s) => s.addToast)
+  const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
 
   useEffect(() => {
     void loadAll()
   }, [loadAll])
+
+  // 활성 조직 멤버 fetch — TaskModal 담당자 콤보박스 채우는 용도
+  useEffect(() => {
+    if (!activeOrgId) return
+    let cancelled = false
+    api
+      .get<OrgMemberRow[]>(`/groups/${activeOrgId}/members`)
+      .then((rows) => {
+        if (cancelled) return
+        setMembers(
+          rows.map((m) => ({
+            id: m.user?.id ?? m.userId,
+            name: m.user?.name ?? '이름 없음',
+            avatarUrl: m.user?.avatarUrl ?? null,
+          })),
+        )
+      })
+      .catch(() => {
+        if (!cancelled) setMembers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [activeOrgId])
 
   const tasks = useMemo<MockTask[]>(() => apiTasks.map(adaptApiTask), [apiTasks])
 
@@ -99,19 +142,38 @@ export function TasksPage() {
   const handleSave = useCallback(
     async (data: Omit<MockTask, 'id'> & { id?: string }) => {
       try {
+        // 단독 담당자 UUID — UUID 형식일 때만 API 에 전달 (기존 MOCK 'u1' 같은 값 차단)
+        const isUuid = (v?: string) =>
+          !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
+        const assigneeId = isUuid(data.assigneeId) ? data.assigneeId : null
+        const assigneeIds = (data.assigneeIds ?? []).filter(isUuid)
+        const priority = FRONT_TO_API_PRIORITY[data.priority] ?? 'medium'
+
         if (data.id) {
           await updateTaskApi(data.id, {
             title: data.title,
+            description: data.description,
             assignee: data.assigneeName || null,
+            assigneeId,
+            assigneeIds,
+            startDate: data.startDate || null,
             dueDate: data.dueDate || null,
             status: data.status as ApiTaskStatus,
+            priority,
           })
         } else {
           await createTask({
             title: data.title,
+            description: data.description,
             assignee: data.assigneeName || null,
+            assigneeId,
+            assigneeIds,
+            startDate: data.startDate || null,
             dueDate: data.dueDate || null,
             status: (data.status as ApiTaskStatus) ?? 'todo',
+            priority,
+            // 조직(그룹) 가시성 — 같은 그룹 멤버에게 task 가 보이려면 필수
+            groupId: activeOrgId ?? null,
           })
         }
       } catch (err) {
@@ -121,7 +183,7 @@ export function TasksPage() {
         )
       }
     },
-    [createTask, updateTaskApi, addToast],
+    [createTask, updateTaskApi, addToast, activeOrgId],
   )
 
   const handleDelete = useCallback(
@@ -331,6 +393,7 @@ export function TasksPage() {
         isOpen={modalOpen}
         onClose={() => { setModalOpen(false); setEditingTask(null) }}
         task={editingTask}
+        members={members}
         onSave={(data) => void handleSave(data)}
         onDelete={(id) => void handleDelete(id)}
       />

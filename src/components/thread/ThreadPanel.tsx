@@ -218,7 +218,7 @@ export function ThreadPanel() {
   if (!selectedThreadId || !parentMessage) {
     return (
       <div className="flex h-full flex-col">
-        <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-700">
+        <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
           <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
             스레드
           </span>
@@ -241,7 +241,7 @@ export function ThreadPanel() {
   return (
     <div className="flex h-full flex-col">
       {/* 헤더 */}
-      <div className="flex items-center justify-between border-b border-neutral-200 px-4 py-3 dark:border-neutral-700">
+      <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
         <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
           스레드
         </span>

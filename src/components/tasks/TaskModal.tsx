@@ -6,7 +6,13 @@ import { useToastStore } from '@/stores/useToastStore'
 import { useCustomFieldStore } from '@/stores/useCustomFieldStore'
 import { CustomFieldEditor } from './CustomFieldEditor'
 import type { TaskPriority, TaskStatus, MockTask } from '@/constants'
-import { MOCK_CHANNEL_MEMBERS } from '@/constants'
+
+// 담당자 콤보박스에 띄울 최소 멤버 정보
+export interface TaskMember {
+  id: string
+  name: string
+  avatarUrl?: string | null
+}
 
 /* ── 서브태스크 타입 ── */
 export interface SubTask {
@@ -56,11 +62,13 @@ interface TaskModalProps {
   isOpen: boolean
   onClose: () => void
   task?: MockTask | null
+  /** 담당자 콤보박스 옵션 — 페이지에서 실제 조직 멤버를 fetch 해서 주입 */
+  members?: TaskMember[]
   onSave: (task: Omit<MockTask, 'id'> & { id?: string; subtasks?: SubTask[] }) => void
   onDelete?: (id: string) => void
 }
 
-export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModalProps) {
+export function TaskModal({ isOpen, onClose, task, members = [], onSave, onDelete }: TaskModalProps) {
   const addToast = useToastStore((s) => s.addToast)
 
   const { fields: customFields, getTaskFieldValues, setFieldValue } = useCustomFieldStore()
@@ -162,7 +170,7 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
 
   /* ── 담당자 변경 핸들러 ── */
   const handleAssigneeChange = (userId: string) => {
-    const member = MOCK_CHANNEL_MEMBERS.find((m) => m.id === userId)
+    const member = members.find((m) => m.id === userId)
     setForm((s) => ({ ...s, assigneeId: userId, assigneeName: member?.name ?? '' }))
   }
 
@@ -182,7 +190,7 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
 
   /* ── 서브태스크: 담당자 변경 ── */
   const updateSubtaskAssignee = (id: string, userId: string) => {
-    const member = MOCK_CHANNEL_MEMBERS.find((m) => m.id === userId)
+    const member = members.find((m) => m.id === userId)
     setSubtasks((prev) =>
       prev.map((st) =>
         st.id === id
@@ -336,7 +344,7 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
               className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-neutral-800 dark:focus:ring-primary-900"
             >
               <option value="">담당자 선택</option>
-              {MOCK_CHANNEL_MEMBERS.map((m) => (
+              {members.map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
@@ -374,7 +382,7 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
             <select
               value=""
               onChange={(e) => {
-                const member = MOCK_CHANNEL_MEMBERS.find((m) => m.id === e.target.value)
+                const member = members.find((m) => m.id === e.target.value)
                 if (member && !form.assigneeIds.includes(member.id)) {
                   setForm((s) => ({
                     ...s,
@@ -386,7 +394,7 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
               className="w-full rounded-lg border border-neutral-200 px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-neutral-800 dark:focus:ring-primary-900"
             >
               <option value="">담당자 추가</option>
-              {MOCK_CHANNEL_MEMBERS.filter((m) => !form.assigneeIds.includes(m.id)).map((m) => (
+              {members.filter((m) => !form.assigneeIds.includes(m.id)).map((m) => (
                 <option key={m.id} value={m.id}>{m.name}</option>
               ))}
             </select>
@@ -546,7 +554,7 @@ export function TaskModal({ isOpen, onClose, task, onSave, onDelete }: TaskModal
                       title="담당자 선택"
                     >
                       <option value="">미지정</option>
-                      {MOCK_CHANNEL_MEMBERS.map((m) => (
+                      {members.map((m) => (
                         <option key={m.id} value={m.id}>{m.name}</option>
                       ))}
                     </select>
