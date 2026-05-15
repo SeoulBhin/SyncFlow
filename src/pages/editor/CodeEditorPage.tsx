@@ -21,6 +21,7 @@ import type { LanguageOption } from '@/components/code-editor/LanguageSelector'
 import { ConsolePanel } from '@/components/code-editor/ConsolePanel'
 import type { ConsoleOutput } from '@/components/code-editor/ConsolePanel'
 import { CodeLiveCursors } from '@/components/code-editor/CodeLiveCursors'
+import { useMonacoRemoteCursors } from '@/components/code-editor/useMonacoRemoteCursors'
 import { PresenceAvatars } from '@/components/editor/PresenceAvatars'
 import { useToastStore } from '@/stores/useToastStore'
 import { useThemeStore } from '@/stores/useThemeStore'
@@ -192,6 +193,30 @@ export function CodeEditorPage() {
       })
     }
   }, [isSynced, presenceProvider, language.id])
+
+  // Monaco 커서/선택 → awareness 브로드캐스트
+  useEffect(() => {
+    if (!monacoEditor || !presenceProvider) return
+    const d1 = monacoEditor.onDidChangeCursorPosition((e) => {
+      presenceProvider.awareness.setLocalStateField('cursor', {
+        line: e.position.lineNumber,
+        column: e.position.column,
+      })
+    })
+    const d2 = monacoEditor.onDidChangeCursorSelection((e) => {
+      const s = e.selection
+      presenceProvider.awareness.setLocalStateField('monacoSel', {
+        startLineNumber: s.startLineNumber,
+        startColumn: s.startColumn,
+        endLineNumber: s.endLineNumber,
+        endColumn: s.endColumn,
+      })
+    })
+    return () => { d1.dispose(); d2.dispose() }
+  }, [monacoEditor, presenceProvider])
+
+  // Monaco 본문 안 remote cursor 위젯 + selection 하이라이트
+  useMonacoRemoteCursors(monacoEditor, presenceProvider)
 
   // 편집 안정화 감지: Y.Text 변경(로컬·원격 모두)마다 lastEditAt 갱신
   useEffect(() => {
@@ -425,7 +450,7 @@ export function CodeEditorPage() {
       <div className="flex items-center justify-between border-b border-neutral-200 bg-neutral-50 px-4 py-2 dark:border-neutral-700 dark:bg-neutral-800">
         <div className="flex items-center gap-3">
           <LanguageSelector value={language.id} onChange={handleLanguageChange} />
-          <CodeLiveCursors />
+          <CodeLiveCursors provider={presenceProvider} />
         </div>
 
         <div className="flex items-center gap-2">
