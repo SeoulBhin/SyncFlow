@@ -10,16 +10,20 @@ import {
   Put,
   Query,
   UseGuards,
-} from '@nestjs/common'
-import { TasksService, BulkUpdateStatusDto, ReorderTasksDto } from './tasks.service'
-import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
+} from '@nestjs/common';
+import {
+  TasksService,
+  BulkUpdateStatusDto,
+  ReorderTasksDto,
+} from './tasks.service';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
   CurrentUser,
   type CurrentUserPayload,
-} from '../auth/decorators/current-user.decorator'
-import { CreateTaskDto } from './dto/create-task.dto'
-import { UpdateTaskDto } from './dto/update-task.dto'
-import { type TaskStatus } from './entities/task.entity'
+} from '../auth/decorators/current-user.decorator';
+import { CreateTaskDto } from './dto/create-task.dto';
+import { UpdateTaskDto } from './dto/update-task.dto';
+import { type TaskStatus } from './entities/task.entity';
 
 @Controller('tasks')
 @UseGuards(JwtAuthGuard)
@@ -41,22 +45,27 @@ export class TasksController {
       groupId,
       projectId,
       status: status as TaskStatus | undefined,
-    })
+    });
   }
 
   /** GET /api/tasks/me */
   @Get('me')
   getMyTasks(@CurrentUser() user: CurrentUserPayload) {
-    return this.tasksService.getMyTasks(user.userId)
+    return this.tasksService.getMyTasks(user.userId);
   }
 
   /** GET /api/tasks/kanban */
   @Get('kanban')
   kanban(
+    @CurrentUser() user: CurrentUserPayload,
     @Query('groupId') groupId?: string,
     @Query('projectId') projectId?: string,
   ) {
-    return this.tasksService.kanban({ groupId, projectId })
+    return this.tasksService.kanban({
+      userId: user.userId,
+      groupId,
+      projectId,
+    });
   }
 
   /** GET /api/tasks/upcoming */
@@ -65,7 +74,10 @@ export class TasksController {
     @CurrentUser() user: CurrentUserPayload,
     @Query('days') days?: string,
   ) {
-    return this.tasksService.upcoming(user.userId, days ? parseInt(days, 10) : 3)
+    return this.tasksService.upcoming(
+      user.userId,
+      days ? parseInt(days, 10) : 3,
+    );
   }
 
   /** GET /api/tasks/stats */
@@ -75,50 +87,55 @@ export class TasksController {
     @Query('groupId') groupId?: string,
     @Query('projectId') projectId?: string,
   ) {
-    return this.tasksService.stats({ groupId, projectId, userId: user.userId })
+    return this.tasksService.stats({ groupId, projectId, userId: user.userId });
   }
 
   /** POST /api/tasks/bulk-status */
   @Post('bulk-status')
   @HttpCode(200)
   bulkUpdateStatus(@Body() dto: BulkUpdateStatusDto) {
-    return this.tasksService.bulkUpdateStatus(dto)
+    return this.tasksService.bulkUpdateStatus(dto);
   }
 
   /** PUT /api/tasks/reorder */
   @Put('reorder')
   @HttpCode(200)
   reorder(@Body() dto: ReorderTasksDto) {
-    return this.tasksService.reorder(dto)
+    return this.tasksService.reorder(dto);
   }
 
   // ── 동적 경로 (:id) ──────────────────────────────────────────────────────────
 
   /** POST /api/tasks */
   @Post()
-  create(
-    @Body() dto: CreateTaskDto,
-    @CurrentUser() user: CurrentUserPayload,
-  ) {
-    return this.tasksService.createTask(dto, user.userId)
+  create(@Body() dto: CreateTaskDto, @CurrentUser() user: CurrentUserPayload) {
+    return this.tasksService.createTask(dto, user.userId);
   }
 
   /** GET /api/tasks/:id */
   @Get(':id')
-  getOne(@Param('id') id: string) {
-    return this.tasksService.getTaskDetail(id)
+  getOne(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.tasksService.getTaskDetail(id, user.userId);
   }
 
   /** PUT /api/tasks/:id */
   @Put(':id')
-  update(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
-    return this.tasksService.updateTask(id, dto)
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateTaskDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.tasksService.updateTask(id, dto, user.userId);
   }
 
   /** PATCH /api/tasks/:id — 부분 업데이트 (프론트 호환) */
   @Patch(':id')
-  patch(@Param('id') id: string, @Body() dto: UpdateTaskDto) {
-    return this.tasksService.updateTask(id, dto)
+  patch(
+    @Param('id') id: string,
+    @Body() dto: UpdateTaskDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    return this.tasksService.updateTask(id, dto, user.userId);
   }
 
   /** PUT /api/tasks/:id/status */
@@ -126,8 +143,13 @@ export class TasksController {
   updateStatus(
     @Param('id') id: string,
     @Body('status') status: string,
+    @CurrentUser() user: CurrentUserPayload,
   ) {
-    return this.tasksService.updateStatus(id, status as TaskStatus)
+    return this.tasksService.updateStatus(
+      id,
+      status as TaskStatus,
+      user.userId,
+    );
   }
 
   /** PUT /api/tasks/:id/custom-fields */
@@ -136,13 +158,16 @@ export class TasksController {
     @Param('id') id: string,
     @Body() body: { values: Array<{ fieldId: string; value: unknown }> },
   ) {
-    return this.tasksService.upsertCustomFieldValues(id, body.values ?? [])
+    return this.tasksService.upsertCustomFieldValues(id, body.values ?? []);
   }
 
   /** DELETE /api/tasks/:id */
   @Delete(':id')
   @HttpCode(204)
-  async remove(@Param('id') id: string): Promise<void> {
-    await this.tasksService.remove(id)
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ): Promise<void> {
+    await this.tasksService.remove(id, user.userId);
   }
 }
