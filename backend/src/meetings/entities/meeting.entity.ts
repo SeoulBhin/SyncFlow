@@ -24,6 +24,9 @@ export class Meeting {
   @Column({ type: 'varchar', length: 10, default: 'private' })
   visibility: 'public' | 'private'
 
+  @Column({ name: 'scheduled_at', type: 'timestamptz', nullable: true })
+  scheduledAt: Date | null
+
   @Column({ name: 'started_at', type: 'timestamptz', nullable: true })
   startedAt: Date | null
 

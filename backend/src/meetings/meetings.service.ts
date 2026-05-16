@@ -6,7 +6,7 @@ import {
   NotFoundException,
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { In, Repository } from 'typeorm'
+import { In, Not, Repository } from 'typeorm'
 import * as fs from 'fs'
 import { Meeting } from './entities/meeting.entity'
 import { MeetingTranscript } from './entities/meeting-transcript.entity'
@@ -61,12 +61,13 @@ export class MeetingsService {
       projectId?: string
       visibility?: 'public' | 'private'
       participants?: { userId: string; userName: string }[]
+      scheduledAt?: Date
     } = {},
   ) {
     // [HOST DEBUG] 백엔드가 실제로 받은 hostId 확인 — JWT sub와 일치해야 함
     this.logger.log(`[HOST DEBUG] createMeeting 진입 hostId="${hostId}" title="${title}"`)
 
-    const { groupId, projectId, visibility = 'private', participants = [] } = options
+    const { groupId, projectId, visibility = 'private', participants = [], scheduledAt } = options
     const meeting = this.meetingRepo.create({
       title,
       hostId: toUuidOrNull(hostId) ?? hostId,
@@ -74,6 +75,7 @@ export class MeetingsService {
       projectId: toUuidOrNull(projectId),
       visibility,
       status: 'scheduled',
+      scheduledAt: scheduledAt ?? null,
     })
     const saved = await this.meetingRepo.save(meeting)
 
@@ -178,9 +180,12 @@ export class MeetingsService {
         .getMany()
     }
 
-    return [...hosted, ...participating, ...publicMeetings].sort(
+    const all = [...hosted, ...participating, ...publicMeetings].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
     )
+    // 조회 시점에 만료된 예약 회의를 일괄 정리 — 목록에 ended 상태로 반영됨
+    await Promise.all(all.map((m) => this.expireNoShowMeeting(m)))
+    return all
   }
 
   /** 사용자가 회의에 접근 권한이 있는지 확인. private 회의록 보호용. */
@@ -429,11 +434,17 @@ export class MeetingsService {
   /**
    * 참가자 등록 — LiveKit 입장 시 meeting_participants에 추가(upsert).
    * 이 레코드가 있어야 호스트 나가기 시 해당 참가자가 nextHost 후보에 오른다.
+   * 예약 회의는 scheduledAt 전 입장 차단, 처음 입장 시 status를 in-progress로 전환.
    */
   async joinMeeting(meetingId: string, userId: string, userName: string) {
     assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    // 예약 회의 — 시간 전 입장 차단 (프론트 방어에 더해 백엔드 이중 검증)
+    if (meeting.scheduledAt && new Date() < meeting.scheduledAt) {
+      throw new ForbiddenException('예약 시간이 아직 되지 않았습니다')
+    }
 
     // [HOST DEBUG] joinMeeting 진입 — 요청 userId와 DB의 meeting.hostId 비교
     this.logger.log(
@@ -450,17 +461,25 @@ export class MeetingsService {
       await this.participantRepo.save(existing)
     }
 
+    // 처음 입장 시 in-progress로 전환 (startedAt 기록)
+    if (meeting.status === 'scheduled') {
+      meeting.status = 'in-progress'
+      meeting.startedAt = new Date()
+      await this.meetingRepo.save(meeting)
+    }
+
     // [HOST DEBUG] 반환 직전 — 이 meeting.hostId가 프론트로 전달되는 값
     this.logger.log(`[HOST DEBUG] joinMeeting 반환 meeting.hostId="${meeting.hostId}"`)
 
     return { ok: true, meeting }
   }
 
-  // 회의 상세 조회
+  // 회의 상세 조회 — 조회 시 만료된 예약 회의 자동 종료 처리
   async getMeeting(meetingId: string) {
     assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    await this.expireNoShowMeeting(meeting)
     return meeting
   }
 
@@ -567,6 +586,43 @@ export class MeetingsService {
       where: { projectId },
       order: { createdAt: 'DESC' },
     })
+  }
+
+  /**
+   * 예약 회의 무입장 자동 종료 — 아래 4조건 모두 만족 시 ended 처리.
+   *  1) scheduledAt 존재
+   *  2) status === 'scheduled' (joinMeeting 성공 시 in-progress로 전환됨)
+   *  3) now >= scheduledAt + 10분
+   *  4) 실제 입장 기록 없음 (userName != '' 인 참가자 0명)
+   *     - createMeeting 시 호스트가 userName=''로 자동 등록되므로 ''를 제외해 실제 입장자를 카운트
+   *     - joinMeeting 성공 시 userName이 실제 이름으로 갱신되고 status가 in-progress로 변경됨
+   * Gemini 회의록 생성 없음 (transcript 없음).
+   * TODO: 추후 @nestjs/schedule의 @Cron 데코레이터로 주기적 일괄 처리 구현 권장.
+   */
+  private async expireNoShowMeeting(meeting: Meeting): Promise<void> {
+    if (!meeting.scheduledAt || meeting.status !== 'scheduled') return
+    const now = new Date()
+    const expireAt = new Date(meeting.scheduledAt.getTime() + 10 * 60 * 1000)
+    if (now < expireAt) return
+
+    // 실제 입장자 수 확인 (userName=''인 자동 등록 호스트 제외)
+    const participantCount = await this.participantRepo.count({
+      where: { meetingId: meeting.id, userName: Not('') },
+    })
+
+    if (participantCount > 0) {
+      this.logger.log(
+        `[AUTO-EXPIRE SKIP] meetingId="${meeting.id}" scheduledAt="${meeting.scheduledAt.toISOString()}" — 입장 기록 있음(${participantCount}명), 자동 종료 건너뜀`,
+      )
+      return
+    }
+
+    this.logger.log(
+      `[AUTO-EXPIRE] meetingId="${meeting.id}" scheduledAt="${meeting.scheduledAt.toISOString()}" expireAt="${expireAt.toISOString()}" now="${now.toISOString()}" participantCount=${participantCount} — 미입장, 자동 종료`,
+    )
+    await this.meetingRepo.update(meeting.id, { status: 'ended', endedAt: now })
+    meeting.status = 'ended'
+    meeting.endedAt = now
   }
 
   private safeUnlink(filePath: string) {

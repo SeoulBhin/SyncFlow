@@ -64,6 +64,12 @@ export function MeetingRoomPage() {
   const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [showCollabModal, setShowCollabModal] = useState(false)
 
+  // 예약 회의 대기 상태
+  const joinStartedRef = useRef(false)
+  const [isWaiting, setIsWaiting] = useState(false)
+  const [scheduledAtMs, setScheduledAtMs] = useState<number | null>(null)
+  const [secondsLeft, setSecondsLeft] = useState(0)
+
   // ── 미디어 그리드 상태 ──────────────────────────────────────────────────────
   const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null)
   const [userPinnedId, setUserPinnedId] = useState<string | null>(null)
@@ -141,6 +147,8 @@ export function MeetingRoomPage() {
   const [isUploading, setIsUploading] = useState(false)
   const uploadProgress = useMeetingStore((s) => s.uploadProgress)
   const addRealtimeTranscript = useMeetingStore((s) => s.addRealtimeTranscript)
+  const joinMeetingApiAction = useMeetingStore((s) => s.joinMeetingApi)
+  const connectVoiceChat = useVoiceChatStore((s) => s.connect)
 
   const sttSocketRef = useRef<Socket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
@@ -152,64 +160,70 @@ export function MeetingRoomPage() {
 
   const groupName = activeGroupName ?? groupId ?? '회의'
 
-  // 진입 시 회의 메타데이터 로드 → LiveKit 연결
+  // 회의 입장 시퀀스 — joinStartedRef로 중복 실행 방지 (예약 시간 도달 후 재실행 포함)
+  const doJoinMeeting = useCallback(async (id: string) => {
+    if (joinStartedRef.current) return
+    joinStartedRef.current = true
+
+    // DB에 참가자 등록 (동적 입장자도 meeting_participants에 upsert)
+    await joinMeetingApiAction(id)
+
+    // fetchMe race condition 방지: page refresh 후 직접 URL 접근 시 user가 null일 수 있음.
+    if (!useAuthStore.getState().user) {
+      await useAuthStore.getState().fetchMe()
+    }
+
+    try {
+      await connectVoiceChat(id, groupName)
+    } catch (err) {
+      console.error('[JOIN] connectVoiceChat 실패', err)
+      addToast('error', err instanceof Error ? err.message : '회의 음성 연결 실패')
+      return
+    }
+
+    if (useMeetingStore.getState().status !== 'in-meeting') {
+      useMeetingStore.getState().startMeeting(id, `${groupName} 회의`, groupName)
+    }
+    // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
+    setElapsed(0)
+  }, [joinMeetingApiAction, connectVoiceChat, groupName, setElapsed]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 진입 시 회의 메타데이터 로드 → 예약 여부 확인 → LiveKit 연결
   useEffect(() => {
     if (!meetingId) return
+    joinStartedRef.current = false
+    setIsWaiting(false)
     let cancelled = false
 
     void (async () => {
       try {
         await meeting.loadMeeting(meetingId)
+
         if (cancelled) return
-        if (useMeetingStore.getState().error) return
-
-        // DB에 참가자 등록 (동적 입장자도 meeting_participants에 upsert)
-        // 호스트 이전 후보 계산에 반드시 필요
-        await meeting.joinMeetingApi(meetingId)
-        if (cancelled) return
-
-        // ── [HOST DEBUG] 원인 검증용 로그 ─────────────────────────────────────
-        // hostId / authUserId / tokenSub 3값이 모두 일치하면 정상.
-        // tokenSub ≠ authUserId → tryRefreshToken 후 authStore.user 미갱신 (api.ts 버그)
-        // hostId ≠ authUserId  → createMeeting이 다른 계정으로 실행된 것
-        (() => {
-          const s = useMeetingStore.getState()
-          const u = useAuthStore.getState().user
-          let tokenSub: string | null = null
-          try {
-            const raw = localStorage.getItem('accessToken')
-            if (raw) tokenSub = (JSON.parse(atob(raw.split('.')[1])) as { sub?: string }).sub ?? null
-          } catch { /* ignore */ }
-          console.log('[HOST DEBUG] joinMeetingApi 완료', {
-            hostId:      s.currentMeeting?.hostId ?? null,
-            authUserId:  u?.id ?? null,
-            authUserName: u?.name ?? null,
-            tokenSub,
-            match_host_vs_auth: s.currentMeeting?.hostId === u?.id,
-            match_token_vs_auth: tokenSub === u?.id,
-          })
-        })()
-        // ── [HOST DEBUG] end ──────────────────────────────────────────────────
-
-        // fetchMe race condition 방지: page refresh 후 직접 URL 접근 시 user가 null일 수 있음.
-        // user가 null이면 voiceChat.connect() 내부에서 guest-UUID identity를 사용하게 되어
-        // LiveKit 이름 오표시 + 호스트 이전 매칭 실패가 발생하므로 반드시 대기.
-        if (!useAuthStore.getState().user) {
-          await useAuthStore.getState().fetchMe()
+        const loadError = useMeetingStore.getState().error
+        if (loadError) {
+          addToast('error', loadError)
+          return
         }
-        if (cancelled) return
 
-        await voiceChat.connect(meetingId, groupName)
-        if (cancelled) return
-        if (useMeetingStore.getState().status !== 'in-meeting') {
-          meeting.startMeeting(meetingId, `${groupName} 회의`, groupName)
+        // 예약 회의: scheduledAt이 미래이면 대기 화면 표시, join/connect 중단
+        const m = useMeetingStore.getState().currentMeeting
+        if (m?.scheduledAt) {
+          const targetMs = new Date(m.scheduledAt).getTime()
+          const remaining = targetMs - Date.now()
+          if (remaining > 0) {
+            setScheduledAtMs(targetMs)
+            setSecondsLeft(Math.ceil(remaining / 1000))
+            setIsWaiting(true)
+            return // 카운트다운이 0이 되면 doJoinMeeting이 자동 실행됨
+          }
         }
+
+        if (cancelled) return
+        await doJoinMeeting(meetingId)
       } catch (err) {
         if (!cancelled) {
-          addToast(
-            'error',
-            err instanceof Error ? err.message : '회의 입장에 실패했습니다',
-          )
+          addToast('error', err instanceof Error ? err.message : '회의 입장에 실패했습니다')
         }
       }
     })()
@@ -220,6 +234,22 @@ export function MeetingRoomPage() {
       meeting.endMeeting()
     }
   }, [meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // 예약 대기 중 카운트다운 — isWaiting이 true인 동안 1초마다 감소
+  useEffect(() => {
+    if (!isWaiting) return
+    const timer = setInterval(() => setSecondsLeft((s) => Math.max(0, s - 1)), 1000)
+    return () => clearInterval(timer)
+  }, [isWaiting])
+
+  // 카운트다운 0 도달 → 기존 입장 흐름 자동 실행
+  useEffect(() => {
+    if (!isWaiting || secondsLeft > 0 || !meetingId) return
+    setIsWaiting(false)
+    void doJoinMeeting(meetingId).catch((err) => {
+      addToast('error', err instanceof Error ? err.message : '회의 입장에 실패했습니다')
+    })
+  }, [isWaiting, secondsLeft, meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 회의 타이머
   useEffect(() => {
@@ -240,13 +270,11 @@ export function MeetingRoomPage() {
         }
 
         if (msg.type === 'meeting:end') {
-          console.log('[Meeting] meeting:end 수신 → 참가자 퇴장 처리')
           void useVoiceChatStore.getState().disconnect()
           useMeetingStore.getState().endMeeting()
           addToast('info', '호스트가 회의를 종료했습니다')
           navigate('/app/meetings')
         } else if (msg.type === 'meeting:host-transfer' && msg.meeting) {
-          console.log('[Meeting] meeting:host-transfer 수신 → 새 hostId:', msg.meeting.hostId)
           useMeetingStore.getState().setCurrentMeeting(msg.meeting)
         }
       } catch {
@@ -266,7 +294,6 @@ export function MeetingRoomPage() {
   useEffect(() => {
     if (!meetingId) return
     const handleParticipantDisconnected = () => {
-      console.log('[Meeting] ParticipantDisconnected → GET /api/meetings/', meetingId)
       void useMeetingStore.getState().refreshCurrentMeeting(meetingId)
     }
     room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
@@ -274,17 +301,6 @@ export function MeetingRoomPage() {
       room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
     }
   }, [meetingId]) // meetingId가 바뀔 때만 재등록
-
-  // [DEBUG] isHost / hostId 변화 로깅 — 버튼 표시 기준 추적용
-  useEffect(() => {
-    console.log('[Meeting] isHost 재계산', {
-      isHost,
-      currentMeetingId: meeting.currentMeeting?.id,
-      meetingId,
-      hostId: meeting.currentMeeting?.hostId,
-      authUserId: authUser?.id,
-    })
-  }, [isHost, meeting.currentMeeting?.hostId, meeting.currentMeeting?.id, authUser?.id, meetingId])
 
   const mappedParticipants = voiceChat.participants.map((p) => ({
     id: p.id,
@@ -477,14 +493,6 @@ export function MeetingRoomPage() {
     const remainingParticipantIds = remainingParticipants.map((p) => p.id)
     const isLastPerson = remainingParticipantIds.length === 0
 
-    console.log('[Meeting] handleLeave 시작', {
-      leavingUserId: authUser?.id,
-      currentHostId: meeting.currentMeeting?.hostId,
-      isHost,
-      remainingParticipantIds,
-      isLastPerson,
-    })
-
     if (meeting.sttEnabled) stopRealtimeSTT()
 
     let isEnded = false
@@ -495,12 +503,6 @@ export function MeetingRoomPage() {
       })
       isEnded = result.isEnded
 
-      console.log('[Meeting] leaveMeetingApi 응답', {
-        isEnded: result.isEnded,
-        newHostId: result.newHostId,
-        meetingHostId: result.meeting?.hostId,
-      })
-
       // 호스트 이전 성공 → 데이터채널로 fast-path 전달 (fallback은 ParticipantDisconnected 재조회)
       if (!result.isEnded && result.newHostId && result.meeting) {
         try {
@@ -508,12 +510,10 @@ export function MeetingRoomPage() {
             JSON.stringify({ type: 'meeting:host-transfer', meeting: result.meeting }),
           )
           await room.localParticipant.publishData(payload, { reliable: true })
-          console.log('[Meeting] meeting:host-transfer 전송 완료 → 200ms 대기 후 disconnect')
           // 메시지 전파 여유 시간 — disconnect 전 최소 대기
           await new Promise<void>((resolve) => setTimeout(resolve, 200))
         } catch {
           // 데이터채널 실패해도 ParticipantDisconnected fallback이 처리함
-          console.warn('[Meeting] meeting:host-transfer 데이터채널 전송 실패 (fallback 동작 예정)')
         }
       }
     } catch (err) {
@@ -586,7 +586,9 @@ export function MeetingRoomPage() {
     if (screenShare.isSharing) {
       void screenShare.stopSharing()
     } else if (groupId) {
-      void screenShare.startSharing(groupId, groupName)
+      void screenShare.startSharing(groupId, groupName).catch((err) => {
+        addToast('error', err instanceof Error ? err.message : '화면공유를 시작할 수 없습니다')
+      })
     }
   }
 
@@ -596,6 +598,51 @@ export function MeetingRoomPage() {
 
   const isMuted = voiceChat.status === 'muted'
   const isScreenSharing = screenShare.isSharing
+  const isConnected = voiceChat.status === 'connected' || voiceChat.status === 'muted'
+
+  // 예약 대기 화면 — scheduledAt 전 접근 시 (LiveKit 연결 없음)
+  if (isWaiting && scheduledAtMs !== null) {
+    const scheduled = new Date(scheduledAtMs)
+    const waitM = Math.floor(secondsLeft / 60)
+    const waitS = secondsLeft % 60
+    return (
+      <div className="flex h-full flex-col items-center justify-center gap-5 bg-surface dark:bg-surface-dark">
+        <div className="flex h-14 w-14 items-center justify-center rounded-full bg-primary-100 dark:bg-primary-900/30">
+          <Clock size={28} className="text-primary-600 dark:text-primary-400" />
+        </div>
+        <div className="text-center">
+          <h2 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">
+            예약된 회의입니다
+          </h2>
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
+            시작 예정 시간:{' '}
+            <span className="font-medium text-neutral-700 dark:text-neutral-300">
+              {scheduled.toLocaleString('ko-KR', {
+                year: 'numeric',
+                month: 'long',
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit',
+              })}
+            </span>
+          </p>
+        </div>
+        <div className="rounded-2xl bg-primary-50 px-10 py-5 text-center dark:bg-primary-900/20">
+          <p className="mb-1 text-xs text-neutral-400">시작까지 남은 시간</p>
+          <p className="text-4xl font-bold tabular-nums text-primary-600 dark:text-primary-400">
+            {String(waitM).padStart(2, '0')}:{String(waitS).padStart(2, '0')}
+          </p>
+        </div>
+        <p className="text-sm text-neutral-400">예약 시간이 되면 자동으로 입장됩니다.</p>
+        <button
+          onClick={() => navigate('/app/meetings')}
+          className="mt-1 rounded-lg bg-neutral-200 px-4 py-2 text-sm text-neutral-600 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600"
+        >
+          회의 목록으로
+        </button>
+      </div>
+    )
+  }
 
   if (voiceChat.status === 'connecting') {
     return (
@@ -703,15 +750,18 @@ export function MeetingRoomPage() {
             <MeetingParticipants participants={participants} />
           )}
 
-          {/* 하단 컨트롤 */}
+          {/* 하단 컨트롤 — LiveKit 연결 전(isConnected=false)에는 모두 비활성화 */}
           <div className="flex flex-wrap items-center justify-center gap-3 border-t border-neutral-200 bg-neutral-50 px-6 py-4 dark:border-neutral-700 dark:bg-neutral-900">
             <button
               onClick={handleToggleMute}
+              disabled={!isConnected}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                isMuted
-                  ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+                !isConnected
+                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                  : isMuted
+                    ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
               {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
@@ -719,11 +769,14 @@ export function MeetingRoomPage() {
             </button>
             <button
               onClick={handleToggleScreenShare}
+              disabled={!isConnected}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                isScreenSharing
-                  ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+                !isConnected
+                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                  : isScreenSharing
+                    ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
               {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
@@ -731,11 +784,14 @@ export function MeetingRoomPage() {
             </button>
             <button
               onClick={() => meeting.toggleSTT()}
+              disabled={!isConnected}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                meeting.sttEnabled
-                  ? 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+                !isConnected
+                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                  : meeting.sttEnabled
+                    ? 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
               <FileText size={24} />
@@ -743,11 +799,14 @@ export function MeetingRoomPage() {
             </button>
             <button
               onClick={() => void handleToggleRecording()}
+              disabled={!isConnected}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                meeting.isRecording
-                  ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+                !isConnected
+                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                  : meeting.isRecording
+                    ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
               <CircleDot size={24} />
@@ -755,11 +814,14 @@ export function MeetingRoomPage() {
             </button>
             <button
               onClick={handleToggleCamera}
+              disabled={!isConnected}
               className={cn(
                 'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                voiceChat.isCameraEnabled
-                  ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
-                  : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+                !isConnected
+                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                  : voiceChat.isCameraEnabled
+                    ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
               {voiceChat.isCameraEnabled ? <CameraOff size={24} /> : <Camera size={24} />}
@@ -787,10 +849,10 @@ export function MeetingRoomPage() {
               <div className="flex flex-col gap-1">
                 <button
                   onClick={() => fileInputRef.current?.click()}
-                  disabled={isUploading}
+                  disabled={!isConnected || isUploading}
                   className={cn(
                     'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                    isUploading
+                    !isConnected || isUploading
                       ? 'cursor-not-allowed bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
                       : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400',
                   )}

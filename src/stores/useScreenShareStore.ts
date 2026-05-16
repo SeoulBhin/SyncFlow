@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 import { RoomEvent, Track, createLocalScreenTracks, type LocalVideoTrack } from 'livekit-client'
-import { room, fetchToken } from '@/lib/livekitRoom'
+import { room } from '@/lib/livekitRoom'
 import { useAuthStore } from './useAuthStore'
 import { useDetailPanelStore } from './useDetailPanelStore'
 
@@ -99,13 +99,8 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
 
     startSharing: async (groupId, groupName) => {
       try {
-        // 음성방이 연결되어 있지 않으면 먼저 접속
         if (room.state !== 'connected') {
-          const authUser = useAuthStore.getState().user
-          const identity = authUser?.id ?? `guest-${crypto.randomUUID().slice(0, 8)}`
-          const name = authUser?.name ?? 'Guest'
-          const { token, url } = await fetchToken(`voice-${groupId}`, identity, name)
-          await room.connect(url, token)
+          throw new Error('회의 연결 후 화면공유를 시작해주세요')
         }
 
         const tracks = await createLocalScreenTracks({ audio: false })
@@ -136,6 +131,7 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
         })
       } catch (err) {
         console.error('[ScreenShare] 시작 실패:', err)
+        throw err
       }
     },
 

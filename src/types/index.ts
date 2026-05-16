@@ -100,6 +100,7 @@ export interface ApiMeeting {
   projectId: string | null
   hostId: string | null
   status: MeetingApiStatus
+  scheduledAt: string | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string

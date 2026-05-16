@@ -29,6 +29,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
 
   const [title, setTitle] = useState('')
   const [visibility, setVisibility] = useState<'public' | 'private'>('private')
+  const [scheduledAt, setScheduledAt] = useState('')
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([])
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
   const [loadingMembers, setLoadingMembers] = useState(false)
@@ -70,6 +71,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
   const handleClose = () => {
     setTitle('')
     setVisibility('private')
+    setScheduledAt('')
     setSelectedUserIds(new Set())
     onClose()
   }
@@ -93,6 +95,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
         groupId: activeOrgId,
         visibility,
         participants,
+        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
       })
       addToast(
         'success',
@@ -142,6 +145,19 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
               placeholder="예: 주간 마케팅 전략 회의"
               maxLength={200}
               autoFocus
+              className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+              예약 시간{' '}
+              <span className="font-normal text-neutral-400">(선택 — 비워두면 즉시 입장 가능)</span>
+            </label>
+            <input
+              type="datetime-local"
+              value={scheduledAt}
+              onChange={(e) => setScheduledAt(e.target.value)}
               className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
             />
           </div>

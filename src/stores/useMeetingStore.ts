@@ -83,6 +83,7 @@ interface MeetingState {
       projectId?: string
       visibility?: 'public' | 'private'
       participants?: { userId: string; userName: string }[]
+      scheduledAt?: string
     },
   ) => Promise<ApiMeeting>
   startMeetingApi: (meetingId: string) => Promise<ApiMeeting>
@@ -252,6 +253,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
         projectId: asUuid(opts?.projectId),
         visibility: opts?.visibility ?? 'private',
         participants: opts?.participants ?? [],
+        scheduledAt: opts?.scheduledAt,
       }),
     })
     set((s) => ({

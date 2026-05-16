@@ -61,7 +61,7 @@ const ALLOWED_AUDIO_MIME = new Set([
 export class MeetingsController {
   constructor(private meetingsService: MeetingsService) {}
 
-  // 회의 방 생성 (즉시 시작하지 않음 — 호스트가 startMeeting을 호출해야 in-progress)
+  // 회의 방 생성 (즉시 시작하지 않음 — scheduledAt 없으면 즉시 입장 가능, 있으면 예약 회의)
   @Post()
   create(
     @CurrentUser() user: CurrentUserPayload,
@@ -72,6 +72,7 @@ export class MeetingsController {
       projectId?: string
       visibility?: 'public' | 'private'
       participants?: { userId: string; userName: string }[]
+      scheduledAt?: string
     },
   ) {
     return this.meetingsService.createMeeting(body.title, user.userId, {
@@ -79,6 +80,7 @@ export class MeetingsController {
       projectId: body.projectId,
       visibility: body.visibility,
       participants: body.participants,
+      scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : undefined,
     })
   }
 

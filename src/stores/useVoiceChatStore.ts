@@ -177,7 +177,8 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
         let joinedMuted = false
         try {
           await room.localParticipant.setMicrophoneEnabled(true)
-        } catch {
+        } catch (micErr) {
+          console.warn('[VoiceChat] 마이크 권한 없음 — 음소거 상태로 입장', micErr)
           joinedMuted = true
         }
 
@@ -191,6 +192,7 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
 
         await get().refreshDevices()
       } catch (err) {
+        console.error('[VoiceChat] 연결 실패', err)
         const msg = err instanceof Error ? err.message : '연결에 실패했습니다'
         set({ status: 'disconnected', error: msg })
       }

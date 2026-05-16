@@ -1,8 +1,9 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Video, Clock, Users, Calendar, ChevronRight, Plus } from 'lucide-react'
+import { Video, Clock, Users, Calendar, ChevronRight, Plus, CalendarPlus } from 'lucide-react'
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
+import { CreateMeetingModal } from '@/components/meeting/CreateMeetingModal'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useToastStore } from '@/stores/useToastStore'
@@ -39,6 +40,7 @@ export function MeetingHistoryPage() {
   const startMeeting = useMeetingStore((s) => s.startMeeting)
   const loadMyMeetings = useMeetingStore((s) => s.loadMyMeetings)
   const addToast = useToastStore((s) => s.addToast)
+  const [showCreateModal, setShowCreateModal] = useState(false)
 
   // 초기 로드
   useEffect(() => {
@@ -92,16 +94,23 @@ export function MeetingHistoryPage() {
   }
 
   return (
+    <>
     <div className="mx-auto max-w-5xl p-6">
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Video size={24} className="text-primary-600 dark:text-primary-400" />
           <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">회의</h1>
         </div>
-        <Button onClick={() => void handleQuickMeeting()}>
-          <Plus size={16} />
-          빠른 회의 시작
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button variant="ghost" onClick={() => setShowCreateModal(true)}>
+            <CalendarPlus size={16} />
+            예약 회의
+          </Button>
+          <Button onClick={() => void handleQuickMeeting()}>
+            <Plus size={16} />
+            빠른 회의 시작
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -143,13 +152,13 @@ export function MeetingHistoryPage() {
                     </h3>
                   </div>
                   <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-400">
-                    {m.status === 'in-progress' ? '진행 중' : '예정'}
+                    {m.status === 'in-progress' ? '진행 중' : m.scheduledAt ? '예약됨' : '예정'}
                   </span>
                 </div>
                 <div className="mt-4 flex items-center gap-4 text-xs text-neutral-400">
                   <span className="flex items-center gap-1">
                     <Calendar size={12} />
-                    {formatDateTime(m.startedAt ?? m.createdAt)}
+                    {formatDateTime(m.scheduledAt ?? m.startedAt ?? m.createdAt)}
                   </span>
                 </div>
               </Card>
@@ -204,5 +213,12 @@ export function MeetingHistoryPage() {
         </section>
       )}
     </div>
+
+    <CreateMeetingModal
+      isOpen={showCreateModal}
+      onClose={() => setShowCreateModal(false)}
+      onCreated={() => void loadMyMeetings(activeOrgId ?? undefined)}
+    />
+    </>
   )
 }

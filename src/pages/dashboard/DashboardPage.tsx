@@ -444,7 +444,11 @@ export function DashboardPage() {
                         </p>
                         <p className="text-[10px] text-neutral-400">
                           <Calendar size={10} className="mr-0.5 inline" />
-                          {m.scheduledAt}
+                          {m.scheduledAt
+                            ? new Date(m.scheduledAt).toLocaleString('ko-KR', {
+                                month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit',
+                              })
+                            : '-'}
                         </p>
                       </div>
                     </button>

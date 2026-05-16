@@ -4,6 +4,8 @@ import { FileInterceptor } from '@nestjs/platform-express'
 import { DocumentService } from './document.service'
 import type { Request, Response } from 'express'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
+import { CurrentUser } from '../auth/decorators/current-user.decorator'
+import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator'
 
 const FIFTY_MB = 50 * 1024 * 1024
 
@@ -83,6 +85,7 @@ export class DocumentController {
   // ── 첨부 파일 ──────────────────────────────────────────────
 
   @Post(':pageId/attachments')
+  @UseGuards(JwtAuthGuard)
   @UseInterceptors(
     FileInterceptor('file', {
       limits: { fileSize: FIFTY_MB }, // 50MB 제한
@@ -91,12 +94,10 @@ export class DocumentController {
   async uploadAttachment(
     @Param('pageId') pageId: string,
     @UploadedFile() file: Express.Multer.File,
-    @Req() req: Request,
+    @CurrentUser() user: CurrentUserPayload,
   ) {
     if (!file) throw new NotFoundException('업로드할 파일이 없습니다.')
-    // x-user-id 패턴(JwtAuthGuard 미적용 임시) — 인증 가드 통합 시 req.user.sub 로 대체
-    const uploadedBy = (req.headers['x-user-id'] as string | undefined) ?? null
-    return this.documentService.uploadAttachment(pageId, file, uploadedBy)
+    return this.documentService.uploadAttachment(pageId, file, user.userId)
   }
 
   @Get(':pageId/attachments')

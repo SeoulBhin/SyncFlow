@@ -139,7 +139,7 @@ export class AuthController {
     const isProd = this.configService.get('NODE_ENV') === 'production'
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
-      secure: false,
+      secure: isProd,
       sameSite: 'lax' as const,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -150,10 +150,11 @@ export class AuthController {
     res: Response,
     tokens: { accessToken: string; refreshToken: string },
   ) {
+    const isProd = this.configService.get('NODE_ENV') === 'production'
     const frontendUrl = this.configService.get<string>('FRONTEND_URL', 'http://localhost:5174')
     res.cookie('refreshToken', tokens.refreshToken, {
       httpOnly: true,
-      secure: false,
+      secure: isProd,
       sameSite: 'lax' as const,
       path: '/',
       maxAge: 7 * 24 * 60 * 60 * 1000,
