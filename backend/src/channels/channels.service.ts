@@ -10,6 +10,7 @@ import { customAlphabet } from 'nanoid';
 import { Channel } from './entities/channel.entity';
 import { ChannelMember } from './entities/channel-member.entity';
 import { Message } from '../messages/entities/message.entity';
+import { User } from '../auth/entities/user.entity';
 import { CreateChannelDto } from './dto/create-channel.dto';
 
 /** 6자리 대문자 영숫자 초대 코드 발급기 (혼동 가능 문자 0/O, 1/I 제외) */
@@ -35,6 +36,8 @@ export class ChannelsService {
     private readonly memberRepo: Repository<ChannelMember>,
     @InjectRepository(Message)
     private readonly messageRepo: Repository<Message>,
+    @InjectRepository(User)
+    private readonly userRepo: Repository<User>,
   ) {}
 
   async getGroupChannels(
@@ -262,9 +265,32 @@ export class ChannelsService {
   /** 채널 멤버 목록 — 호출자가 멤버여야만 조회 가능 */
   async getMembers(channelId: string, userId: string) {
     await this.ensureMember(channelId, userId);
-    return this.memberRepo.find({
+    const members = await this.memberRepo.find({
       where: { channelId },
       order: { joinedAt: 'ASC' },
+    });
+    if (members.length === 0) return [];
+    const userIds = members.map((m) => m.userId);
+    const users = await this.userRepo.find({
+      where: { id: In(userIds) },
+      select: ['id', 'name', 'email', 'avatarUrl'],
+    });
+    const userMap = new Map(users.map((u) => [u.id, u]));
+    return members.map((m) => {
+      const u = userMap.get(m.userId);
+      const userName =
+        m.userName ||
+        u?.name ||
+        u?.email?.split('@')[0] ||
+        '알 수 없는 사용자';
+      return {
+        userId: m.userId,
+        userName,
+        email: u?.email ?? '',
+        avatarUrl: u?.avatarUrl ?? null,
+        role: 'member',
+        joinedAt: m.joinedAt,
+      };
     });
   }
 

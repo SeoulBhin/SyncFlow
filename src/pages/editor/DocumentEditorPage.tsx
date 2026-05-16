@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import { useEditor, EditorContent } from '@tiptap/react'
 import StarterKit from '@tiptap/starter-kit'
 import { Table as TipTapTable } from '@tiptap/extension-table'
@@ -41,8 +41,8 @@ import { ToggleBlock } from '@/components/editor/extensions/ToggleBlock'
 import { SlashCommandExtension } from '@/components/editor/extensions/SlashCommandExtension'
 import { useToastStore } from '@/stores/useToastStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { api } from '@/utils/api'
-import { MOCK_PROJECTS } from '@/constants'
 
 interface PageData {
   id: string
@@ -114,15 +114,31 @@ type ConnStatus = 'connecting' | 'connected' | 'disconnected' | 'error'
 export function DocumentEditorPage() {
   const { pageId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const isPopupMode = new URLSearchParams(location.search).get('popup') === '1'
   const addToast = useToastStore((s) => s.addToast)
   const currentUser = useAuthStore((s) => s.user)
+  const { activeGroupId } = useGroupContextStore()
 
   const [page, setPage] = useState<{ id: string; name: string; channelId: string | null; content: string | null } | null>(null)
   const [pageLoading, setPageLoading] = useState(true)
   const [pageError, setPageError] = useState<string | null>(null)
 
-  // 백엔드 Page는 channelId를 사용하지만, MOCK_PROJECTS는 projectId 기반 — 현재 매핑이 없으므로 표시 보류
-  const project = MOCK_PROJECTS.find((p) => p.id === page?.channelId) ?? null
+  const handleBack = () => {
+    if (isPopupMode) {
+      window.close()
+      return
+    }
+    if (page?.channelId) {
+      navigate(`/app/channel/${page.channelId}`)
+      return
+    }
+    if (activeGroupId) {
+      navigate(`/app/channel/${activeGroupId}`)
+      return
+    }
+    navigate('/app/messages')
+  }
 
   useEffect(() => {
     if (!pageId) {
@@ -433,18 +449,21 @@ export function DocumentEditorPage() {
       <div className="flex items-center justify-between border-b border-neutral-200 bg-surface px-4 py-2 dark:border-neutral-700 dark:bg-surface-dark-elevated">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={handleBack}
             className="rounded p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-            title="뒤로 가기"
+            title={isPopupMode ? '창 닫기' : '뒤로 가기'}
           >
-            <ArrowLeft size={18} />
+            {isPopupMode ? <X size={18} /> : <ArrowLeft size={18} />}
           </button>
           <div>
             <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
               {pageLoading ? '불러오는 중…' : pageError ? '문서를 찾을 수 없습니다' : (page?.name ?? '새 문서')}
             </h1>
-            {project && (
-              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{project.name}</p>
+            {!isPopupMode && page?.channelId && (
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">채널 문서</p>
+            )}
+            {isPopupMode && (
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">협업문서 — 회의 팝업</p>
             )}
           </div>
         </div>
@@ -562,7 +581,7 @@ export function DocumentEditorPage() {
               <CloudOff size={32} className="text-neutral-400" />
               <p className="text-sm text-neutral-600 dark:text-neutral-300">{pageError}</p>
               <button
-                onClick={() => navigate(-1)}
+                onClick={handleBack}
                 className="rounded bg-primary-500 px-4 py-1.5 text-xs text-white hover:bg-primary-600"
               >
                 돌아가기

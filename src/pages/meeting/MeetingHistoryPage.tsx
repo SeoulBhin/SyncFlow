@@ -31,7 +31,7 @@ function formatDuration(start: string | null, end: string | null): string {
 
 export function MeetingHistoryPage() {
   const navigate = useNavigate()
-  const { activeGroupId, activeGroupName } = useGroupContextStore()
+  const { activeGroupName, activeOrgId } = useGroupContextStore()
   const meetings = useMeetingStore((s) => s.meetings)
   const isLoading = useMeetingStore((s) => s.isLoading)
   const error = useMeetingStore((s) => s.error)
@@ -40,9 +40,29 @@ export function MeetingHistoryPage() {
   const loadMyMeetings = useMeetingStore((s) => s.loadMyMeetings)
   const addToast = useToastStore((s) => s.addToast)
 
+  // 초기 로드
   useEffect(() => {
-    void loadMyMeetings()
-  }, [loadMyMeetings])
+    void loadMyMeetings(activeOrgId ?? undefined)
+  }, [loadMyMeetings, activeOrgId])
+
+  // 5초 polling + 탭 재활성화 시 즉시 refetch
+  useEffect(() => {
+    if (!activeOrgId) return
+
+    const refetch = () => {
+      if (document.visibilityState === 'visible') {
+        void loadMyMeetings(activeOrgId)
+      }
+    }
+
+    document.addEventListener('visibilitychange', refetch)
+    const interval = setInterval(refetch, 5000)
+
+    return () => {
+      clearInterval(interval)
+      document.removeEventListener('visibilitychange', refetch)
+    }
+  }, [activeOrgId, loadMyMeetings])
 
   const scheduled: ApiMeeting[] = meetings.filter(
     (m) => m.status === 'scheduled' || m.status === 'in-progress',
@@ -54,7 +74,8 @@ export function MeetingHistoryPage() {
     const title = `${channelName} 빠른 회의`
     try {
       const created = await createMeeting(title, {
-        groupId: activeGroupId ?? undefined,
+        groupId: activeOrgId ?? undefined,
+        visibility: 'public',
       })
       startMeeting(created.id, title, channelName)
       navigate(`/app/meetings/${created.id}`)

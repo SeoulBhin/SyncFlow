@@ -3,6 +3,7 @@ import { AISidePanel } from '@/components/ai/AISidePanel'
 import { VoiceChatPanel } from '@/components/voice-chat/VoiceChatPanel'
 import { ScreenSharePanel } from '@/components/screen-share/ScreenSharePanel'
 import { ThreadPanel } from '@/components/thread/ThreadPanel'
+import { ChannelMembersPanel } from '@/components/channel/ChannelMembersPanel'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 export function DetailPanel() {
@@ -20,11 +21,7 @@ export function DetailPanel() {
       case 'screen-share':
         return <ScreenSharePanel />
       case 'members':
-        return (
-          <div className="flex h-full items-center justify-center text-sm text-neutral-400">
-            멤버 패널 (준비 중)
-          </div>
-        )
+        return <ChannelMembersPanel />
       case 'thread':
         return <ThreadPanel />
       default:

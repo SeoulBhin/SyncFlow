@@ -1,11 +1,13 @@
 import { create } from 'zustand'
 import { apiJson } from '@/lib/api'
+import { useAuthStore } from '@/stores/useAuthStore'
 import type {
   ApiMeeting,
   ApiMeetingActionItem,
   ApiMeetingSummary,
   ApiMeetingTranscript,
   EndMeetingResponse,
+  LeaveMeetingResponse,
   UploadAudioResponse,
 } from '@/types'
 
@@ -96,6 +98,13 @@ interface MeetingState {
     data: Partial<Pick<ApiMeetingActionItem, 'title' | 'assignee' | 'dueDate'>>,
   ) => Promise<ApiMeetingActionItem>
   confirmActionItems: (meetingId: string, actionItemIds: string[]) => Promise<ApiMeetingActionItem[]>
+  joinMeetingApi: (meetingId: string) => Promise<void>
+  leaveMeetingApi: (
+    meetingId: string,
+    opts?: { remainingParticipantIds?: string[]; isLastParticipant?: boolean },
+  ) => Promise<LeaveMeetingResponse>
+  setCurrentMeeting: (meeting: ApiMeeting) => void
+  refreshCurrentMeeting: (meetingId: string) => Promise<void>
 }
 
 // ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -195,6 +204,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       isMuted: false,
       isScreenSharing: false,
       isRecording: false,
+      currentMeeting: null,
     }),
 
   addRealtimeTranscript: (entry) =>
@@ -216,6 +226,24 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   // ── API 액션 ───────────────────────────────────────────────────────────────
 
   createMeeting: async (title, opts) => {
+    // localStorage.accessToken의 JWT sub와 authStore.user.id가 다르면 fetchMe로 동기화.
+    // 다중 탭 환경에서 다른 계정의 token refresh가 localStorage를 오염시켰을 때 hostId 역전을 방지.
+    const authUser = useAuthStore.getState().user
+    const rawToken = localStorage.getItem('accessToken')
+    if (authUser && rawToken) {
+      try {
+        const payload = JSON.parse(atob(rawToken.split('.')[1])) as { sub?: string }
+        if (payload.sub && payload.sub !== authUser.id) {
+          await useAuthStore.getState().fetchMe()
+          if (!useAuthStore.getState().user) {
+            throw new Error('인증 정보가 유효하지 않습니다. 다시 로그인해주세요.')
+          }
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message.includes('인증')) throw e
+      }
+    }
+
     const meeting = await apiJson<ApiMeeting>('/api/meetings', {
       method: 'POST',
       body: JSON.stringify({
@@ -325,7 +353,8 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   },
 
   loadMeeting: async (meetingId) => {
-    set({ isLoading: true, error: null })
+    // currentMeeting을 먼저 null로 초기화 — 이전 회의의 stale hostId가 isHost를 오염시키는 것 방지
+    set({ isLoading: true, error: null, currentMeeting: null })
     try {
       const [meeting, transcripts, summary, actionItems] = await Promise.all([
         apiJson<ApiMeeting>(`/api/meetings/${meetingId}`),
@@ -396,6 +425,60 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       actionItems: toActionItems(next),
     })
     return updated
+  },
+
+  joinMeetingApi: async (meetingId) => {
+    const data = await apiJson<{ ok: boolean; meeting: ApiMeeting }>(
+      `/api/meetings/${meetingId}/join`,
+      { method: 'POST', body: JSON.stringify({}) },
+    )
+    set((s) => ({
+      currentMeeting: data.meeting,
+      meetings: s.meetings.map((m) => (m.id === data.meeting.id ? data.meeting : m)),
+    }))
+  },
+
+  leaveMeetingApi: async (meetingId, opts = {}) => {
+    const data = await apiJson<LeaveMeetingResponse>(`/api/meetings/${meetingId}/leave`, {
+      method: 'POST',
+      body: JSON.stringify(opts),
+    })
+    if (data.isEnded) {
+      set((s) => ({
+        currentMeeting: data.meeting,
+        currentSummary: data.summary ?? s.currentSummary,
+        currentActionItems: data.actionItems ?? s.currentActionItems,
+        meetings: s.meetings.map((m) => (m.id === data.meeting.id ? data.meeting : m)),
+        aiNotes: data.summary ? [data.summary.summary] : s.aiNotes,
+        actionItems: data.actionItems ? toActionItems(data.actionItems) : s.actionItems,
+      }))
+    } else if (data.newHostId) {
+      set((s) => ({
+        currentMeeting: data.meeting,
+        meetings: s.meetings.map((m) => (m.id === data.meeting.id ? data.meeting : m)),
+      }))
+    }
+    return data
+  },
+
+  setCurrentMeeting: (meeting) =>
+    set((s) => ({
+      currentMeeting: meeting,
+      meetings: s.meetings.map((m) => (m.id === meeting.id ? meeting : m)),
+    })),
+
+  refreshCurrentMeeting: async (meetingId) => {
+    try {
+      const meeting = await apiJson<ApiMeeting>(`/api/meetings/${meetingId}`)
+      console.log('[Meeting] refreshCurrentMeeting 완료', { meetingId, hostId: meeting.hostId })
+      set((s) => ({
+        currentMeeting: meeting,
+        meetings: s.meetings.map((m) => (m.id === meeting.id ? meeting : m)),
+      }))
+    } catch (err) {
+      console.warn('[Meeting] refreshCurrentMeeting 실패', err)
+      // 네트워크 실패 시 무시 — 다음 ParticipantDisconnected에서 재시도
+    }
   },
 
   confirmActionItems: async (meetingId, actionItemIds) => {

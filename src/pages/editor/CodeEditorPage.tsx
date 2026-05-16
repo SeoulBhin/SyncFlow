@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef, useMemo } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useLocation } from 'react-router-dom'
 import Editor from '@monaco-editor/react'
 import type { editor as MonacoEditor } from 'monaco-editor'
 import {
@@ -26,7 +26,8 @@ import { PresenceAvatars } from '@/components/editor/PresenceAvatars'
 import { useToastStore } from '@/stores/useToastStore'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { useAuthStore } from '@/stores/useAuthStore'
-import { MOCK_PAGES, MOCK_PROJECTS } from '@/constants'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { api } from '@/utils/api'
 import { apiFetch } from '@/lib/api'
 
 const PRESENCE_COLORS = ['#958DF1', '#F98181', '#FBBC88', '#70CFF8', '#94FADB', '#B9F18D', '#F9A8D4']
@@ -95,21 +96,73 @@ body {
 `,
 }
 
+interface CodePageData {
+  id: string
+  name: string | null
+  channelId: string | null
+  content: string | null
+}
+
 export function CodeEditorPage() {
   const { pageId } = useParams()
   const navigate = useNavigate()
+  const location = useLocation()
+  const isPopupMode = new URLSearchParams(location.search).get('popup') === '1'
   const addToast = useToastStore((s) => s.addToast)
   const { resolvedTheme } = useThemeStore()
+  const { activeGroupId } = useGroupContextStore()
   const editorRef = useRef<MonacoEditor.IStandaloneCodeEditor | null>(null)
   const cancelledRef = useRef(false)
 
-  const page = MOCK_PAGES.find((p) => p.id === pageId) ?? {
-    id: pageId ?? 'unknown',
-    name: '새 코드',
-    type: 'code' as const,
-    projectId: 'p1',
+  const [page, setPage] = useState<CodePageData | null>(null)
+  const [pageLoading, setPageLoading] = useState(true)
+  const [pageError, setPageError] = useState<string | null>(null)
+
+  useEffect(() => {
+    if (!pageId) {
+      setPageLoading(false)
+      setPageError('페이지 ID가 없습니다.')
+      return
+    }
+    let cancelled = false
+    setPageLoading(true)
+    setPageError(null)
+    api
+      .get<CodePageData>(`/document/${pageId}`)
+      .then((data) => {
+        if (cancelled) return
+        setPage({
+          id: data.id,
+          name: data.name ?? '새 코드',
+          channelId: data.channelId,
+          content: data.content,
+        })
+      })
+      .catch((err: Error) => {
+        if (cancelled) return
+        setPageError(err.message ?? '코드 파일을 불러오지 못했습니다.')
+      })
+      .finally(() => {
+        if (!cancelled) setPageLoading(false)
+      })
+    return () => { cancelled = true }
+  }, [pageId])
+
+  const handleBack = () => {
+    if (isPopupMode) {
+      window.close()
+      return
+    }
+    if (page?.channelId) {
+      navigate(`/app/channel/${page.channelId}`)
+      return
+    }
+    if (activeGroupId) {
+      navigate(`/app/channel/${activeGroupId}`)
+      return
+    }
+    navigate('/app/messages')
   }
-  const project = MOCK_PROJECTS.find((p) => p.id === page.projectId)
 
   const [language, setLanguage] = useState<LanguageOption>(LANGUAGES[0])
   const [codeMap, setCodeMap] = useState<Record<string, string>>(DEFAULT_CODE_SAMPLES)
@@ -389,18 +442,18 @@ export function CodeEditorPage() {
       <div className="flex items-center justify-between border-b border-neutral-200 bg-surface px-4 py-2 dark:border-neutral-700 dark:bg-surface-dark-elevated">
         <div className="flex items-center gap-3">
           <button
-            onClick={() => navigate(-1)}
+            onClick={handleBack}
             className="rounded p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-            title="뒤로 가기"
+            title={isPopupMode ? '창 닫기' : '뒤로 가기'}
           >
-            <ArrowLeft size={18} />
+            {isPopupMode ? <X size={18} /> : <ArrowLeft size={18} />}
           </button>
           <div>
             <h1 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-              {page.name}
+              {pageLoading ? '불러오는 중…' : pageError ? '코드 파일을 찾을 수 없습니다' : (page?.name ?? '새 코드')}
             </h1>
-            {project && (
-              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">{project.name}</p>
+            {isPopupMode && (
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">협업코드 — 회의 팝업</p>
             )}
           </div>
         </div>
@@ -486,7 +539,22 @@ export function CodeEditorPage() {
         </div>
       </div>
 
+      {/* 페이지 로드 에러 */}
+      {pageError && (
+        <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
+          <CloudOff size={32} className="text-neutral-400" />
+          <p className="text-sm text-neutral-600 dark:text-neutral-300">{pageError}</p>
+          <button
+            onClick={handleBack}
+            className="rounded bg-primary-500 px-4 py-1.5 text-xs text-white hover:bg-primary-600"
+          >
+            돌아가기
+          </button>
+        </div>
+      )}
+
       {/* 에디터 + 미리보기 + 콘솔 */}
+      {!pageError && (
       <div className="flex flex-1 flex-col overflow-hidden">
         {/* Monaco Editor */}
         <div className="flex-1 overflow-hidden">
@@ -555,6 +623,7 @@ export function CodeEditorPage() {
         {/* 콘솔 패널 */}
         <ConsolePanel outputs={outputs} onClear={() => setOutputs([])} />
       </div>
+      )}
     </div>
   )
 }

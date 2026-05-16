@@ -99,11 +99,11 @@ export function MeetingSummaryPage() {
     }
   }, [id, loadMeeting])
 
-  // A-4: 회의가 ended인데 summary가 아직 null이면 3초 간격 폴링 (최대 10회 = 30초)
-  // Gemini API 처리 시간 동안 사용자에게 "AI 처리 중" 상태를 명확히 안내
+  // 회의가 ended인데 summary가 null이고 transcript가 있으면 Gemini 처리 중으로 간주해 폴링.
+  // transcript가 없으면 백엔드에서 Gemini를 호출하지 않으므로 폴링하지 않는다.
   useEffect(() => {
     if (!id) return
-    if (meeting?.status !== 'ended' || summary !== null) {
+    if (meeting?.status !== 'ended' || summary !== null || transcripts.length === 0) {
       if (pollRef.current) {
         clearInterval(pollRef.current)
         pollRef.current = null
@@ -135,7 +135,7 @@ export function MeetingSummaryPage() {
         setIsPolling(false)
       }
     }
-  }, [id, meeting?.status, summary, loadMeeting])
+  }, [id, meeting?.status, summary, transcripts.length, loadMeeting])
 
   // 등록된 액션아이템 동기화 (서버에서 confirmed=true로 표시된 항목)
   useEffect(() => {
@@ -341,7 +341,7 @@ export function MeetingSummaryPage() {
       <div className="grid gap-6 lg:grid-cols-3">
         {/* 좌측 2열 */}
         <div className="space-y-6 lg:col-span-2">
-          {/* AI 요약 — 처리 중이면 폴링 배너 표시 */}
+          {/* AI 요약 */}
           {summary ? (
             <Card>
               <div className="mb-3 flex items-center gap-2">
@@ -354,7 +354,18 @@ export function MeetingSummaryPage() {
                 {summary.summary}
               </p>
             </Card>
+          ) : meeting?.status === 'ended' && transcripts.length === 0 ? (
+            // 트랜스크립트 없음 → 백엔드가 Gemini를 호출하지 않은 것이 확실
+            <Card>
+              <div className="flex items-center gap-3 py-2">
+                <FileText size={18} className="shrink-0 text-neutral-400" />
+                <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                  회의 내용이 없어 AI 회의록을 생성하지 않았습니다.
+                </p>
+              </div>
+            </Card>
           ) : meeting?.status === 'ended' && isPolling ? (
+            // 트랜스크립트는 있지만 summary가 아직 null → Gemini 처리 중
             <Card>
               <div className="flex items-center gap-3 py-2">
                 <Loader2 size={18} className="shrink-0 animate-spin text-primary-500" />

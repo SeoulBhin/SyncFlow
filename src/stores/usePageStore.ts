@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { api } from '@/utils/api'
+import { useSidebarStore } from '@/stores/useSidebarStore'
 
 export interface RealPage {
   id: string
@@ -56,10 +57,17 @@ export const usePageStore = create<PageState>((set, get) => ({
         loadingProjectId: null,
       })
     } catch (err) {
-      set({
-        loadingProjectId: null,
-        error: err instanceof Error ? err.message : '페이지 목록을 불러올 수 없습니다',
-      })
+      const msg = err instanceof Error ? err.message : ''
+      // 404는 DB 초기화 후 stale projectId 호출로 판단 — sidebar persist 초기화 후 조용히 무시
+      if (msg.includes('404') || msg.toLowerCase().includes('not found')) {
+        useSidebarStore.getState().clearSelection()
+        set({ pages: [], loadingProjectId: null, error: null })
+      } else {
+        set({
+          loadingProjectId: null,
+          error: msg || '페이지 목록을 불러올 수 없습니다',
+        })
+      }
     }
   },
 

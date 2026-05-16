@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { io, type Socket } from 'socket.io-client'
 import {
@@ -9,6 +9,7 @@ import {
   MessageSquare,
   FileText,
   PhoneOff,
+  LogOut,
   Clock,
   Video,
   CircleDot,
@@ -16,7 +17,10 @@ import {
   CameraOff,
   Upload,
   Loader2,
+  FolderOpen,
 } from 'lucide-react'
+import { RoomEvent } from 'livekit-client'
+import { room } from '@/lib/livekitRoom'
 import { cn } from '@/utils/cn'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
@@ -27,6 +31,9 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { MeetingParticipants } from '@/components/meeting/MeetingParticipants'
 import { MeetingTranscript } from '@/components/meeting/MeetingTranscript'
 import { MeetingNotes } from '@/components/meeting/MeetingNotes'
+import { CollabResourceModal } from '@/components/meeting/CollabResourceModal'
+import { MeetingMediaGrid, type MeetingMediaItem } from '@/components/meeting/MeetingMediaGrid'
+import type { ApiMeeting } from '@/types'
 
 function formatTime(seconds: number) {
   const h = Math.floor(seconds / 3600)
@@ -36,73 +43,13 @@ function formatTime(seconds: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-// roomName 생성 규칙: voice-{groupId}
-// 방1(ch1) → voice-ch1, 방2(ch2) → voice-ch2 로 완전 분리됨
 function makeRoomName(groupId: string) {
   return `voice-${groupId}`
 }
 
-const THUMB_COLORS = [
-  'bg-primary-400', 'bg-violet-400', 'bg-emerald-400',
-  'bg-orange-400', 'bg-pink-400', 'bg-cyan-400',
-]
 
-interface ThumbParticipant {
-  id: string
-  name: string
-  cameraStream: MediaStream | null
-  isLocal: boolean
-  isSpeaking: boolean
-  isMuted: boolean
-}
-
-function ParticipantThumb({ p, index }: { p: ThumbParticipant; index: number }) {
-  const videoRef = useRef<HTMLVideoElement>(null)
-
-  useEffect(() => {
-    const video = videoRef.current
-    if (!video) return
-    video.srcObject = p.cameraStream ?? null
-  }, [p.cameraStream])
-
-  return (
-    <div
-      className={cn(
-        'relative flex h-full w-28 shrink-0 items-center justify-center overflow-hidden rounded-lg',
-        p.isSpeaking && !p.isMuted
-          ? 'ring-2 ring-green-400'
-          : 'ring-1 ring-neutral-600',
-        'bg-neutral-700',
-      )}
-    >
-      {p.cameraStream ? (
-        <video
-          ref={videoRef}
-          autoPlay
-          playsInline
-          muted={p.isLocal}
-          className="h-full w-full object-cover"
-        />
-      ) : (
-        <div
-          className={cn(
-            'flex h-12 w-12 items-center justify-center rounded-full text-base font-bold text-white',
-            THUMB_COLORS[index % THUMB_COLORS.length],
-          )}
-        >
-          {p.name[0]}
-        </div>
-      )}
-      <p className="absolute bottom-1 left-0 right-0 truncate px-1 text-center text-[11px] text-white drop-shadow">
-        {p.name}
-      </p>
-    </div>
-  )
-}
 
 export function MeetingRoomPage() {
-  // 라우트 :id 는 createMeeting()이 반환한 백엔드 meetingId (UUID)
-  // LiveKit 룸 키로도 그대로 사용 → 각 회의가 독립 룸을 가짐
   const { id: meetingId } = useParams<{ id: string }>()
   const groupId = meetingId
   const navigate = useNavigate()
@@ -114,29 +61,98 @@ export function MeetingRoomPage() {
 
   const authUser = useAuthStore((s) => s.user)
   const [elapsed, setElapsed] = useState(0)
+  const [showEndConfirm, setShowEndConfirm] = useState(false)
+  const [showCollabModal, setShowCollabModal] = useState(false)
+
+  // ── 미디어 그리드 상태 ──────────────────────────────────────────────────────
+  const [selectedMediaId, setSelectedMediaId] = useState<string | null>(null)
+  const [userPinnedId, setUserPinnedId] = useState<string | null>(null)
+  const [viewMode, setViewMode] = useState<'presenter' | 'grid'>('presenter')
+
+  // 호스트 여부 — 3중 guard:
+  // 1) currentMeeting.id === meetingId (이전 회의 stale 방지)
+  // 2) hostId non-null (null === undefined 로 모든 사람이 host가 되는 오탐 방지)
+  // 3) hostId === authUser.id
+  const isHost =
+    !!meetingId &&
+    meeting.currentMeeting?.id === meetingId &&
+    !!meeting.currentMeeting?.hostId &&
+    meeting.currentMeeting?.hostId === authUser?.id
+
+  // ── 미디어 아이템 목록 — 화면 공유(우선) + 웹캠 ──────────────────────────────
+  const mediaItems = useMemo<MeetingMediaItem[]>(() => {
+    const screenItems: MeetingMediaItem[] = Object.entries(screenShare.screenStreams).map(
+      ([pid, entry]) => ({
+        id: `${pid}:screen`,
+        participantId: pid,
+        participantName: entry.name,
+        kind: 'screen',
+        stream: entry.stream,
+        isLocal: pid === authUser?.id || pid === room.localParticipant.identity,
+        startedAt: entry.startedAt,
+      }),
+    )
+    const cameraItems: MeetingMediaItem[] = voiceChat.participants
+      .filter((p) => p.cameraStream)
+      .map((p) => ({
+        id: `${p.id}:camera`,
+        participantId: p.id,
+        participantName: p.name,
+        kind: 'camera',
+        stream: p.cameraStream!,
+        isLocal: p.isLocal,
+        startedAt: 0,
+      }))
+    // 화면 공유 → 최신 순, 웹캠 → 참가자 순
+    return [
+      ...screenItems.sort((a, b) => b.startedAt - a.startedAt),
+      ...cameraItems,
+    ]
+  }, [screenShare.screenStreams, voiceChat.participants, authUser?.id])
+
+  // 자동 선택: 사용자 고정 없을 때 화면 공유 우선 자동 선택, 종료 시 다음 아이템 선택
+  const mediaItemKey = mediaItems.map((i) => i.id).join(',')
+  useEffect(() => {
+    // 선택된 미디어가 사라진 경우 → 고정 해제 + 다음 선택
+    if (selectedMediaId && !mediaItems.find((i) => i.id === selectedMediaId)) {
+      setUserPinnedId(null)
+      const next = mediaItems.find((i) => i.kind === 'screen') ?? mediaItems[0]
+      setSelectedMediaId(next?.id ?? null)
+      return
+    }
+    // 미선택 + 고정 없음 → 자동 선택
+    if (!selectedMediaId && !userPinnedId && mediaItems.length > 0) {
+      const next = mediaItems.find((i) => i.kind === 'screen') ?? mediaItems[0]
+      setSelectedMediaId(next?.id ?? null)
+    }
+    // 새 화면 공유 시작 + 고정 없음 → 새 화면 공유로 자동 전환
+    if (!userPinnedId && mediaItems.length > 0) {
+      const topScreen = mediaItems.find((i) => i.kind === 'screen')
+      if (topScreen && selectedMediaId !== topScreen.id) {
+        const currentIsScreen = mediaItems.find(
+          (i) => i.id === selectedMediaId && i.kind === 'screen',
+        )
+        if (!currentIsScreen) setSelectedMediaId(topScreen.id)
+      }
+    }
+  }, [mediaItemKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [isUploading, setIsUploading] = useState(false)
   const uploadProgress = useMeetingStore((s) => s.uploadProgress)
   const addRealtimeTranscript = useMeetingStore((s) => s.addRealtimeTranscript)
 
-  // 실시간 STT용 refs (언마운트/STT 종료 시 정리)
   const sttSocketRef = useRef<Socket | null>(null)
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioStreamRef = useRef<MediaStream | null>(null)
 
-  // 녹화용 refs
   const recordingRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
   const recordingMicStreamRef = useRef<MediaStream | null>(null)
 
-  // 화면공유 video ref
-  const screenVideoRef = useRef<HTMLVideoElement>(null)
-
   const groupName = activeGroupName ?? groupId ?? '회의'
 
-  // 진입 시: 백엔드 회의 메타데이터 로드 → 성공해야 LiveKit 토큰 발급/연결 시도
-  // 메타데이터 fetch 실패(예: 잘못된 meetingId, 인증 만료)면 LiveKit 연결도 차단됨
+  // 진입 시 회의 메타데이터 로드 → LiveKit 연결
   useEffect(() => {
     if (!meetingId) return
     let cancelled = false
@@ -145,8 +161,43 @@ export function MeetingRoomPage() {
       try {
         await meeting.loadMeeting(meetingId)
         if (cancelled) return
-        // loadMeeting 이 error 를 store 에 세팅하면 connect 스킵
         if (useMeetingStore.getState().error) return
+
+        // DB에 참가자 등록 (동적 입장자도 meeting_participants에 upsert)
+        // 호스트 이전 후보 계산에 반드시 필요
+        await meeting.joinMeetingApi(meetingId)
+        if (cancelled) return
+
+        // ── [HOST DEBUG] 원인 검증용 로그 ─────────────────────────────────────
+        // hostId / authUserId / tokenSub 3값이 모두 일치하면 정상.
+        // tokenSub ≠ authUserId → tryRefreshToken 후 authStore.user 미갱신 (api.ts 버그)
+        // hostId ≠ authUserId  → createMeeting이 다른 계정으로 실행된 것
+        (() => {
+          const s = useMeetingStore.getState()
+          const u = useAuthStore.getState().user
+          let tokenSub: string | null = null
+          try {
+            const raw = localStorage.getItem('accessToken')
+            if (raw) tokenSub = (JSON.parse(atob(raw.split('.')[1])) as { sub?: string }).sub ?? null
+          } catch { /* ignore */ }
+          console.log('[HOST DEBUG] joinMeetingApi 완료', {
+            hostId:      s.currentMeeting?.hostId ?? null,
+            authUserId:  u?.id ?? null,
+            authUserName: u?.name ?? null,
+            tokenSub,
+            match_host_vs_auth: s.currentMeeting?.hostId === u?.id,
+            match_token_vs_auth: tokenSub === u?.id,
+          })
+        })()
+        // ── [HOST DEBUG] end ──────────────────────────────────────────────────
+
+        // fetchMe race condition 방지: page refresh 후 직접 URL 접근 시 user가 null일 수 있음.
+        // user가 null이면 voiceChat.connect() 내부에서 guest-UUID identity를 사용하게 되어
+        // LiveKit 이름 오표시 + 호스트 이전 매칭 실패가 발생하므로 반드시 대기.
+        if (!useAuthStore.getState().user) {
+          await useAuthStore.getState().fetchMe()
+        }
+        if (cancelled) return
 
         await voiceChat.connect(meetingId, groupName)
         if (cancelled) return
@@ -168,35 +219,82 @@ export function MeetingRoomPage() {
       void voiceChat.disconnect()
       meeting.endMeeting()
     }
-    // meetingId 가 바뀌면(방 전환) cleanup → 새 방 연결
   }, [meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 회의 타이머 — 페이지 진입 즉시 시작, meetingId 변경 시 리셋
+  // 회의 타이머
   useEffect(() => {
     setElapsed(0)
     const interval = setInterval(() => setElapsed((s) => s + 1), 1000)
     return () => clearInterval(interval)
   }, [meetingId])
 
-  // 화면공유 스트림 → video 요소 연결
+  // LiveKit 데이터 채널 수신 — meeting:end / meeting:host-transfer 처리 (fast path)
+  // Store.getState() 사용 → 클로저 stale 없음, deps = 안정적인 ref만 포함
   useEffect(() => {
-    const video = screenVideoRef.current
-    if (!video) return
-    video.srcObject = screenShare.screenStream
-    if (screenShare.screenStream) void video.play().catch(() => {})
-  }, [screenShare.screenStream])
+    const handleDataReceived = (data: Uint8Array) => {
+      try {
+        const msg = JSON.parse(new TextDecoder().decode(data)) as {
+          type: string
+          meetingId?: string
+          meeting?: ApiMeeting
+        }
 
-  // LiveKit VoiceParticipant → MeetingParticipants 형식으로 변환
+        if (msg.type === 'meeting:end') {
+          console.log('[Meeting] meeting:end 수신 → 참가자 퇴장 처리')
+          void useVoiceChatStore.getState().disconnect()
+          useMeetingStore.getState().endMeeting()
+          addToast('info', '호스트가 회의를 종료했습니다')
+          navigate('/app/meetings')
+        } else if (msg.type === 'meeting:host-transfer' && msg.meeting) {
+          console.log('[Meeting] meeting:host-transfer 수신 → 새 hostId:', msg.meeting.hostId)
+          useMeetingStore.getState().setCurrentMeeting(msg.meeting)
+        }
+      } catch {
+        // ignore invalid data
+      }
+    }
+
+    room.on(RoomEvent.DataReceived, handleDataReceived)
+    return () => {
+      room.off(RoomEvent.DataReceived, handleDataReceived)
+    }
+  }, [addToast, navigate]) // addToast·navigate는 안정적 ref — 마운트 1회만 등록
+
+  // ParticipantDisconnected → 백엔드 재조회 fallback
+  // deps = [meetingId] 만 — meeting(전체 store 객체)을 넣으면 state 변경마다 리스너가
+  // remove→re-add 되어 이벤트 누락 가능. Store.getState()로 항상 최신 함수 접근.
+  useEffect(() => {
+    if (!meetingId) return
+    const handleParticipantDisconnected = () => {
+      console.log('[Meeting] ParticipantDisconnected → GET /api/meetings/', meetingId)
+      void useMeetingStore.getState().refreshCurrentMeeting(meetingId)
+    }
+    room.on(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
+    return () => {
+      room.off(RoomEvent.ParticipantDisconnected, handleParticipantDisconnected)
+    }
+  }, [meetingId]) // meetingId가 바뀔 때만 재등록
+
+  // [DEBUG] isHost / hostId 변화 로깅 — 버튼 표시 기준 추적용
+  useEffect(() => {
+    console.log('[Meeting] isHost 재계산', {
+      isHost,
+      currentMeetingId: meeting.currentMeeting?.id,
+      meetingId,
+      hostId: meeting.currentMeeting?.hostId,
+      authUserId: authUser?.id,
+    })
+  }, [isHost, meeting.currentMeeting?.hostId, meeting.currentMeeting?.id, authUser?.id, meetingId])
+
   const mappedParticipants = voiceChat.participants.map((p) => ({
     id: p.id,
     name: p.name,
-    position: authUser?.position ?? '',
+    position: p.isLocal ? (authUser?.position ?? '') : '',
     isMuted: p.isMuted,
     isSpeaking: p.isSpeaking,
     cameraStream: p.cameraStream,
     isLocal: p.isLocal,
   }))
-  // LiveKit 연결 전(빈 배열)이면 로컬 유저 placeholder 표시
   const participants = mappedParticipants.length > 0
     ? mappedParticipants
     : [{
@@ -213,7 +311,6 @@ export function MeetingRoomPage() {
     if (meeting.isRecording) {
       recordingRecorderRef.current?.stop()
       recordingRecorderRef.current = null
-      // 녹화 전용 마이크 스트림 정리
       recordingMicStreamRef.current?.getTracks().forEach((t) => t.stop())
       recordingMicStreamRef.current = null
       meeting.toggleRecording()
@@ -222,7 +319,6 @@ export function MeetingRoomPage() {
 
     const tracks: MediaStreamTrack[] = []
 
-    // 1순위: 화면공유 비디오 / 2순위: 로컬 카메라
     if (screenShare.screenStream) {
       screenShare.screenStream.getVideoTracks().forEach((t) => tracks.push(t))
     } else {
@@ -230,10 +326,9 @@ export function MeetingRoomPage() {
       localCam?.getVideoTracks().forEach((t) => tracks.push(t))
     }
 
-    // 마이크 오디오 (LiveKit mute 상태와 무관하게 별도 스트림으로 캡처)
     try {
       const micStream = await navigator.mediaDevices.getUserMedia({ audio: true, video: false })
-      recordingMicStreamRef.current = micStream   // 나중에 stop() 호출을 위해 보관
+      recordingMicStreamRef.current = micStream
       micStream.getAudioTracks().forEach((t) => tracks.push(t))
     } catch {
       // 마이크 권한 없으면 영상만 녹화
@@ -274,55 +369,6 @@ export function MeetingRoomPage() {
     meeting.toggleRecording()
   }, [meeting, screenShare, voiceChat.participants, meetingId, addToast])
 
-  const handleEnd = () => {
-    if (!meetingId) {
-      void voiceChat.disconnect()
-      meeting.endMeeting()
-      navigate('/app/meetings')
-      return
-    }
-    void voiceChat.disconnect()
-    // Gemini 회의록 생성은 fire-and-forget — summary 페이지에서 결과 폴링/refetch
-    void meeting.finalizeMeeting(meetingId).catch((err) => {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의 종료 처리 중 오류가 발생했습니다',
-      )
-    })
-    meeting.endMeeting()
-    navigate(`/app/meetings/${meetingId}/summary`)
-  }
-
-  // 임시 수동 업로드 — Phase 7에서 LiveKit 실시간 STT로 대체 예정
-  const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file || !meetingId) return
-
-    // LiveKit 참가자 목록으로 speakerMap 구성 (tag 1-based → 이름)
-    const speakerMap: Record<string, string> = {}
-    participants.forEach((p, idx) => {
-      if (p.name) speakerMap[String(idx + 1)] = p.name
-    })
-
-    setIsUploading(true)
-    try {
-      const result = await meeting.uploadAudio(meetingId, file, speakerMap)
-      addToast(
-        'success',
-        `STT 완료 — ${result.segments}개 세그먼트 추가됨`,
-      )
-      meeting.setActiveTab('transcript')
-    } catch (err) {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '오디오 업로드 실패',
-      )
-    } finally {
-      setIsUploading(false)
-      if (fileInputRef.current) fileInputRef.current.value = ''
-    }
-  }
-
   const stopRealtimeSTT = useCallback(() => {
     mediaRecorderRef.current?.stop()
     mediaRecorderRef.current = null
@@ -346,7 +392,6 @@ export function MeetingRoomPage() {
     audioStreamRef.current = stream
 
     const token = localStorage.getItem('accessToken')
-    // Vite proxy WebSocket이 Windows에서 불안정 → 백엔드로 직접 연결
     const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
     const socket: Socket = io(`${backendUrl}/meetings`, {
       path: '/socket.io',
@@ -354,16 +399,12 @@ export function MeetingRoomPage() {
     })
     sttSocketRef.current = socket
 
-    // speakerMap 구성 (Google STT speakerTag 1-based → 사용자 이름)
-    // 현재 로그인 유저를 항상 tag 1에 우선 고정 — 그래야 본인이 LiveKit 참여자
-    // 목록의 idx 0 이 아닐 때도 "tag 1 = me" 가 보장됨. 나머지 참여자는 tag 2~ 로.
     const speakerMap: Record<string, string> = {}
     if (authUser?.name) speakerMap['1'] = authUser.name
 
     let nextTag = authUser?.name ? 2 : 1
     voiceChat.participants.forEach((p) => {
       if (!p.name) return
-      // 본인은 이미 tag 1에 매핑됐으므로 스킵
       if (authUser?.name && p.name === authUser.name) return
       speakerMap[String(nextTag)] = p.name
       nextTag++
@@ -398,11 +439,9 @@ export function MeetingRoomPage() {
       }
     }
 
-    // 1초 단위 청크 전송
     recorder.start(1000)
   }, [addRealtimeTranscript, meeting, addToast, stopRealtimeSTT, voiceChat.participants])
 
-  // STT 토글 시 실시간 세션 시작/중지
   useEffect(() => {
     if (!meetingId) return
     if (meeting.sttEnabled) {
@@ -413,7 +452,6 @@ export function MeetingRoomPage() {
     return () => { if (!meeting.sttEnabled) stopRealtimeSTT() }
   }, [meeting.sttEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // 언마운트 시 STT·녹화 세션 정리
   useEffect(() => () => {
     stopRealtimeSTT()
     if (recordingRecorderRef.current?.state !== 'inactive') {
@@ -423,6 +461,122 @@ export function MeetingRoomPage() {
     recordingMicStreamRef.current?.getTracks().forEach((t) => t.stop())
     recordingMicStreamRef.current = null
   }, [stopRealtimeSTT])
+
+  // 나가기 — 모든 사용자. 호스트면 백엔드가 nextHost 결정 후 이전. 마지막이면 자동 종료.
+  const handleLeave = useCallback(async () => {
+    if (!meetingId) {
+      await voiceChat.disconnect()
+      meeting.endMeeting()
+      navigate('/app/meetings')
+      return
+    }
+
+    // LiveKit 기준 남은 원격 참가자 ID 목록 (나가는 본인 제외)
+    // 백엔드가 이 목록과 DB joinedAt을 교차해 nextHostId를 결정한다.
+    const remainingParticipants = voiceChat.participants.filter((p) => !p.isLocal)
+    const remainingParticipantIds = remainingParticipants.map((p) => p.id)
+    const isLastPerson = remainingParticipantIds.length === 0
+
+    console.log('[Meeting] handleLeave 시작', {
+      leavingUserId: authUser?.id,
+      currentHostId: meeting.currentMeeting?.hostId,
+      isHost,
+      remainingParticipantIds,
+      isLastPerson,
+    })
+
+    if (meeting.sttEnabled) stopRealtimeSTT()
+
+    let isEnded = false
+    try {
+      const result = await meeting.leaveMeetingApi(meetingId, {
+        remainingParticipantIds,
+        isLastParticipant: isLastPerson,
+      })
+      isEnded = result.isEnded
+
+      console.log('[Meeting] leaveMeetingApi 응답', {
+        isEnded: result.isEnded,
+        newHostId: result.newHostId,
+        meetingHostId: result.meeting?.hostId,
+      })
+
+      // 호스트 이전 성공 → 데이터채널로 fast-path 전달 (fallback은 ParticipantDisconnected 재조회)
+      if (!result.isEnded && result.newHostId && result.meeting) {
+        try {
+          const payload = new TextEncoder().encode(
+            JSON.stringify({ type: 'meeting:host-transfer', meeting: result.meeting }),
+          )
+          await room.localParticipant.publishData(payload, { reliable: true })
+          console.log('[Meeting] meeting:host-transfer 전송 완료 → 200ms 대기 후 disconnect')
+          // 메시지 전파 여유 시간 — disconnect 전 최소 대기
+          await new Promise<void>((resolve) => setTimeout(resolve, 200))
+        } catch {
+          // 데이터채널 실패해도 ParticipantDisconnected fallback이 처리함
+          console.warn('[Meeting] meeting:host-transfer 데이터채널 전송 실패 (fallback 동작 예정)')
+        }
+      }
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : '나가기 처리 실패')
+    }
+
+    await voiceChat.disconnect()
+    meeting.endMeeting()
+
+    if (isEnded) {
+      navigate(`/app/meetings/${meetingId}/summary`)
+    } else {
+      navigate('/app/meetings')
+    }
+  }, [meetingId, voiceChat, meeting, stopRealtimeSTT, addToast, navigate])
+
+  // 회의 종료 — 호스트 전용. 전원 퇴장 브로드캐스트 후 AI 회의록 생성.
+  const handleEndMeeting = useCallback(async () => {
+    if (!meetingId) return
+
+    // 1. 모든 참가자에게 종료 신호 전송 (LiveKit 데이터 채널)
+    try {
+      const payload = new TextEncoder().encode(
+        JSON.stringify({ type: 'meeting:end', meetingId }),
+      )
+      await room.localParticipant.publishData(payload, { reliable: true })
+    } catch {
+      // 데이터 채널 실패해도 종료 계속
+    }
+
+    if (meeting.sttEnabled) stopRealtimeSTT()
+    await voiceChat.disconnect()
+
+    // 2. AI 회의록 생성 (fire-and-forget — summary 페이지에서 결과 확인)
+    void meeting.finalizeMeeting(meetingId).catch((err) => {
+      addToast('error', err instanceof Error ? err.message : '회의 종료 처리 중 오류가 발생했습니다')
+    })
+
+    meeting.endMeeting()
+    navigate(`/app/meetings/${meetingId}/summary`)
+  }, [meetingId, voiceChat, meeting, stopRealtimeSTT, addToast, navigate])
+
+  const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file || !meetingId) return
+
+    const speakerMap: Record<string, string> = {}
+    participants.forEach((p, idx) => {
+      if (p.name) speakerMap[String(idx + 1)] = p.name
+    })
+
+    setIsUploading(true)
+    try {
+      const result = await meeting.uploadAudio(meetingId, file, speakerMap)
+      addToast('success', `STT 완료 — ${result.segments}개 세그먼트 추가됨`)
+      meeting.setActiveTab('transcript')
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : '오디오 업로드 실패')
+    } finally {
+      setIsUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
 
   const handleToggleMute = () => {
     void voiceChat.toggleMute()
@@ -498,47 +652,54 @@ export function MeetingRoomPage() {
           <span className="text-sm text-neutral-400">
             {voiceChat.participants.length}명 참석
           </span>
+
+          {/* 나가기 버튼 — 모든 참가자 */}
           <button
-            onClick={handleEnd}
-            className="flex items-center gap-1.5 rounded-lg bg-red-500 px-5 py-2.5 text-base font-medium text-white transition-colors hover:bg-red-600"
+            onClick={() => void handleLeave()}
+            className="flex items-center gap-1.5 rounded-lg bg-neutral-200 px-5 py-2.5 text-base font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
           >
-            <PhoneOff size={20} />
-            회의 종료
+            <LogOut size={20} />
+            {isHost ? '나가기 (호스트 이전)' : '나가기'}
           </button>
+
+          {/* 회의 종료 버튼 — 호스트 전용 */}
+          {isHost && (
+            <button
+              onClick={() => setShowEndConfirm(true)}
+              className="flex items-center gap-1.5 rounded-lg bg-red-500 px-5 py-2.5 text-base font-medium text-white transition-colors hover:bg-red-600"
+            >
+              <PhoneOff size={20} />
+              회의 종료
+            </button>
+          )}
         </div>
       </div>
 
       {/* 메인 영역 */}
       <div className="flex flex-1 overflow-hidden">
-        {/* 좌측: 메인 영역 — 화면공유 > 참여자 그리드 우선순위 */}
+        {/* 좌측: 미디어 그리드 (화면 공유 + 웹캠) 또는 참가자 아바타 */}
         <div className="flex flex-1 flex-col border-r border-neutral-200 dark:border-neutral-700">
-          {screenShare.screenStream ? (
-            /* 화면공유 활성: 큰 영역 + 하단 참여자 썸네일 */
-            <div className="flex flex-1 flex-col overflow-hidden">
-              <div className="relative flex-1 overflow-hidden bg-neutral-900">
-                <video
-                  ref={screenVideoRef}
-                  autoPlay
-                  muted
-                  playsInline
-                  className="h-full w-full object-contain"
-                />
-                <div className="absolute bottom-3 left-3 flex items-center gap-1.5 rounded-full bg-black/50 px-3 py-1">
-                  <Monitor size={12} className="text-white" />
-                  <span className="text-xs text-white">
-                    {screenShare.sharingUser?.name ?? '화면 공유 중'}
-                  </span>
-                </div>
-              </div>
-              {/* 참여자 썸네일 스트립 */}
-              <div className="flex h-36 shrink-0 gap-3 overflow-x-auto border-t border-neutral-700 bg-neutral-800 p-3">
-                {participants.map((p, i) => (
-                  <ParticipantThumb key={p.id} p={p} index={i} />
-                ))}
-              </div>
-            </div>
+          {mediaItems.length > 0 ? (
+            <MeetingMediaGrid
+              items={mediaItems}
+              selectedId={selectedMediaId}
+              isPinned={!!userPinnedId}
+              viewMode={viewMode}
+              onSelect={(id) => {
+                setSelectedMediaId(id)
+                setUserPinnedId(id)
+              }}
+              onUnpin={() => {
+                setUserPinnedId(null)
+                // 고정 해제 시 화면 공유 우선 자동 선택
+                const top = mediaItems.find((i) => i.kind === 'screen') ?? mediaItems[0]
+                setSelectedMediaId(top?.id ?? null)
+              }}
+              onToggleViewMode={() =>
+                setViewMode((v) => (v === 'presenter' ? 'grid' : 'presenter'))
+              }
+            />
           ) : (
-            /* 화면공유 없음: 참여자 그리드 (카메라 ON → video, OFF → avatar) */
             <MeetingParticipants participants={participants} />
           )}
 
@@ -603,6 +764,15 @@ export function MeetingRoomPage() {
             >
               {voiceChat.isCameraEnabled ? <CameraOff size={24} /> : <Camera size={24} />}
               {voiceChat.isCameraEnabled ? '웹캠 끄기' : '웹캠 켜기'}
+            </button>
+
+            {/* 협업 자료 열기 */}
+            <button
+              onClick={() => setShowCollabModal(true)}
+              className="flex items-center gap-2 rounded-xl bg-neutral-200 px-6 py-3.5 text-base font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+            >
+              <FolderOpen size={24} />
+              협업 자료
             </button>
 
             {/* 임시 오디오 업로드 (E2E 테스트용) — Phase 7 실시간 STT로 대체 예정 */}
@@ -675,6 +845,46 @@ export function MeetingRoomPage() {
           </div>
         </div>
       </div>
+
+      {/* 협업 자료 모달 */}
+      {showCollabModal && (
+        <CollabResourceModal
+          meetingProjectId={meeting.currentMeeting?.projectId ?? null}
+          meetingGroupId={meeting.currentMeeting?.groupId ?? null}
+          onClose={() => setShowCollabModal(false)}
+        />
+      )}
+
+      {/* 회의 종료 확인 모달 */}
+      {showEndConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-neutral-800">
+            <h3 className="mb-2 text-base font-semibold text-neutral-800 dark:text-neutral-100">
+              회의를 종료하시겠습니까?
+            </h3>
+            <p className="mb-5 text-sm text-neutral-500 dark:text-neutral-400">
+              회의를 종료하면 모든 참가자가 회의에서 나가게 됩니다. 정말 종료하시겠습니까?
+            </p>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setShowEndConfirm(false)}
+                className="flex-1 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-700"
+              >
+                취소
+              </button>
+              <button
+                onClick={() => {
+                  setShowEndConfirm(false)
+                  void handleEndMeeting()
+                }}
+                className="flex-1 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
+              >
+                회의 종료
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

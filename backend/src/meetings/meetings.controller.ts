@@ -145,6 +145,27 @@ export class MeetingsController {
     return this.meetingsService.endMeeting(id, user.userId)
   }
 
+  // 회의 입장 등록 — DB에 없는 동적 참가자도 meeting_participants에 upsert
+  @Post(':id/join')
+  @HttpCode(200)
+  joinMeeting(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.joinMeeting(id, user.userId, user.userName)
+  }
+
+  // 참가자 나가기 — 호스트 이전 및 빈 방 자동 종료 처리
+  @Post(':id/leave')
+  @HttpCode(200)
+  leaveMeeting(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { remainingParticipantIds?: string[]; isLastParticipant?: boolean },
+  ) {
+    return this.meetingsService.leaveMeeting(id, user.userId, {
+      remainingParticipantIds: body.remainingParticipantIds,
+      isLastParticipant: body.isLastParticipant,
+    })
+  }
+
   // 내가 접근 가능한 회의 목록 — 호스트 + 참여자로 지정된 회의 + 활성 조직의 공개 회의
   @Get('my')
   getMyMeetings(

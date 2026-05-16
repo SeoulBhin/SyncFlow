@@ -4,6 +4,12 @@ import { room, fetchToken } from '@/lib/livekitRoom'
 import { useAuthStore } from './useAuthStore'
 import { useDetailPanelStore } from './useDetailPanelStore'
 
+export interface ScreenStreamEntry {
+  stream: MediaStream
+  name: string
+  startedAt: number
+}
+
 interface ScreenShareState {
   isSharing: boolean
   sharingUser: { id: string; name: string } | null
@@ -11,8 +17,10 @@ interface ScreenShareState {
   showPanel: boolean
   sharingGroupId: string | null
   sharingGroupName: string | null
-  /** 화면 공유 스트림 - <video> srcObject에 사용 */
+  /** 화면 공유 스트림 - <video> srcObject에 사용 (ScreenSharePanel 하위 호환) */
   screenStream: MediaStream | null
+  /** 참가자별 화면 공유 스트림 맵 — key: participantIdentity */
+  screenStreams: Record<string, ScreenStreamEntry>
 
   startSharing: (groupId: string, groupName: string) => Promise<void>
   stopSharing: () => Promise<void>
@@ -28,24 +36,55 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
   room
     .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
       if (track.source === Track.Source.ScreenShare) {
-        set({
-          sharingUser: { id: participant.identity, name: participant.name || participant.identity },
+        const stream = new MediaStream([track.mediaStreamTrack])
+        const entry: ScreenStreamEntry = {
+          stream,
+          name: participant.name || participant.identity,
+          startedAt: Date.now(),
+        }
+        set((s) => ({
+          sharingUser: { id: participant.identity, name: entry.name },
           showPanel: true,
-          screenStream: new MediaStream([track.mediaStreamTrack]),
-        })
-        // 화면공유는 MeetingRoomPage 센터 영역에서 직접 렌더링
+          screenStream: stream,
+          screenStreams: { ...s.screenStreams, [participant.identity]: entry },
+        }))
       }
     })
     .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
       if (track.source === Track.Source.ScreenShare) {
-        const { sharingUser } = get()
-        if (sharingUser?.id === participant.identity) {
-          set({ sharingUser: null, showPanel: false, screenStream: null })
-          if (useDetailPanelStore.getState().activePanel === 'screen-share') {
-            useDetailPanelStore.getState().closePanel()
+        set((s) => {
+          const next = { ...s.screenStreams }
+          delete next[participant.identity]
+          const remaining = Object.entries(next)
+          return {
+            screenStreams: next,
+            screenStream: remaining.length > 0 ? remaining[0][1].stream : null,
+            sharingUser:
+              remaining.length > 0
+                ? { id: remaining[0][0], name: remaining[0][1].name }
+                : null,
+            showPanel: remaining.length > 0 || s.isSharing,
           }
+        })
+        if (!get().sharingUser && !get().isSharing &&
+            useDetailPanelStore.getState().activePanel === 'screen-share') {
+          useDetailPanelStore.getState().closePanel()
         }
       }
+    })
+    // 방 연결이 끊기면 (네트워크 단절 포함) 화면공유 UI 상태 초기화.
+    // localScreenTrack 정리는 mediaStreamTrack 'ended' 이벤트 → stopSharing()에서 처리.
+    .on(RoomEvent.Disconnected, () => {
+      set({
+        screenStream: null,
+        screenStreams: {},
+        isSharing: false,
+        sharingUser: null,
+        showPanel: false,
+        sharingGroupId: null,
+        sharingGroupName: null,
+        isFollowMe: false,
+      })
     })
 
   return {
@@ -56,6 +95,7 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
     sharingGroupId: null,
     sharingGroupName: null,
     screenStream: null,
+    screenStreams: {},
 
     startSharing: async (groupId, groupName) => {
       try {
@@ -74,15 +114,21 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
 
         const authUser = useAuthStore.getState().user
         const stream = new MediaStream([localScreenTrack.mediaStreamTrack])
+        const localIdentity = room.localParticipant.identity
+        const localName = authUser?.name ?? 'Me'
 
-        set({
+        set((s) => ({
           isSharing: true,
-          sharingUser: { id: authUser?.id ?? 'local', name: authUser?.name ?? 'Me' },
+          sharingUser: { id: authUser?.id ?? 'local', name: localName },
           showPanel: true,
           sharingGroupId: groupId,
           sharingGroupName: groupName,
           screenStream: stream,
-        })
+          screenStreams: {
+            ...s.screenStreams,
+            [localIdentity]: { stream, name: localName, startedAt: Date.now() },
+          },
+        }))
 
         // 브라우저 기본 '공유 중지' 버튼을 눌렀을 때 처리
         localScreenTrack.mediaStreamTrack.addEventListener('ended', () => {
@@ -94,8 +140,18 @@ export const useScreenShareStore = create<ScreenShareState>((set, get) => {
     },
 
     stopSharing: async () => {
-      // 비디오 요소를 즉시 숨겨 검은 화면을 방지
-      set({ screenStream: null, isSharing: false })
+      // 로컬 스트림 즉시 제거 (검은 화면 방지)
+      const localIdentity = room.localParticipant.identity
+      set((s) => {
+        const next = { ...s.screenStreams }
+        delete next[localIdentity]
+        const remaining = Object.entries(next)
+        return {
+          screenStream: remaining.length > 0 ? remaining[0][1].stream : null,
+          isSharing: false,
+          screenStreams: next,
+        }
+      })
 
       if (localScreenTrack) {
         const track = localScreenTrack

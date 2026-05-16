@@ -63,6 +63,9 @@ export class MeetingsService {
       participants?: { userId: string; userName: string }[]
     } = {},
   ) {
+    // [HOST DEBUG] 백엔드가 실제로 받은 hostId 확인 — JWT sub와 일치해야 함
+    this.logger.log(`[HOST DEBUG] createMeeting 진입 hostId="${hostId}" title="${title}"`)
+
     const { groupId, projectId, visibility = 'private', participants = [] } = options
     const meeting = this.meetingRepo.create({
       title,
@@ -300,8 +303,10 @@ export class MeetingsService {
       .join('\n')
 
     if (!fullText.trim()) {
+      this.logger.log(`[GEMINI SKIP] meetingId="${meetingId}" — 트랜스크립트 없음, Gemini 호출 생략`)
       return { meeting, summary: null, actionItems: [] }
     }
+    this.logger.log(`[GEMINI CALL] meetingId="${meetingId}" — transcript ${fullText.trim().length}자, Gemini 호출 시작`)
 
     // 3. Gemini 회의록 생성 — 실패해도 endMeeting 전체를 깨뜨리지 않음.
     //    AI가 다운/쿼터 초과/모델 변경 등으로 실패해도 회의는 'ended' 상태로 닫혀야 함.
@@ -349,6 +354,106 @@ export class MeetingsService {
     )
 
     return { meeting, summary, actionItems }
+  }
+
+  /**
+   * 참가자 나가기 — 백엔드가 직접 nextHostId 결정 (프론트 stale 방지).
+   * remainingParticipantIds: LiveKit에 현재 연결된 참가자 userId 목록 (나가는 본인 제외).
+   *   → DB joinedAt 순서로 정렬한 뒤 이 목록에 있는 첫 번째 사람이 새 호스트.
+   * isLastParticipant: 마지막 참가자이면 true → 빈 방 자동 종료.
+   * TODO: LiveKit Webhook(room_finished) 연동 시 isLastParticipant 판단을 서버로 이전 권장.
+   */
+  async leaveMeeting(
+    meetingId: string,
+    userId: string,
+    options: { remainingParticipantIds?: string[]; isLastParticipant?: boolean } = {},
+  ) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    // idempotent — 이미 종료된 회의
+    if (meeting.status === 'ended') {
+      return { isEnded: true, meeting }
+    }
+
+    const { remainingParticipantIds, isLastParticipant } = options
+
+    // 마지막 참가자 → 빈 방 자동 종료 (권한 체크 생략)
+    if (isLastParticipant) {
+      const result = await this.endMeeting(meetingId)
+      return { isEnded: true, meeting: result.meeting, summary: result.summary, actionItems: result.actionItems }
+    }
+
+    // 호스트가 나가는 경우 → 백엔드가 DB joinedAt 기준으로 다음 호스트 결정
+    const isHost = meeting.hostId === userId
+    if (isHost) {
+      const allParticipants = await this.participantRepo.find({
+        where: { meetingId },
+        order: { joinedAt: 'ASC' },
+      })
+
+      // 나가는 호스트 제외한 후보 목록 (joinedAt 오름차순)
+      const candidates = allParticipants.filter((p) => p.userId !== userId)
+
+      let nextHostId: string | null = null
+
+      if (remainingParticipantIds && remainingParticipantIds.length > 0) {
+        // 1순위: DB에 있고 현재 방에도 있는 참가자 (joinedAt 빠른 순)
+        const inRoom = candidates.find((p) => remainingParticipantIds.includes(p.userId))
+        if (inRoom) {
+          nextHostId = inRoom.userId
+        } else if (candidates.length > 0) {
+          // 2순위: DB에 있지만 방에 없는 참가자 (비상 백업)
+          nextHostId = candidates[0].userId
+        } else {
+          // 3순위: DB 미등록 참가자 — LiveKit identity(=userId UUID)를 직접 사용
+          // joinMeeting API를 통해 등록되지 않은 참가자 대비 fallback
+          const fallback = remainingParticipantIds.find((id) => UUID_RE.test(id))
+          nextHostId = fallback ?? null
+        }
+      } else if (candidates.length > 0) {
+        nextHostId = candidates[0].userId
+      }
+
+      if (nextHostId) {
+        meeting.hostId = nextHostId
+        const updated = await this.meetingRepo.save(meeting)
+        return { isEnded: false, newHostId: nextHostId, meeting: updated }
+      }
+    }
+
+    return { isEnded: false, meeting }
+  }
+
+  /**
+   * 참가자 등록 — LiveKit 입장 시 meeting_participants에 추가(upsert).
+   * 이 레코드가 있어야 호스트 나가기 시 해당 참가자가 nextHost 후보에 오른다.
+   */
+  async joinMeeting(meetingId: string, userId: string, userName: string) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    // [HOST DEBUG] joinMeeting 진입 — 요청 userId와 DB의 meeting.hostId 비교
+    this.logger.log(
+      `[HOST DEBUG] joinMeeting userId="${userId}" userName="${userName}" meeting.hostId="${meeting.hostId}" isHostJoining=${meeting.hostId === userId}`,
+    )
+
+    const existing = await this.participantRepo.findOne({ where: { meetingId, userId } })
+    if (!existing) {
+      await this.participantRepo.save(
+        this.participantRepo.create({ meetingId, userId, userName }),
+      )
+    } else if (userName && existing.userName !== userName) {
+      existing.userName = userName
+      await this.participantRepo.save(existing)
+    }
+
+    // [HOST DEBUG] 반환 직전 — 이 meeting.hostId가 프론트로 전달되는 값
+    this.logger.log(`[HOST DEBUG] joinMeeting 반환 meeting.hostId="${meeting.hostId}"`)
+
+    return { ok: true, meeting }
   }
 
   // 회의 상세 조회
