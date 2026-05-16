@@ -14,6 +14,16 @@ async function bootstrap() {
     prefix: '/uploads',
   });
 
+  // 코드 실행 결과 HTML에 보안 헤더 적용 — useStaticAssets 앞에 등록해야 적용됨
+  app.use('/code-runs', (_req: unknown, res: { setHeader: (k: string, v: string) => void }, next: () => void) => {
+    res.setHeader('X-Content-Type-Options', 'nosniff')
+    res.setHeader('Referrer-Policy', 'no-referrer')
+    // 사용자 작성 HTML/JS가 같은 origin 권한으로 실행되는 것을 제한
+    // allow-scripts는 iframe sandbox로 허용 — 백엔드 서빙 단에서도 이중 제한
+    res.setHeader('Content-Security-Policy', "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline';")
+    next()
+  })
+
   // Static file serving for HTML code-run results
   app.useStaticAssets(path.join(process.cwd(), 'code-runs'), {
     prefix: '/code-runs',

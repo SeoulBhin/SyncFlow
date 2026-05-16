@@ -1,6 +1,6 @@
 // backend/src/document/document.service.ts
 
-import { Injectable, OnModuleInit, NotFoundException } from '@nestjs/common';
+import { Injectable, OnModuleInit, NotFoundException, ForbiddenException } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import { DataSource, Repository } from 'typeorm';
 import { JwtService } from '@nestjs/jwt';
@@ -147,14 +147,17 @@ export class DocumentService implements OnModuleInit {
     })
   }
 
-  async deleteAttachment(attachmentId: string): Promise<{ ok: true }> {
+  async deleteAttachment(attachmentId: string, userId: string): Promise<{ ok: true }> {
     if (!this.UUID_RE.test(attachmentId)) {
       throw new NotFoundException('유효하지 않은 첨부 ID 입니다.')
     }
-    const result = await this.attachmentRepository.softDelete({ id: attachmentId })
-    if (!result.affected) {
-      throw new NotFoundException('첨부 파일을 찾을 수 없습니다.')
+    const attachment = await this.attachmentRepository.findOne({ where: { id: attachmentId } })
+    if (!attachment) throw new NotFoundException('첨부 파일을 찾을 수 없습니다.')
+    // uploadedBy가 기록된 경우에만 소유자 검증 (null은 레거시 데이터로 허용)
+    if (attachment.uploadedBy !== null && attachment.uploadedBy !== userId) {
+      throw new ForbiddenException('첨부 파일을 삭제할 권한이 없습니다.')
     }
+    await this.attachmentRepository.softDelete({ id: attachmentId })
     return { ok: true }
   }
 

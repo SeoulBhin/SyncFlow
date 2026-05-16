@@ -1,6 +1,8 @@
-import { Body, Controller, Logger, Post, UseGuards } from '@nestjs/common';
-import { IsNotEmpty, IsString } from 'class-validator';
+import { Body, Controller, Post, UseGuards } from '@nestjs/common';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { CurrentUser } from '../auth/decorators/current-user.decorator';
+import type { CurrentUserPayload } from '../auth/decorators/current-user.decorator';
 import { LiveKitService } from './livekit.service';
 
 class GenerateTokenDto {
@@ -8,9 +10,13 @@ class GenerateTokenDto {
   @IsNotEmpty()
   roomName: string;
 
+  /**
+   * 클라이언트에서 보낸 identity — 서버에서는 JWT userId로 대체되므로 무시됨.
+   * 하위 호환성을 위해 필드는 유지.
+   */
   @IsString()
-  @IsNotEmpty()
-  participantIdentity: string;
+  @IsOptional()
+  participantIdentity?: string;
 
   @IsString()
   @IsNotEmpty()
@@ -20,19 +26,14 @@ class GenerateTokenDto {
 @Controller('livekit')
 @UseGuards(JwtAuthGuard)
 export class LiveKitController {
-  private readonly logger = new Logger(LiveKitController.name);
-
   constructor(private readonly livekitService: LiveKitService) {}
 
   @Post('token')
-  generateToken(@Body() dto: GenerateTokenDto) {
-    this.logger.debug(
-      `POST /api/livekit/token — roomName="${dto.roomName}" identity="${dto.participantIdentity}" name="${dto.participantName}"`,
-    );
-    return this.livekitService.generateToken(
-      dto.roomName,
-      dto.participantIdentity,
-      dto.participantName,
-    );
+  async generateToken(
+    @Body() dto: GenerateTokenDto,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    // participantIdentity(클라이언트 제공)는 무시하고 JWT userId를 identity로 사용
+    return this.livekitService.generateToken(dto.roomName, dto.participantName, user.userId)
   }
 }
