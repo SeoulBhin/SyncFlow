@@ -47,3 +47,11 @@ export const useAuthStore = create<AuthState>()((set) => ({
     }
   },
 }))
+
+// api.ts에서 401 + 리프레시 실패 시 발생하는 이벤트를 수신해 스토어를 동기화한다.
+// (api ↔ useAuthStore 순환 의존성을 피하기 위해 CustomEvent 사용)
+window.addEventListener('auth:session-expired', () => {
+  usePageStore.getState().clear()
+  useSidebarStore.getState().clearSelection()
+  useAuthStore.setState({ isAuthenticated: false, user: null })
+})

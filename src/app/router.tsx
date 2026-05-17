@@ -24,6 +24,8 @@ import { MeetingSummaryPage } from '@/pages/meeting/MeetingSummaryPage'
 import { ProjectPage } from '@/pages/project/ProjectPage'
 import { NotFoundPage } from '@/pages/errors/NotFoundPage'
 import { ErrorPage } from '@/pages/errors/ErrorPage'
+import { GuestMeetingPage } from '@/pages/guest/GuestMeetingPage'
+import { GuestMaterialPage } from '@/pages/guest/GuestMaterialPage'
 
 export const router = createBrowserRouter([
   /* ── Public routes ── */
@@ -61,6 +63,17 @@ export const router = createBrowserRouter([
       { path: 'billing', element: <PricingPage /> },
       { path: 'billing/history', element: <BillingHistoryPage /> },
     ],
+  },
+  /* ── Guest routes (인증 없음 — AppLayout 외부) ── */
+  {
+    path: '/guest/meetings/:token',
+    element: <GuestMeetingPage />,
+    errorElement: <ErrorPage />,
+  },
+  {
+    path: '/guest/meetings/:token/materials/:pageId',
+    element: <GuestMaterialPage />,
+    errorElement: <ErrorPage />,
   },
   /* ── Legacy redirects ── */
   { path: '/dashboard', element: <Navigate to="/app" replace /> },

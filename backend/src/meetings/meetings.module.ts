@@ -13,6 +13,7 @@ import { MeetingParticipant } from './entities/meeting-participant.entity'
 import { Task } from '../tasks/entities/task.entity'
 import { GroupMember } from '../groups/entities/group-member.entity'
 import { AuthModule } from '../auth/auth.module'
+import { GuestModule } from '../guest/guest.module'
 
 @Module({
   imports: [
@@ -27,6 +28,8 @@ import { AuthModule } from '../auth/auth.module'
     ]),
     // Gateway 에서 JwtService 로 WS 핸드셰이크 토큰 검증
     AuthModule,
+    // 게스트 초대 링크 생성 (POST /:id/guest-invites)
+    GuestModule,
   ],
   controllers: [MeetingsController],
   providers: [MeetingsService, SttService, SummaryService, MeetingsGateway],

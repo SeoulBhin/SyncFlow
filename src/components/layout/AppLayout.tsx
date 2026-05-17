@@ -1,5 +1,5 @@
 import { useEffect } from 'react'
-import { Outlet, useLocation } from 'react-router-dom'
+import { Navigate, Outlet, useLocation } from 'react-router-dom'
 import { SlackSidebar } from './SlackSidebar'
 import { SlackHeader } from './SlackHeader'
 import { MeetingBanner } from './MeetingBanner'
@@ -35,6 +35,12 @@ export function AppLayout() {
       void fetchMyGroups()
     }
   }, [isAuthenticated, hasLoadedGroups, fetchMyGroups])
+
+  // 비로그인 → 로그인 후 원래 경로로 복귀할 수 있도록 redirect 파라미터 포함
+  if (!isAuthenticated) {
+    const redirectTo = encodeURIComponent(location.pathname + location.search)
+    return <Navigate to={`/login?redirect=${redirectTo}`} replace />
+  }
 
   // ── popup 모드: 회의 창에서 협업 자료를 새 창으로 열 때 ─────────────────────
   // 사이드바/헤더/배너를 완전히 숨기고 에디터만 표시

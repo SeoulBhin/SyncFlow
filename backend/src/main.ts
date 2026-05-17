@@ -7,7 +7,8 @@ import { AuthService } from './auth/auth.service';
 import cookieParser from 'cookie-parser';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  // rawBody: true — LiveKit Webhook 서명 검증 시 WebhookReceiver.receive에 raw body 전달 필요
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
 
   // Static file serving for uploaded files (bypasses /api global prefix)
   app.useStaticAssets(path.join(process.cwd(), 'uploads'), {

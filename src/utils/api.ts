@@ -51,8 +51,8 @@ export async function apiRequest<T>(
       return apiRequest<T>(path, options, true)
     }
     localStorage.removeItem('accessToken')
-    // TODO: useAuthStore는 utils/api를 import하므로 여기서 직접 import 시 순환 의존성 발생.
-    // auth 상태 정리는 lib/api.ts의 apiJson에서 처리한다.
+    // 순환 의존성(api ↔ useAuthStore) 없이 스토어에 세션 만료를 전파한다.
+    window.dispatchEvent(new CustomEvent('auth:session-expired'))
     throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.')
   }
 

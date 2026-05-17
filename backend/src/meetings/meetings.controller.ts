@@ -24,6 +24,7 @@ import {
   CurrentUser,
   type CurrentUserPayload,
 } from '../auth/decorators/current-user.decorator'
+import { GuestService } from '../guest/guest.service'
 
 // 오디오 저장 경로: MEETING_AUDIO_DIR env가 있으면 사용 (절대/상대 모두 허용)
 // 미설정 시 기본값 = <cwd>/uploads/audio
@@ -59,7 +60,10 @@ const ALLOWED_AUDIO_MIME = new Set([
 @Controller('meetings')
 @UseGuards(JwtAuthGuard)
 export class MeetingsController {
-  constructor(private meetingsService: MeetingsService) {}
+  constructor(
+    private meetingsService: MeetingsService,
+    private guestService: GuestService,
+  ) {}
 
   // 회의 방 생성 (즉시 시작하지 않음 — scheduledAt 없으면 즉시 입장 가능, 있으면 예약 회의)
   @Post()
@@ -227,5 +231,12 @@ export class MeetingsController {
     @Body() body: { actionItemIds: string[] },
   ) {
     return this.meetingsService.confirmActionItems(id, body.actionItemIds)
+  }
+
+  // 게스트 초대 링크 생성 — 호스트 전용 (JwtAuthGuard 적용됨)
+  @Post(':id/guest-invites')
+  @HttpCode(201)
+  createGuestInvite(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.guestService.createGuestInvite(id, user.userId)
   }
 }

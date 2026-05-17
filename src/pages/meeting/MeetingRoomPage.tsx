@@ -18,6 +18,8 @@ import {
   Upload,
   Loader2,
   FolderOpen,
+  Link2,
+  ChevronRight,
 } from 'lucide-react'
 import { RoomEvent } from 'livekit-client'
 import { room } from '@/lib/livekitRoom'
@@ -28,11 +30,14 @@ import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useEndMeetingAction } from '@/hooks/useEndMeetingAction'
 import { MeetingParticipants } from '@/components/meeting/MeetingParticipants'
 import { MeetingTranscript } from '@/components/meeting/MeetingTranscript'
 import { MeetingNotes } from '@/components/meeting/MeetingNotes'
 import { CollabResourceModal } from '@/components/meeting/CollabResourceModal'
 import { MeetingMediaGrid, type MeetingMediaItem } from '@/components/meeting/MeetingMediaGrid'
+import { ConfirmModal } from '@/components/common/ConfirmModal'
+import { api } from '@/utils/api'
 import type { ApiMeeting } from '@/types'
 
 function formatTime(seconds: number) {
@@ -58,11 +63,14 @@ export function MeetingRoomPage() {
   const screenShare = useScreenShareStore()
   const { activeGroupName } = useGroupContextStore()
   const addToast = useToastStore((s) => s.addToast)
+  const { endMeetingFull } = useEndMeetingAction()
 
   const authUser = useAuthStore((s) => s.user)
   const [elapsed, setElapsed] = useState(0)
   const [showEndConfirm, setShowEndConfirm] = useState(false)
   const [showCollabModal, setShowCollabModal] = useState(false)
+  // 오른쪽 STT/AI 노트 패널 열림 여부 — 화면 공유 시 자동 접힘
+  const [rightPanelOpen, setRightPanelOpen] = useState(true)
 
   // 예약 회의 대기 상태
   const joinStartedRef = useRef(false)
@@ -116,6 +124,18 @@ export function MeetingRoomPage() {
     ]
   }, [screenShare.screenStreams, voiceChat.participants, authUser?.id])
 
+  // 미디어(카메라·화면공유) 없이 음성만 참여 중인 참가자 — 썸네일 스트립에 아바타 카드로 표시
+  const mediaParticipantIds = useMemo(
+    () => new Set(mediaItems.map((i) => i.participantId)),
+    [mediaItems],
+  )
+  const sideParticipants = useMemo(
+    () => voiceChat.participants
+      .filter((p) => !mediaParticipantIds.has(p.id))
+      .map((p) => ({ id: p.id, name: p.name, isMuted: p.isMuted, isLocal: p.isLocal })),
+    [voiceChat.participants, mediaParticipantIds],
+  )
+
   // 자동 선택: 사용자 고정 없을 때 화면 공유 우선 자동 선택, 종료 시 다음 아이템 선택
   const mediaItemKey = mediaItems.map((i) => i.id).join(',')
   useEffect(() => {
@@ -157,6 +177,7 @@ export function MeetingRoomPage() {
   const recordingRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
   const recordingMicStreamRef = useRef<MediaStream | null>(null)
+  const prevSharingRef = useRef(false)
 
   const groupName = activeGroupName ?? groupId ?? '회의'
 
@@ -203,6 +224,7 @@ export function MeetingRoomPage() {
         const loadError = useMeetingStore.getState().error
         if (loadError) {
           addToast('error', loadError)
+          navigate('/app/meetings')
           return
         }
 
@@ -223,7 +245,9 @@ export function MeetingRoomPage() {
         await doJoinMeeting(meetingId)
       } catch (err) {
         if (!cancelled) {
-          addToast('error', err instanceof Error ? err.message : '회의 입장에 실패했습니다')
+          const message = err instanceof Error ? err.message : '회의 입장에 실패했습니다'
+          addToast('error', message)
+          navigate('/app/meetings')
         }
       }
     })()
@@ -478,6 +502,14 @@ export function MeetingRoomPage() {
     recordingMicStreamRef.current = null
   }, [stopRealtimeSTT])
 
+  // 화면 공유 시작 시 오른쪽 패널 자동 접기 — 공유 화면 영역 확보
+  useEffect(() => {
+    if (!prevSharingRef.current && screenShare.isSharing) {
+      setRightPanelOpen(false)
+    }
+    prevSharingRef.current = screenShare.isSharing
+  }, [screenShare.isSharing])
+
   // 나가기 — 모든 사용자. 호스트면 백엔드가 nextHost 결정 후 이전. 마지막이면 자동 종료.
   const handleLeave = useCallback(async () => {
     if (!meetingId) {
@@ -530,31 +562,12 @@ export function MeetingRoomPage() {
     }
   }, [meetingId, voiceChat, meeting, stopRealtimeSTT, addToast, navigate])
 
-  // 회의 종료 — 호스트 전용. 전원 퇴장 브로드캐스트 후 AI 회의록 생성.
+  // 회의 종료 — 호스트 전용. STT 중지 후 공통 훅(endMeetingFull) 위임.
   const handleEndMeeting = useCallback(async () => {
     if (!meetingId) return
-
-    // 1. 모든 참가자에게 종료 신호 전송 (LiveKit 데이터 채널)
-    try {
-      const payload = new TextEncoder().encode(
-        JSON.stringify({ type: 'meeting:end', meetingId }),
-      )
-      await room.localParticipant.publishData(payload, { reliable: true })
-    } catch {
-      // 데이터 채널 실패해도 종료 계속
-    }
-
     if (meeting.sttEnabled) stopRealtimeSTT()
-    await voiceChat.disconnect()
-
-    // 2. AI 회의록 생성 (fire-and-forget — summary 페이지에서 결과 확인)
-    void meeting.finalizeMeeting(meetingId).catch((err) => {
-      addToast('error', err instanceof Error ? err.message : '회의 종료 처리 중 오류가 발생했습니다')
-    })
-
-    meeting.endMeeting()
-    navigate(`/app/meetings/${meetingId}/summary`)
-  }, [meetingId, voiceChat, meeting, stopRealtimeSTT, addToast, navigate])
+    await endMeetingFull(meetingId)
+  }, [meetingId, meeting.sttEnabled, stopRealtimeSTT, endMeetingFull])
 
   const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -595,6 +608,29 @@ export function MeetingRoomPage() {
   const handleToggleCamera = () => {
     void voiceChat.toggleCamera()
   }
+
+  const handleCopyInviteLink = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(window.location.href)
+      addToast('success', '회의 링크가 복사되었습니다')
+    } catch {
+      addToast('error', '링크 복사에 실패했습니다')
+    }
+  }, [addToast])
+
+  const handleCopyGuestLink = useCallback(async () => {
+    if (!meetingId) return
+    try {
+      const { url } = await api.post<{ token: string; url: string }>(
+        `/meetings/${meetingId}/guest-invites`,
+        {},
+      )
+      await navigator.clipboard.writeText(url)
+      addToast('success', '게스트 초대 링크가 복사되었습니다.')
+    } catch {
+      addToast('error', '게스트 초대 링크 생성에 실패했습니다.')
+    }
+  }, [meetingId, addToast])
 
   const isMuted = voiceChat.status === 'muted'
   const isScreenSharing = screenShare.isSharing
@@ -676,36 +712,71 @@ export function MeetingRoomPage() {
 
   return (
     <div className="flex h-full flex-col">
-      {/* 상단 바 */}
-      <div className="flex items-center justify-between border-b border-neutral-200 bg-surface px-8 py-4 dark:border-neutral-700 dark:bg-surface-dark">
-        <div className="flex items-center gap-3">
-          <Video size={24} className="text-primary-500" />
+      {/* 상단 바 — 화면 공유 중 compact 모드로 높이 절약 */}
+      <div className={cn(
+        'flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface dark:border-neutral-700 dark:bg-surface-dark',
+        isScreenSharing ? 'px-4 py-1.5' : 'px-6 py-3',
+      )}>
+        <div className="flex items-center gap-2">
+          <Video size={isScreenSharing ? 18 : 20} className="shrink-0 text-primary-500" />
           <div>
-            <h1 className="text-base font-bold text-neutral-800 dark:text-neutral-100">
+            <h1 className={cn('font-bold text-neutral-800 dark:text-neutral-100', isScreenSharing ? 'text-sm' : 'text-base')}>
               {meeting.meetingTitle || `${groupName} 회의`}
             </h1>
-            <p className="text-sm text-neutral-400">
-              {groupName} · {makeRoomName(groupId ?? '')}
-            </p>
+            {!isScreenSharing && (
+              <p className="text-xs text-neutral-400">{groupName} · {makeRoomName(groupId ?? '')}</p>
+            )}
           </div>
         </div>
-        <div className="flex items-center gap-4">
-          <div className="flex items-center gap-1.5 rounded-lg bg-primary-50 px-4 py-2 dark:bg-primary-900/30">
-            <Clock size={17} className="text-primary-500" />
-            <span className="text-base font-medium text-primary-600 dark:text-primary-400">
+        <div className={cn('flex items-center', isScreenSharing ? 'gap-1.5' : 'gap-3')}>
+          <div className={cn(
+            'flex items-center gap-1 rounded-lg bg-primary-50 dark:bg-primary-900/30',
+            isScreenSharing ? 'px-2 py-0.5' : 'px-3 py-1.5',
+          )}>
+            <Clock size={isScreenSharing ? 13 : 15} className="text-primary-500" />
+            <span className={cn('font-medium tabular-nums text-primary-600 dark:text-primary-400', isScreenSharing ? 'text-xs' : 'text-sm')}>
               {formatTime(elapsed)}
             </span>
           </div>
-          <span className="text-sm text-neutral-400">
-            {voiceChat.participants.length}명 참석
-          </span>
+          <span className="text-xs text-neutral-400">{voiceChat.participants.length}명 참석</span>
+
+          {/* 내부 사용자 초대 링크 복사 */}
+          <button
+            onClick={() => void handleCopyInviteLink()}
+            title="내부 사용자 초대 링크 복사"
+            className={cn(
+              'flex items-center gap-1 rounded-lg bg-neutral-200 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
+              isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+            )}
+          >
+            <Link2 size={isScreenSharing ? 13 : 15} />
+            링크 복사
+          </button>
+
+          {/* 게스트 초대 링크 생성 — 호스트 전용 */}
+          {isHost && (
+            <button
+              onClick={() => void handleCopyGuestLink()}
+              title="외부 게스트 초대 링크 생성 및 복사"
+              className={cn(
+                'flex items-center gap-1 rounded-lg bg-amber-100 font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50',
+                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+              )}
+            >
+              <Link2 size={isScreenSharing ? 13 : 15} />
+              게스트 초대
+            </button>
+          )}
 
           {/* 나가기 버튼 — 모든 참가자 */}
           <button
             onClick={() => void handleLeave()}
-            className="flex items-center gap-1.5 rounded-lg bg-neutral-200 px-5 py-2.5 text-base font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+            className={cn(
+              'flex items-center gap-1 rounded-lg bg-neutral-200 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
+              isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+            )}
           >
-            <LogOut size={20} />
+            <LogOut size={isScreenSharing ? 13 : 15} />
             {isHost ? '나가기 (호스트 이전)' : '나가기'}
           </button>
 
@@ -713,9 +784,12 @@ export function MeetingRoomPage() {
           {isHost && (
             <button
               onClick={() => setShowEndConfirm(true)}
-              className="flex items-center gap-1.5 rounded-lg bg-red-500 px-5 py-2.5 text-base font-medium text-white transition-colors hover:bg-red-600"
+              className={cn(
+                'flex items-center gap-1 rounded-lg bg-red-500 font-medium text-white transition-colors hover:bg-red-600',
+                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+              )}
             >
-              <PhoneOff size={20} />
+              <PhoneOff size={isScreenSharing ? 13 : 15} />
               회의 종료
             </button>
           )}
@@ -745,6 +819,7 @@ export function MeetingRoomPage() {
               onToggleViewMode={() =>
                 setViewMode((v) => (v === 'presenter' ? 'grid' : 'presenter'))
               }
+              sideParticipants={sideParticipants}
             />
           ) : (
             <MeetingParticipants participants={participants} />
@@ -878,34 +953,65 @@ export function MeetingRoomPage() {
           </div>
         </div>
 
-        {/* 우측: 자막/노트 패널 */}
-        <div className="flex w-[500px] shrink-0 flex-col bg-surface dark:bg-surface-dark">
-          <div className="flex border-b border-neutral-200 dark:border-neutral-700">
-            {tabs.map(({ key, label, icon: Icon }) => (
+        {/* 우측: 자막/노트 패널 (화면 공유 중 접힘 가능) */}
+        {rightPanelOpen ? (
+          <div className="flex w-80 shrink-0 flex-col border-l border-neutral-200 bg-surface dark:border-neutral-700 dark:bg-surface-dark">
+            <div className="flex items-center border-b border-neutral-200 dark:border-neutral-700">
+              {tabs.map(({ key, label, icon: Icon }) => (
+                <button
+                  key={key}
+                  onClick={() => meeting.setActiveTab(key)}
+                  className={cn(
+                    'flex flex-1 items-center justify-center gap-1.5 py-3 text-sm font-medium transition-colors',
+                    meeting.activeTab === key
+                      ? 'border-b-2 border-primary-500 text-primary-600 dark:text-primary-400'
+                      : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400',
+                  )}
+                >
+                  <Icon size={15} />
+                  {label}
+                </button>
+              ))}
+              {/* 닫기 버튼 */}
+              <button
+                type="button"
+                onClick={() => setRightPanelOpen(false)}
+                title="패널 닫기"
+                className="shrink-0 p-2.5 text-neutral-400 hover:text-neutral-600 dark:hover:text-neutral-200"
+              >
+                <ChevronRight size={15} />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto">
+              {meeting.activeTab === 'transcript' && (
+                <MeetingTranscript entries={meeting.transcript} />
+              )}
+              {meeting.activeTab === 'notes' && (
+                <MeetingNotes notes={meeting.aiNotes} actionItems={meeting.actionItems} />
+              )}
+            </div>
+          </div>
+        ) : (
+          /* 접힌 상태: 아이콘 탭 스트립 — 클릭하면 패널 열림 */
+          <div className="flex w-10 shrink-0 flex-col items-center gap-1 border-l border-neutral-200 bg-surface py-3 dark:border-neutral-700 dark:bg-surface-dark">
+            {tabs.map(({ key, icon: Icon, label }) => (
               <button
                 key={key}
-                onClick={() => meeting.setActiveTab(key)}
+                type="button"
+                onClick={() => { meeting.setActiveTab(key); setRightPanelOpen(true) }}
+                title={label}
                 className={cn(
-                  'flex flex-1 items-center justify-center gap-2 py-4 text-base font-medium transition-colors',
+                  'flex h-8 w-8 items-center justify-center rounded-lg transition-colors',
                   meeting.activeTab === key
-                    ? 'border-b-2 border-primary-500 text-primary-600 dark:text-primary-400'
-                    : 'text-neutral-500 hover:text-neutral-700 dark:text-neutral-400',
+                    ? 'bg-primary-100 text-primary-600 dark:bg-primary-900/30 dark:text-primary-400'
+                    : 'text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200',
                 )}
               >
-                <Icon size={18} />
-                {label}
+                <Icon size={16} />
               </button>
             ))}
           </div>
-          <div className="flex-1 overflow-y-auto">
-            {meeting.activeTab === 'transcript' && (
-              <MeetingTranscript entries={meeting.transcript} />
-            )}
-            {meeting.activeTab === 'notes' && (
-              <MeetingNotes notes={meeting.aiNotes} actionItems={meeting.actionItems} />
-            )}
-          </div>
-        </div>
+        )}
       </div>
 
       {/* 협업 자료 모달 */}
@@ -919,33 +1025,17 @@ export function MeetingRoomPage() {
 
       {/* 회의 종료 확인 모달 */}
       {showEndConfirm && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="mx-4 w-full max-w-sm rounded-xl bg-white p-6 shadow-xl dark:bg-neutral-800">
-            <h3 className="mb-2 text-base font-semibold text-neutral-800 dark:text-neutral-100">
-              회의를 종료하시겠습니까?
-            </h3>
-            <p className="mb-5 text-sm text-neutral-500 dark:text-neutral-400">
-              회의를 종료하면 모든 참가자가 회의에서 나가게 됩니다. 정말 종료하시겠습니까?
-            </p>
-            <div className="flex gap-2">
-              <button
-                onClick={() => setShowEndConfirm(false)}
-                className="flex-1 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-600 dark:text-neutral-300 dark:hover:bg-neutral-700"
-              >
-                취소
-              </button>
-              <button
-                onClick={() => {
-                  setShowEndConfirm(false)
-                  void handleEndMeeting()
-                }}
-                className="flex-1 rounded-lg bg-red-500 px-4 py-2 text-sm font-medium text-white hover:bg-red-600"
-              >
-                회의 종료
-              </button>
-            </div>
-          </div>
-        </div>
+        <ConfirmModal
+          title="회의를 종료하시겠습니까?"
+          message="회의를 종료하면 모든 참가자가 회의에서 나가게 됩니다. 정말 종료하시겠습니까?"
+          confirmLabel="회의 종료"
+          danger
+          onConfirm={() => {
+            setShowEndConfirm(false)
+            void handleEndMeeting()
+          }}
+          onCancel={() => setShowEndConfirm(false)}
+        />
       )}
     </div>
   )

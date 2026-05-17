@@ -413,8 +413,11 @@ export class MeetingsService {
           nextHostId = candidates[0].userId
         } else {
           // 3순위: DB 미등록 참가자 — LiveKit identity(=userId UUID)를 직접 사용
-          // joinMeeting API를 통해 등록되지 않은 참가자 대비 fallback
-          const fallback = remainingParticipantIds.find((id) => UUID_RE.test(id))
+          // guest identity(guest-xxx-xxx)는 UUID 형식이 아니므로 UUID_RE 검사에서 자동 제외되지만
+          // startsWith('guest-') 필터로 명시적으로도 차단해 게스트가 호스트가 되는 경우를 완전히 방지.
+          const fallback = remainingParticipantIds
+            .filter((id) => !id.startsWith('guest-'))
+            .find((id) => UUID_RE.test(id))
           nextHostId = fallback ?? null
         }
       } else if (candidates.length > 0) {
@@ -438,8 +441,12 @@ export class MeetingsService {
    */
   async joinMeeting(meetingId: string, userId: string, userName: string) {
     assertUuid(meetingId, 'meetingId')
-    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
-    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    // 접근 권한 + 회의 존재 여부 통합 검증
+    // - public 회의: 같은 그룹 멤버 → 입장 가능 (신규 참가자도 허용)
+    // - private 회의: meeting_participants에 사전 등록된 사용자만 입장 가능
+    // - 권한 없으면 ForbiddenException
+    const meeting = await this.assertCanAccess(meetingId, userId)
 
     // 예약 회의 — 시간 전 입장 차단 (프론트 방어에 더해 백엔드 이중 검증)
     if (meeting.scheduledAt && new Date() < meeting.scheduledAt) {

@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react'
-import { Monitor, Camera, LayoutGrid, PinOff } from 'lucide-react'
+import { Monitor, Camera, LayoutGrid, PinOff, MicOff } from 'lucide-react'
 import { cn } from '@/utils/cn'
 
 export interface MeetingMediaItem {
@@ -10,6 +10,14 @@ export interface MeetingMediaItem {
   stream: MediaStream | null
   isLocal: boolean
   startedAt: number
+}
+
+// 카메라·화면공유 없이 음성만 참여 중인 참가자 — 아바타 카드로 표시
+export interface SideParticipant {
+  id: string
+  name: string
+  isMuted: boolean
+  isLocal: boolean
 }
 
 // 개별 비디오 요소 — stream 변경 시 srcObject 재연결
@@ -92,6 +100,23 @@ function MediaCard({
   )
 }
 
+// 카메라·화면공유 없는 참가자 아바타 카드
+function AvatarCard({ name, isMuted, isLocal }: Omit<SideParticipant, 'id'>) {
+  return (
+    <div className="relative flex h-full w-full flex-col items-center justify-center gap-1.5 overflow-hidden rounded-xl bg-neutral-800">
+      <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary-600 text-base font-bold text-white">
+        {(name[0] ?? '?').toUpperCase()}
+      </div>
+      <div className="flex items-center gap-1 px-2">
+        <span className="max-w-[90px] truncate rounded bg-black/50 px-1.5 py-0.5 text-[10px] text-neutral-200">
+          {name}{isLocal ? ' (나)' : ''}
+        </span>
+        {isMuted && <MicOff size={9} className="shrink-0 text-red-400" />}
+      </div>
+    </div>
+  )
+}
+
 function ViewModeToggle({
   viewMode,
   onToggle,
@@ -128,6 +153,8 @@ interface Props {
   onSelect: (id: string) => void
   onUnpin: () => void
   onToggleViewMode: () => void
+  // 카메라·화면공유 없이 음성만 참여 중인 참가자 (아바타 카드로 썸네일 스트립에 표시)
+  sideParticipants?: SideParticipant[]
 }
 
 export function MeetingMediaGrid({
@@ -138,6 +165,7 @@ export function MeetingMediaGrid({
   onSelect,
   onUnpin,
   onToggleViewMode,
+  sideParticipants = [],
 }: Props) {
   // ── Empty state ──────────────────────────────────────────────────────────────
   if (items.length === 0) {
@@ -155,10 +183,11 @@ export function MeetingMediaGrid({
 
   // ── Grid mode ────────────────────────────────────────────────────────────────
   if (viewMode === 'grid') {
+    const total = items.length + sideParticipants.length
     const gridCls =
-      items.length === 1
+      total === 1
         ? 'grid-cols-1'
-        : items.length <= 4
+        : total <= 4
           ? 'grid-cols-2'
           : 'grid-cols-3'
 
@@ -175,6 +204,12 @@ export function MeetingMediaGrid({
                 isSelected={item.id === selectedId}
                 onClick={() => onSelect(item.id)}
               />
+            </div>
+          ))}
+          {/* 카메라·화면공유 없는 참가자 — 아바타 카드 */}
+          {sideParticipants.map((p) => (
+            <div key={p.id} className="aspect-video overflow-hidden">
+              <AvatarCard name={p.name} isMuted={p.isMuted} isLocal={p.isLocal} />
             </div>
           ))}
         </div>
@@ -206,8 +241,8 @@ export function MeetingMediaGrid({
         <MediaCard item={selectedItem} />
       </div>
 
-      {/* 썸네일 스트립 */}
-      {thumbnails.length > 0 && (
+      {/* 썸네일 스트립 — 다른 미디어 + 아바타 카드 */}
+      {(thumbnails.length > 0 || sideParticipants.length > 0) && (
         <div className="flex h-28 shrink-0 gap-2 overflow-x-auto border-t border-neutral-800 bg-neutral-900 px-3 py-2">
           {thumbnails.map((item) => (
             <div key={item.id} className="h-full w-44 shrink-0">
@@ -216,6 +251,12 @@ export function MeetingMediaGrid({
                 isSelected={item.id === selectedId}
                 onClick={() => onSelect(item.id)}
               />
+            </div>
+          ))}
+          {/* 카메라·화면공유 없는 참가자 — 아바타 카드 */}
+          {sideParticipants.map((p) => (
+            <div key={p.id} className="h-full w-28 shrink-0">
+              <AvatarCard name={p.name} isMuted={p.isMuted} isLocal={p.isLocal} />
             </div>
           ))}
         </div>

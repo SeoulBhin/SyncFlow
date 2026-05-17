@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Mic,
@@ -13,6 +13,10 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useMeetingStore } from '@/stores/useMeetingStore'
+import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
+import { useAuthStore } from '@/stores/useAuthStore'
+import { useEndMeetingAction } from '@/hooks/useEndMeetingAction'
+import { ConfirmModal } from '@/components/common/ConfirmModal'
 
 function formatTime(seconds: number) {
   const h = Math.floor(seconds / 3600)
@@ -25,6 +29,10 @@ function formatTime(seconds: number) {
 export function MeetingBanner() {
   const navigate = useNavigate()
   const meeting = useMeetingStore()
+  const voiceChat = useVoiceChatStore()
+  const authUser = useAuthStore((s) => s.user)
+  const { endMeetingFull } = useEndMeetingAction()
+  const [showConfirm, setShowConfirm] = useState<'end' | 'leave' | null>(null)
 
   useEffect(() => {
     if (meeting.status !== 'in-meeting') return
@@ -32,10 +40,26 @@ export function MeetingBanner() {
     return () => clearInterval(interval)
   }, [meeting.status])
 
-  const handleEndMeeting = () => {
+  const isHost =
+    !!meeting.currentMeeting?.hostId &&
+    meeting.currentMeeting.hostId === authUser?.id
+
+  const handleConfirmedEnd = async () => {
+    setShowConfirm(null)
     const id = meeting.activeMeetingId
+    if (!id) {
+      meeting.endMeeting()
+      navigate('/app/meetings')
+      return
+    }
+    await endMeetingFull(id)
+  }
+
+  const handleConfirmedLeave = async () => {
+    setShowConfirm(null)
+    await voiceChat.disconnect()
     meeting.endMeeting()
-    if (id) navigate(`/app/meetings/${id}/summary`)
+    navigate('/app/meetings')
   }
 
   if (meeting.status !== 'in-meeting') {
@@ -43,6 +67,7 @@ export function MeetingBanner() {
   }
 
   return (
+    <>
     <div className="flex h-10 shrink-0 items-center justify-between bg-primary-600 px-4 text-white dark:bg-primary-700">
       {/* 좌측: 회의 정보 */}
       <div className="flex items-center gap-3">
@@ -109,15 +134,37 @@ export function MeetingBanner() {
         </button>
       </div>
 
-      {/* 우측: 종료 버튼 */}
+      {/* 우측: 종료/나가기 버튼 — 클릭 시 확인 모달 표시 */}
       <button
-        onClick={handleEndMeeting}
+        onClick={() => setShowConfirm(isHost ? 'end' : 'leave')}
         className="flex items-center gap-1.5 rounded-lg bg-red-500 px-3 py-1 text-xs font-medium text-white transition-colors hover:bg-red-600"
       >
         <PhoneOff size={14} />
-        <span className="hidden sm:inline">종료</span>
+        <span className="hidden sm:inline">{isHost ? '종료' : '나가기'}</span>
       </button>
     </div>
+
+    {showConfirm === 'end' && (
+      <ConfirmModal
+        title="회의를 종료하시겠습니까?"
+        message="회의를 종료하면 모든 참가자가 회의에서 나가게 됩니다. 정말 종료하시겠습니까?"
+        confirmLabel="회의 종료"
+        danger
+        onConfirm={() => void handleConfirmedEnd()}
+        onCancel={() => setShowConfirm(null)}
+      />
+    )}
+    {showConfirm === 'leave' && (
+      <ConfirmModal
+        title="회의에서 나가시겠습니까?"
+        message="회의에서 나가면 다른 참가자들은 계속 진행합니다."
+        confirmLabel="나가기"
+        danger
+        onConfirm={() => void handleConfirmedLeave()}
+        onCancel={() => setShowConfirm(null)}
+      />
+    )}
+    </>
   )
 }
 

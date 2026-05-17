@@ -17,7 +17,8 @@ import { MeetingsModule } from './meetings/meetings.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { TasksModule } from './tasks/tasks.module';
 import { AiModule } from './ai/ai.module'
-import { CodeModule } from './code/code.module';
+import { CodeModule } from './code/code.module'
+import { GuestModule } from './guest/guest.module';
 
 @Module({
   imports: [
@@ -57,6 +58,7 @@ import { CodeModule } from './code/code.module';
     TasksModule,
     AiModule,
     CodeModule,
+    GuestModule,
   ],
   controllers: [AppController],
   providers: [AppService],
