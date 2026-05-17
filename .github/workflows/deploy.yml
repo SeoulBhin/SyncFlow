@@ -47,9 +47,12 @@ jobs:
           SSH_KEY: ${{ secrets.LIGHTSAIL_SSH_KEY }}
         run: |
           mkdir -p ~/.ssh
-          printf '%s\n' "$SSH_KEY" > ~/.ssh/key.pem
+          # CRLF → LF 정리 + 마지막 줄바꿈 보장
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/key.pem
           chmod 600 ~/.ssh/key.pem
           ssh-keyscan -H $VM_HOST >> ~/.ssh/known_hosts
+          # 키 검증 (실패 시 즉시 stop)
+          ssh-keygen -y -f ~/.ssh/key.pem > /dev/null || (echo "❌ SSH key is invalid format. Re-add LIGHTSAIL_SSH_KEY secret." && exit 1)
 
       # ────────── VM 에 동기화 ──────────
       - name: Sync frontend dist
