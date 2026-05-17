@@ -344,8 +344,9 @@ model Meeting {
   projectId  String?   @map("project_id") @db.Uuid
   hostId     String?   @map("host_id") @db.Uuid
   status     String    @default("scheduled") @db.VarChar(20)
-  visibility String    @default("private") @db.VarChar(10)
-  startedAt  DateTime? @map("started_at") @db.Timestamptz
+  visibility  String    @default("private") @db.VarChar(10)
+  scheduledAt DateTime? @map("scheduled_at") @db.Timestamptz
+  startedAt   DateTime? @map("started_at") @db.Timestamptz
   endedAt    DateTime? @map("ended_at") @db.Timestamptz
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt  DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
