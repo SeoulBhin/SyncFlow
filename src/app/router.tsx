@@ -26,6 +26,7 @@ import { NotFoundPage } from '@/pages/errors/NotFoundPage'
 import { ErrorPage } from '@/pages/errors/ErrorPage'
 import { GuestMeetingPage } from '@/pages/guest/GuestMeetingPage'
 import { GuestMaterialPage } from '@/pages/guest/GuestMaterialPage'
+import { SavedMessagesView } from '@/pages/saved/SavedMessagesView'
 
 export const router = createBrowserRouter([
   /* ── Public routes ── */
@@ -59,6 +60,7 @@ export const router = createBrowserRouter([
       { path: 'meetings', element: <MeetingHistoryPage /> },
       { path: 'meetings/:id', element: <MeetingRoomPage /> },
       { path: 'meetings/:id/summary', element: <MeetingSummaryPage /> },
+      { path: 'saved', element: <SavedMessagesView /> },
       { path: 'settings', element: <SettingsPage /> },
       { path: 'billing', element: <PricingPage /> },
       { path: 'billing/history', element: <BillingHistoryPage /> },

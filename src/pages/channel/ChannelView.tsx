@@ -20,6 +20,8 @@ import {
   Loader2,
   Copy,
   Bookmark,
+  Pencil,
+  Trash2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { apiFetch } from '@/lib/api'
@@ -34,7 +36,6 @@ import { useAIStore } from '@/stores/useAIStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
-import { useToastStore } from '@/stores/useToastStore'
 import { useBookmarkStore } from '@/stores/useBookmarkStore'
 import {
   EMOJI_LIST,
@@ -677,23 +678,6 @@ export function ChannelView() {
                           title="답글 달기"
                         >
                           <MessageCircle size={14} />
-                        </button>
-                        <button
-                          onClick={() => addToast('info', '저장 기능은 준비 중입니다.')}
-                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-yellow-500 dark:hover:bg-neutral-700"
-                          title="저장"
-                        >
-                          <Bookmark size={14} />
-                        </button>
-                        <button
-                          onClick={() => {
-                            void navigator.clipboard.writeText(msg.content)
-                            addToast('success', '메시지를 복사했습니다.')
-                          }}
-                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700"
-                          title="복사"
-                        >
-                          <Copy size={14} />
                         </button>
                         {(() => {
                           const isSaved = bookmarkedIds.has(msg.id)

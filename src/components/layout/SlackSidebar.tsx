@@ -17,6 +17,7 @@ import {
   Trash2,
   UserCircle,
   Sparkles,
+  Bookmark,
 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -26,7 +27,6 @@ import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useChatStore } from '@/stores/useChatStore'
 import { useToastStore } from '@/stores/useToastStore'
-import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { api } from '@/utils/api'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { SidebarProjectList } from './SidebarProjectList'
@@ -256,6 +256,7 @@ function OrgSwitcherDropdown({ onClose }: { onClose: () => void }) {
 const NAV_ITEMS = [
   { id: 'home', to: '/app', icon: Home, label: '홈', exact: true },
   { id: 'messages', to: '/app/messages', icon: MessageSquare, label: '메시지', matchPrefix: '/app/messages' },
+  { id: 'saved', to: '/app/saved', icon: Bookmark, label: '북마크', matchPrefix: '/app/saved' },
   { id: 'tasks', to: '/app/tasks', icon: ListTodo, label: '작업', matchPrefix: '/app/tasks' },
   { id: 'meetings', to: '/app/meetings', icon: Video, label: '회의', matchPrefix: '/app/meetings' },
 ]
@@ -269,7 +270,6 @@ export function SlackSidebar() {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const navigate = useNavigate()
   const location = useLocation()
-  const { activePanel, togglePanel } = useDetailPanelStore()
   const isAIOpen = activePanel === 'ai'
 
   const [showOrgSwitcher, setShowOrgSwitcher] = useState(false)
