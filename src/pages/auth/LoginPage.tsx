@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { LogIn, Mail, Lock } from 'lucide-react'
 import { Button } from '@/components/common/Button'
@@ -32,6 +32,7 @@ function validate(values: LoginValues) {
 
 export function LoginPage() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
   const login = useAuthStore((s) => s.login)
   const addToast = useToastStore((s) => s.addToast)
   const [loading, setLoading] = useState(false)
@@ -57,7 +58,9 @@ export function LoginPage() {
         accessToken,
       )
       addToast('success', `${user.name}님, 환영합니다!`)
-      navigate('/app')
+      // 로그인 전 접근하려던 경로가 있으면 그곳으로 복귀 (open redirect 방지: /app 하위만 허용)
+      const redirect = searchParams.get('redirect')
+      navigate(redirect && redirect.startsWith('/app') ? redirect : '/app')
     } catch (e) {
       addToast(
         'error',

@@ -6,6 +6,11 @@ import { Card } from '@/components/common/Card'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { AIUsageCard } from '@/components/ai/AIUsageCard'
+import {
+  PasswordSection,
+  SocialSection,
+  AccountDangerZone,
+} from '@/components/profile/AccountSecuritySection'
 
 export function ProfilePage() {
   const user = useAuthStore((s) => s.user)
@@ -170,6 +175,16 @@ export function ProfilePage() {
             <Save size={16} />
             {saving ? '저장 중...' : '변경사항 저장'}
           </Button>
+        </div>
+
+        {/* 보안 / 연결된 계정 / 계정 탈퇴 — 조직 설정에서 옮겨온 영역 */}
+        <div className="mt-8 space-y-6 border-t border-neutral-200 pt-6 dark:border-neutral-700">
+          <h2 className="text-sm font-semibold uppercase tracking-wide text-neutral-400">
+            보안 & 계정
+          </h2>
+          <PasswordSection />
+          <SocialSection />
+          <AccountDangerZone />
         </div>
       </div>
     </div>

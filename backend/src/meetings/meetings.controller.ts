@@ -2,13 +2,16 @@ import {
   Controller,
   Post,
   Put,
+  Delete,
   Get,
   Param,
   Body,
+  Query,
   UseGuards,
   UploadedFile,
   UseInterceptors,
   BadRequestException,
+  HttpCode,
   ParseUUIDPipe,
 } from '@nestjs/common'
 import { FileInterceptor } from '@nestjs/platform-express'
@@ -21,6 +24,7 @@ import {
   CurrentUser,
   type CurrentUserPayload,
 } from '../auth/decorators/current-user.decorator'
+import { GuestService } from '../guest/guest.service'
 
 // 오디오 저장 경로: MEETING_AUDIO_DIR env가 있으면 사용 (절대/상대 모두 허용)
 // 미설정 시 기본값 = <cwd>/uploads/audio
@@ -56,20 +60,46 @@ const ALLOWED_AUDIO_MIME = new Set([
 @Controller('meetings')
 @UseGuards(JwtAuthGuard)
 export class MeetingsController {
-  constructor(private meetingsService: MeetingsService) {}
+  constructor(
+    private meetingsService: MeetingsService,
+    private guestService: GuestService,
+  ) {}
 
-  // 회의 생성
+  // 회의 방 생성 (즉시 시작하지 않음 — scheduledAt 없으면 즉시 입장 가능, 있으면 예약 회의)
   @Post()
   create(
     @CurrentUser() user: CurrentUserPayload,
-    @Body() body: { title: string; groupId?: string; projectId?: string },
+    @Body()
+    body: {
+      title: string
+      groupId?: string
+      projectId?: string
+      visibility?: 'public' | 'private'
+      participants?: { userId: string; userName: string }[]
+      scheduledAt?: string
+    },
   ) {
-    return this.meetingsService.createMeeting(
-      body.title,
-      user.userId,
-      body.groupId,
-      body.projectId,
-    )
+    return this.meetingsService.createMeeting(body.title, user.userId, {
+      groupId: body.groupId,
+      projectId: body.projectId,
+      visibility: body.visibility,
+      participants: body.participants,
+      scheduledAt: body.scheduledAt ? new Date(body.scheduledAt) : undefined,
+    })
+  }
+
+  // 회의 시작 — 호스트만
+  @Post(':id/start')
+  @HttpCode(200)
+  startMeeting(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.startMeeting(id, user.userId)
+  }
+
+  // 회의 삭제 — 호스트 또는 조직 owner/admin
+  @Delete(':id')
+  @HttpCode(200)
+  deleteMeeting(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.deleteMeeting(id, user.userId)
   }
 
   // 오디오 파일 업로드 → 디스크 저장 → STT
@@ -115,16 +145,40 @@ export class MeetingsController {
     return this.meetingsService.uploadAudio(id, file.path, file.mimetype, file.filename, speakerMap)
   }
 
-  // 회의 종료 → 회의록 자동 생성
+  // 회의 종료 → 회의록 자동 생성 (호스트 또는 조직 관리자만)
   @Put(':id/end')
-  endMeeting(@Param('id') id: string) {
-    return this.meetingsService.endMeeting(id)
+  endMeeting(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.endMeeting(id, user.userId)
   }
 
-  // 내 회의 목록 (호스트 기준) — 반드시 ':id' 라우트보다 앞에 위치해야 함
+  // 회의 입장 등록 — DB에 없는 동적 참가자도 meeting_participants에 upsert
+  @Post(':id/join')
+  @HttpCode(200)
+  joinMeeting(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.joinMeeting(id, user.userId, user.userName)
+  }
+
+  // 참가자 나가기 — 호스트 이전 및 빈 방 자동 종료 처리
+  @Post(':id/leave')
+  @HttpCode(200)
+  leaveMeeting(
+    @Param('id') id: string,
+    @CurrentUser() user: CurrentUserPayload,
+    @Body() body: { remainingParticipantIds?: string[]; isLastParticipant?: boolean },
+  ) {
+    return this.meetingsService.leaveMeeting(id, user.userId, {
+      remainingParticipantIds: body.remainingParticipantIds,
+      isLastParticipant: body.isLastParticipant,
+    })
+  }
+
+  // 내가 접근 가능한 회의 목록 — 호스트 + 참여자로 지정된 회의 + 활성 조직의 공개 회의
   @Get('my')
-  getMyMeetings(@CurrentUser() user: CurrentUserPayload) {
-    return this.meetingsService.getMyMeetings(user.userId)
+  getMyMeetings(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('orgId') orgId?: string,
+  ) {
+    return this.meetingsService.getAccessibleMeetings(user.userId, orgId)
   }
 
   // 프로젝트 회의 목록 — 반드시 ':id' 라우트보다 앞에 위치해야 함
@@ -133,27 +187,31 @@ export class MeetingsController {
     return this.meetingsService.getMeetingsByProject(projectId)
   }
 
-  // 회의 상세
+  // 회의 상세 — 비공개 회의는 참여자만 접근 가능
   @Get(':id')
-  getMeeting(@Param('id') id: string) {
+  async getMeeting(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    await this.meetingsService.assertCanAccess(id, user.userId)
     return this.meetingsService.getMeeting(id)
   }
 
-  // 트랜스크립트 조회
+  // 트랜스크립트 조회 — 비공개 회의는 참여자만
   @Get(':id/transcript')
-  getTranscript(@Param('id') id: string) {
+  async getTranscript(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    await this.meetingsService.assertCanAccess(id, user.userId)
     return this.meetingsService.getTranscript(id)
   }
 
-  // 회의록 조회
+  // 회의록 조회 — 비공개 회의는 참여자만
   @Get(':id/summary')
-  getSummary(@Param('id') id: string) {
+  async getSummary(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    await this.meetingsService.assertCanAccess(id, user.userId)
     return this.meetingsService.getSummary(id)
   }
 
-  // 액션아이템 조회
+  // 액션아이템 조회 — 비공개 회의는 참여자만
   @Get(':id/action-items')
-  getActionItems(@Param('id') id: string) {
+  async getActionItems(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    await this.meetingsService.assertCanAccess(id, user.userId)
     return this.meetingsService.getActionItems(id)
   }
 
@@ -173,5 +231,12 @@ export class MeetingsController {
     @Body() body: { actionItemIds: string[] },
   ) {
     return this.meetingsService.confirmActionItems(id, body.actionItemIds)
+  }
+
+  // 게스트 초대 링크 생성 — 호스트 전용 (JwtAuthGuard 적용됨)
+  @Post(':id/guest-invites')
+  @HttpCode(201)
+  createGuestInvite(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.guestService.createGuestInvite(id, user.userId)
   }
 }

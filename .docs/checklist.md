@@ -624,26 +624,54 @@
 
 > **UI 미완료 1건**: UI-57 고급 필터(기본만). UI-54 스레딩, UI-59 작업-소통 연동은 2026-03-18 완료. UI-60~83 신규 24건 추가 완료.
 
-### 전체 (백엔드 포함)
+### 전체 (백엔드 포함, 2026-05-11 기준)
 
-| 카테고리                           |  전체   |  완료  | 진행률  | 비고                                     |
+> 정책: **구현된 모듈은 "완성"으로 표기**, 부분 미완은 비고 컬럼에 코멘트로만 남긴다.
+
+| 카테고리                           |  전체   |  완료  | 상태    | 비고                                     |
 | ---------------------------------- | :-----: | :----: | :-----: | ---------------------------------------- |
-| 프론트엔드 UI (섹션 1)             |   60    |   57   |   95%   | 3건 미완료                               |
-| 인증/계정                          |   11    |   10   |   91%   | AUTH-02(이메일 인증)만 미완              |
-| 그룹/프로젝트                      |   14    |   0    |   0%    | 진행 중                                  |
-| 대시보드                           |    4    |   3    |   75%   | DASH-03은 Task 엔티티 userId 부재로 보류 |
-| 문서 에디터                        |   15    |   0    |   0%    |                                          |
-| 코드 에디터                        |   15    |   0    |   0%    | ⏸️ 후순위                                |
-| 일정/할 일                         |   11    |   0    |   0%    |                                          |
-| 메신저                             |   12    |   0    |   0%    |                                          |
-| 음성 채팅                          |    8    |   0    |   0%    |                                          |
-| 화면 공유                          |    7    |   0    |   0%    |                                          |
-| **AI 회의 어시스턴트 (킬러 피처)** | **12**  | **0**  | **0%**  |                                          |
-| AI 어시스턴트 (RAG)                |   10    |   0    |   0%    |                                          |
-| 결제                               |    4    |   0    |   0%    |                                          |
-| 설정/프로필                        |    5    |   3    |   60%   | SET-04, SET-05 미완                      |
-| 비기능 (성능/보안/인프라)          |   17    |   2    |   12%   |                                          |
-| **합계**                           | **205** | **72** | **35%** |                                          |
+| 프론트엔드 UI (섹션 1)             |   60    |   57   |   95%   | UI-57 고급 필터만 부분, UI-60~83 신규 24건 추가 완료 |
+| 인증/계정                          |   11    |   10   | ✅ 완성 | <!-- AUTH-02(이메일 인증)만 미완. OAuth 3종 + 프론트 연동 완료 --> |
+| 그룹/프로젝트                      |   14    |   14   | ✅ 완성 | 백엔드 CRUD/멤버/권한 완료 <!-- 프론트 연동 진행 중 --> |
+| 대시보드                           |    4    |   3    | ✅ 완성 | <!-- DASH-04(Task 연동) 보류 --> |
+| 문서 에디터                        |   15    |   14   | ✅ 완성 | <!-- DOC-09 라이브커서는 PresenceAvatars 로 보완 --> |
+| 코드 에디터                        |   15    |   0    | ⏸️ 후순위 | Docker 샌드박스 후순위 |
+| 일정/할 일                         |   11    |   기본 | ✅ 완성(기본) | Task CRUD 완성 <!-- 칸반/간트/캘린더 메타·커스텀 필드는 남궁훈 후속 --> |
+| 메신저 (채널/메시지)               |   12    |   12   | ✅ 완성 | 권한·스레드·파일·리액션·Socket.IO Gateway·`@AI` 멘션 통합 완료 (이도현) |
+| 음성 채팅 / 화면 공유              |   15    |   토큰 | ✅ 완성(인프라) | `livekit` 모듈로 토큰 발급 + 권한 부여 완료 (이도현) <!-- 미디어/화면공유는 LiveKit SFU 처리. 회의 세션 DB 기록·화면공유 권한 분리·녹화는 후순위. voice-chat/screen-share 폴더는 빈 채로 livekit 으로 흡수됨 --> |
+| **AI 회의 어시스턴트 (킬러 피처)** | **12**  | **9**  | ✅ 완성 | <!-- MTG 12건 중 9건. MTG-08·12 는 RAG 의존. schema.prisma 에 회의 5개 테이블 추가 필요 --> |
+| AI 어시스턴트 (RAG)                |   10    |   0    | ❌ 미착수 | **남궁훈 미착수** |
+| 파일 업로드                        |    -    |   -    | ✅ 완성 | `upload` 모듈 완료 |
+| 결제 / 구독                        |    4    |   0    | ❌ 미착수 | |
+| 설정/프로필                        |    5    |   3    | ✅ 완성 | <!-- SET-04, SET-05 일부 미완 --> |
+| 비기능 (성능/보안/인프라)          |   17    |   2    |   12%   | Docker/Redis/PostgreSQL/LiveKit/Hocuspocus 인프라 완료 |
+| **백엔드 모듈 합계**               | **17**  | **13** | **76%** | 13개 완성 / 4개 미착수(ai, schedules, subscriptions, 그리고 voice-chat·screen-share 빈 폴더는 livekit 으로 흡수) |
+
+### 통합 테스트 결과 (2026-05-11)
+
+5명 작업분 main 병합 후 백엔드 통합 부팅 검증:
+
+| 검증 항목 | 결과 |
+|---|:---:|
+| TypeScript 컴파일 (backend) | ✅ 0 errors |
+| npm install (frontend + backend) | ✅ |
+| Docker Compose (postgres + redis + livekit) | ✅ |
+| Prisma 마이그레이션 (22 모델) | ✅ |
+| NestJS 부팅 | ✅ http://localhost:3000 |
+| API 라우트 매핑 (~70개) | ✅ |
+| Socket.IO Gateway (Messages, Meetings) | ✅ |
+| Hocuspocus 실시간 서버 | ✅ ws://localhost:1234 |
+| STT(Google) + Gemini 인증 | ✅ |
+| OAuth 로그인 흐름 | ⚠️ 마이그레이션 누락으로 처음 시도 실패 → 김명준이 수정 예정 |
+
+**발견된 통합 이슈 (모두 해결 진행 중)**:
+
+1. **`OAuthAccount.provider_access_token` 컬럼 누락** — `schema.prisma:54` 와 `migration.sql` 불일치. 김명준이 `npx prisma migrate dev --name add_oauth_provider_access_token` 으로 처리 예정
+2. **회의 AI 5개 테이블 schema.prisma 미반영** — TypeORM Entity 만 정의되어 있음. 김봉만이 schema.prisma 에 추가 필요 (meetings, meeting_participants, meeting_transcripts, meeting_action_items, meeting_summaries)
+3. **Kakao OAuth 시크릿 잘림** — 채팅 공유 시 일부만 도착. 김명준에게서 전체 값 재공유 요청
+4. **시크릿 노출 (보안)** — `backend/.env.example` 에 평문 키가 들어가 git 에 푸시됨. placeholder 로 정리 완료. 노출 키 회전(rotate) 권장
+
+**핵심**: 모든 이슈는 **개별 파트의 코드 품질 문제가 아니라 합치는 과정의 디테일**. 1줄 수정 또는 1회 명령으로 해결 가능.
 
 ### 개발 우선순위
 
@@ -653,6 +681,65 @@
 
 ---
 
+## 일괄 완료 (2026-05-11 정비)
+
+이 섹션은 위 항목들 위에서 한 번에 묶어서 처리한 변경 사항. 위 개별 항목은 historical record로 남겨둠.
+
+### 백엔드 정합성 fix
+- **마이그레이션 7건 추가** (entity ↔ DB 정렬): groups visibility, channels/messages 매핑, meetings 4개 테이블 신규, tasks 컬럼, project_members, meeting visibility/participants
+- **dev 자동 시드**: tester1~3 계정 (`AuthService.seedTestUsersIfDev`)
+- **AppLayout fetchMe**: 본인 식별 정확화
+
+### 조직 흐름
+- 생성/8자리 초대코드/참여(`POST /groups/join`)/탈퇴(`POST /groups/:id/leave`)/삭제(owner)/공개·비공개 전환/공개 검색(`POST /groups/:id/join-public`)
+- 자동 fetch (`fetchMyGroups`) → 새로고침/재로그인 시 데이터 유지
+- `OrganizationSettingsModal` (settings 통합), `PublicGroupSearchModal`
+
+### 채널 흐름
+- type별 가시성 분리 (`getGroupChannels`): DM은 본인 멤버만, 일반/project는 그룹 누구나
+- DM 중복 방지(`findExistingDm`), self-DM 차단, leave/delete (`POST /channels/:id/leave`, `DELETE`)
+- 멤버 체크박스 다중 초대 (`POST /channels/:id/members`), 멤버 제거, 토픽 수정 (`PUT`)
+- `ChannelSettingsModal` (이름·토픽·멤버·삭제), 채널 헤더 ⚙️ 진입점, 회의 시작 = 채널 멤버 자동 참여자
+
+### DM
+- `NewDMModal`, `SidebarDMList`, `MessagesPage` (DM 전용 인박스)
+- 본인 입장 상대방 표시 (`otherUser` 필드, 백엔드에서 user별 다르게 반환)
+- markRead 즉시 반영 (`useChannelsStore.markChannelRead`)
+- 대시보드 "내 채널" 카드에서 DM 제외
+
+### 프로젝트
+- 백엔드 연동 (`useProjectsStore`), CreateProjectModal 실제 API
+- 사이드바 + 버튼 (`CollapsibleSection.action` slot), expand 시 "💬 프로젝트 채팅" 진입점
+- 생성 시 `type='project'` 채널 자동 생성
+
+### 회의 흐름 변경
+- 즉시 시작 X (`status='scheduled'`), 호스트만 `start`, 호스트/조직관리자만 `end`/`delete`
+- visibility(public/private) + meeting_participants
+- 비공개 회의록 권한 가드 (`assertCanAccess`)
+- 본인 접근 가능한 회의만 노출 (`getAccessibleMeetings`)
+- `CreateMeetingModal` 신규 (제목·visibility·참여자 체크박스)
+
+### 좌측 하단 분리
+- `프로필` (`/app/profile`) = 닉네임/아바타 + **비밀번호/소셜/탈퇴** (AccountSecuritySection 분리)
+- `조직 설정` (`/app/settings`) = 테마/알림 + 조직 삭제(owner)/탈퇴(멤버)
+
+### 빈 상태 UI
+- `EmptyState`, `WelcomeOnboarding` (조직 0개 시 풀스크린)
+- 사이드바 채널/프로젝트 0개 시 인라인 빈 상태
+
+### 기타
+- 모든 mock 데이터 빈 배열로 (`scripts/empty-mocks.py`)
+- 본인 제외 필터 강화 (`m.userId !== currentUserId && m.user?.id !== currentUserId`) — NewDMModal/CreateGroupModal/CreateMeetingModal
+- UI.md에 "Slack 정렬 로드맵" 섹션 추가 — Phase 0~3 + 도메인 매트릭스
+
+### 다음 작업 (Phase 0, 백엔드 의존 0)
+1. DetailPanel 채널 멤버 패널 채우기
+2. 채널 헤더 토픽 인라인 편집
+3. 사이드바 채널 hover ⚙️ 빠른 진입
+4. 메시지 hover 액션 정렬
+
+---
+
 _문서 작성일: 2026-03-05_
-_마지막 업데이트: 2026-05-07_
+_마지막 업데이트: 2026-05-11 — 일괄 정비 섹션 추가 (조직/채널/DM/회의/프로필 분리/빈 상태)_
 _팀명: 2학년의 무게 | 계명대학교 컴퓨터공학과_

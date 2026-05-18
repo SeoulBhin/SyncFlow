@@ -120,6 +120,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
   // ── Channel ops ────────────────────────────────────────────────────────────
 
   loadChannels: async (groupId: string) => {
+    set({ isLoading: true, error: null })
     try {
       const data = await apiJson<ChatChannel[]>(
         `/api/groups/${groupId}/channels`,
@@ -128,6 +129,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         const ids = new Set(data.map((c) => c.id))
         return {
           channels: data,
+          isLoading: false,
           activeChannelId:
             s.activeChannelId && ids.has(s.activeChannelId)
               ? s.activeChannelId
@@ -138,7 +140,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
         get().setActiveChannel(data[0].id)
       }
     } catch (err) {
-      set({ error: err instanceof Error ? err.message : '채널 로드 실패' })
+      set({ error: err instanceof Error ? err.message : '채널 로드 실패', isLoading: false })
     }
   },
 

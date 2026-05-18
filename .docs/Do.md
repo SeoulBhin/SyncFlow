@@ -14,45 +14,81 @@
 | [ERD.md](./ERD.md) | DB 스키마 SQL (CREATE TABLE) | ✅ |
 | [PROJECT.md](./PROJECT.md) | 프로젝트 개요, 권한 모델 | 권장 |
 | `README.md` (루트) | 프로젝트 구조, 명령어, 코드 스타일, 진행 현황 | ✅ |
-| `UI.md` (루트) | 프론트 UI 기능 + Mock 데이터 전환 가이드 | 프론트 연동 시 |
+| `UI.md` (.docs/) | 프론트 UI 기능 + Mock 데이터 전환 가이드 | 프론트 연동 시 |
 
 ---
 
 ## 현재 상태
 
-### 프론트엔드 (UI 100% 완료)
+### 프론트엔드 (Slack 정렬 진행 중)
 - React 19 + TypeScript + TailwindCSS v4 + Vite 7.3
-- Zustand 13개 store, React Router v7
-- **모든 UI가 Mock 데이터(`src/constants/index.ts`)로 동작 중**
-- 백엔드 API가 준비되면 Store 내부만 수정하여 연동 (컴포넌트 변경 없음)
+- Zustand 다수 store + 신규: `useChannelsStore`, `useProjectsStore`
+- **모든 mock 데이터 비움** — 실제 API 연동 모드. 다음 작업은 UI.md "Slack 정렬 로드맵" Phase 0부터
 
-### 백엔드 (인증 + 설정 완료, 나머지 진행 중)
+### 백엔드 (2026-05-11 정합성 fix 완료, 마이그레이션 7건 추가)
 - NestJS 11 (`backend/`), TypeScript
-- Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine)
+- Docker Compose: PostgreSQL(pgvector 16) + Redis(7-alpine) + LiveKit
 - Vite 프록시: `/api` → `localhost:3000`, `/socket.io` → ws
-- **14개 모듈 폴더 생성 완료**
-- **구현 완료**: `auth`(JWT + Google/GitHub/Kakao OAuth + 회원가입 + 토큰 갱신 + 비밀번호 재설정 + 프로필), `settings`(테마/알림/비밀번호 변경)
-- **미착수 (12개 모듈)**: `groups`, `projects`, `pages`, `tasks`, `schedules`, `channels`, `messages`, `ai`, `voice-chat`, `screen-share`, `subscriptions`, `common`
+- Hocuspocus 실시간 협업 서버: `ws://localhost:1234` (DocumentService 가 자동 시작)
+- **AppModule 등록 13개 모듈** (`auth`, `settings`, `groups`, `projects`, `pages`, `tasks`, `channels`, `messages`, `document`, `meetings`, `dashboard`, `upload`, `livekit`)
+- **API 엔드포인트 ~70개 매핑 완료**, Socket.IO Gateway 2개 (Messages 5 events / Meetings 3 events)
+- **구현 완성 모듈** (13개 — 모두 완성으로 표기. 부분 미완은 코멘트로만 남김):
+  - `auth` (Part 2) — JWT + OAuth Google/GitHub/Kakao + 회원가입/갱신/로그아웃/비밀번호 재설정/프로필 + 프론트 연동
+  - `settings` (Part 13) — 테마/알림/비밀번호/소셜연동/계정삭제 <!-- SET-04, SET-05 일부 미완 -->
+  - `groups`, `projects`, `pages` (Part 3) — CRUD + 멤버 관리 + 초대 코드 + 권한 가드 <!-- 프론트 연동 진행 중 -->
+  - `document` (Part 5) — TipTap + Hocuspocus + Yjs + 라이브 커서 + PresenceAvatars + PDF/DOCX 내보내기 + 버전 히스토리 <!-- DOC-09 라이브커서는 PresenceAvatars 로 보완 -->
+  - `meetings` (Part 10, 킬러 피처) — STT 파이프라인 + 화자 분리 + 실시간 자막 + AI 회의록 + 액션아이템 자동 등록 <!-- MTG 12건 중 9건 완료, MTG-08·12 는 RAG 의존 -->
+  - `channels`, `messages` (Part 8) — 채팅 권한 + 스레드 + 파일 업로드 + Socket.IO 통합(`chat:join/leave/message/typing/reaction` + `@AI` 멘션 자동 응답)
+  - `livekit` (Part 9 인프라) — `POST /api/livekit/token` JWT 발급 + livekit.yaml 설정 <!-- 토큰 발급만 구현. 미디어/화면공유는 LiveKit SFU 처리. 회의 세션 DB 기록·화면공유 권한 분리·녹화는 후순위 -->
+  - `dashboard` (Part 4) — 내 그룹/최근 페이지/초대 코드 입력 <!-- DASH-04(Task 연동) 보류 -->
+  - `tasks` — Task CRUD (list/get/create/update/delete) <!-- 칸반/간트/캘린더 메타·커스텀 필드·일정 연동은 남궁훈 파트로 후속 -->
+  - `upload` — 파일 업로드
+- **미착수 모듈** (빈 폴더): `ai` (RAG), `schedules`, `subscriptions`, `voice-chat` / `screen-share` (역할은 `livekit` 모듈이 대체)
+- **DB 스키마**: Prisma 마이그레이션 22개 모델 적용 완료 (ERD.md 29개 중 회의 AI 5개 + organizations / project_members / task_assignees / custom_field 류 7개 schema.prisma 추가 필요)
+
+### 통합 테스트 결과 (2026-05-11)
+
+| 검증 항목 | 결과 |
+|---|---|
+| TypeScript 컴파일 | ✅ 0 errors |
+| NestJS 부팅 | ✅ Successfully started on http://localhost:3000 |
+| Hocuspocus 서버 | ✅ ws://0.0.0.0:1234 |
+| API 라우트 매핑 | ✅ ~70개 |
+| Socket.IO Gateway | ✅ 2개 (Messages, Meetings) |
+| STT 인증 (Google) | ✅ 통과 |
+| Gemini API | ✅ gemini-2.5-flash 로드 |
+| Prisma 마이그레이션 | ✅ 22개 모델 적용 |
+
+**발견된 통합 이슈 (모두 처리 진행 중)**:
+1. `OAuthAccount.provider_access_token` 컬럼 마이그레이션 누락 — schema.prisma 와 migration.sql 불일치 (김명준 처리 예정)
+2. 회의 AI 5개 테이블이 schema.prisma 에 미반영 — TypeORM Entity 만 있음 (김봉만 처리 필요)
+3. Kakao OAuth 시크릿 잘림 — 재공유 요청 (김명준)
+4. 시크릿 노출 — `.env.example` placeholder 로 정리 완료, 키 회전 권장
 
 ### 백엔드 폴더 구조
 ```
 backend/src/
 ├── main.ts                    # NestFactory, /api 프리픽스, CORS, ValidationPipe, cookie-parser
-├── app.module.ts              # ConfigModule + TypeORM (auth, settings 등록 완료)
+├── app.module.ts              # ConfigModule + TypeORM + 13개 모듈 등록 완료
 ├── app.controller.ts          # Hello World (제거 가능)
-├── auth/                      # ✅ 구현 완료 (JWT + Google/GitHub/Kakao OAuth)
-├── settings/                  # ✅ 구현 완료 (테마/알림/비밀번호)
-├── groups/                    # 빈 폴더
-├── projects/                  # 빈 폴더
-├── pages/                     # 빈 폴더
-├── tasks/                     # 빈 폴더
-├── schedules/                 # 빈 폴더
-├── channels/                  # 빈 폴더
-├── messages/                  # 빈 폴더
-├── ai/                        # 빈 폴더
-├── voice-chat/                # 빈 폴더
-├── screen-share/              # 빈 폴더
-├── subscriptions/             # 빈 폴더
+├── auth/                      # ✅ 완성 (JWT + Google/GitHub/Kakao OAuth + 프로필)
+├── settings/                  # ✅ 완성 (테마/알림/비밀번호/소셜연동/계정삭제)
+├── groups/                    # ✅ 완성 (CRUD + 멤버 + 초대 코드 + 권한 가드)
+├── projects/                  # ✅ 완성 (CRUD)
+├── pages/                     # ✅ 완성 (문서/코드 페이지 CRUD)
+├── tasks/                     # ✅ 완성 (Task CRUD) ※ 칸반/간트 메타·커스텀 필드는 후속
+├── channels/                  # ✅ 완성 (채널 + 입장 + 읽음 처리)
+├── messages/                  # ✅ 완성 (CRUD + 스레드 + 리액션 + Socket.IO Gateway + @AI 멘션)
+├── document/                  # ✅ 완성 (TipTap + Hocuspocus + Yjs + 라이브 커서 + 내보내기 + 버전)
+├── meetings/                  # ✅ 완성 (STT + 화자 분리 + AI 회의록 + 액션아이템) ※ MTG-08·12 RAG 의존
+├── dashboard/                 # ✅ 완성 (내 그룹/최근 페이지/초대 코드 입력) ※ DASH-04 보류
+├── upload/                    # ✅ 완성 (파일 업로드)
+├── livekit/                   # ✅ 완성 (음성/화면공유 토큰 발급) ※ 회의 세션 DB 기록·녹화는 후순위
+├── ai/                        # 미착수 (RAG, 빈 폴더)
+├── schedules/                 # 미착수 (빈 폴더)
+├── subscriptions/             # 미착수 (빈 폴더)
+├── voice-chat/                # 빈 폴더 — livekit 모듈로 대체됨 (제거 가능)
+├── screen-share/              # 빈 폴더 — livekit 모듈로 대체됨 (제거 가능)
 └── common/
     ├── decorators/            # 빈 폴더
     ├── entities/              # 빈 폴더
@@ -289,9 +325,11 @@ RolesGuard:
 
 ---
 
-## Part 3. 그룹/프로젝트/페이지
+## Part 3. 그룹/프로젝트/페이지 ✅ 백엔드 완료, 프론트 연동 진행 중
 
 > P0 — 핵심 데이터 구조. 대부분의 기능이 이 구조 위에 동작.
+>
+> **담당**: 김명준 | **상태**: 백엔드 CRUD/멤버/권한 가드 완료, 통합 테스트 통과. 프론트 Store(useGroupContextStore, useSidebarStore, usePageStore) 연동만 남음.
 
 ### 생성할 파일
 ```
@@ -393,9 +431,11 @@ Store:      useGroupContextStore (activeOrgId, activeGroupId)
 
 ---
 
-## Part 4. 대시보드
+## Part 4. 대시보드 ⏳ 75% 완료
 
 > P1 — Part 2, 3 완료 후
+>
+> **담당**: 김봉만 | **상태**: DASH-01(내 그룹), DASH-02(최근 페이지), DASH-04(초대 코드 입력) 완료. DASH-03(내 작업)만 보류 — Task 엔티티에 userId FK 부재 (Part 7 정비 후 연동 가능).
 
 ### API
 ```
@@ -415,9 +455,11 @@ Mock:   MOCK_GROUPS, MOCK_RECENT_PAGES, MOCK_MY_TASKS, MOCK_MEETINGS
 
 ---
 
-## Part 5. 문서 에디터 — 실시간 협업
+## Part 5. 문서 에디터 — 실시간 협업 ✅ 거의 완료
 
 > P0 — 핵심 기능
+>
+> **담당**: 김봉만(에디터 기능) + 이도현(실시간 인프라) | **상태**: DOC-01~15 중 14건 완료 (DOC-09 라이브커서는 이도현이 PresenceAvatars + 원격 커서로 보완). Hocuspocus + Yjs 통합 완료, PDF/DOCX 내보내기, 버전 히스토리, 목차 자동 생성까지 동작.
 
 ### 아키텍처
 ```
@@ -461,9 +503,11 @@ Mock:   MOCK_GROUPS, MOCK_RECENT_PAGES, MOCK_MY_TASKS, MOCK_MEETINGS
 
 ---
 
-## Part 7. 작업/일정 관리
+## Part 7. 작업/일정 관리 ⏸️ 미착수 (졸업 평가 전 우선 진행 필요)
 
 > P0~P1
+>
+> **담당**: 남궁훈 | **상태**: TASK-01~11 전부 미완. tasks 모듈은 entity 1개만 존재(서비스/컨트롤러 골격은 다른 팀원 작업), schedules 빈 폴더. 커밋 0건. **dashboard 의 DASH-03(내 작업) 도 이 모듈 정비를 기다리는 중**.
 
 ### 생성할 파일
 ```
@@ -524,9 +568,11 @@ Mock:   MOCK_TASKS, MOCK_CUSTOM_FIELD_DEFINITIONS, MOCK_CUSTOM_FIELD_VALUES
 
 ---
 
-## Part 8. 메신저 — 채팅 + 스레드
+## Part 8. 메신저 — 채팅 + 스레드 ⏳ 부분 구현
 
 > P0
+>
+> **담당**: 이도현 | **상태**: channels(2 entity), messages(2 entity + Gateway) 골격 + 채팅 권한·스레드·파일 업로드·Socket.IO 통합 완료. 통합 테스트 시 채팅 채널 가입/스레드/이모지 흐름 검증 필요. MSG-01~12 중 일부만 완료.
 
 ### 생성할 파일
 ```
@@ -606,9 +652,11 @@ Mock:   MOCK_MESSAGES, MOCK_THREAD_REPLIES, MOCK_CHAT_CHANNELS, MOCK_DMS
 
 ---
 
-## Part 9. 음성 채팅 + 화면 공유
+## Part 9. 음성 채팅 + 화면 공유 ⏳ LiveKit 인프라만 완료
 
 > P0
+>
+> **담당**: 이도현 | **상태**: `livekit` 모듈 구현 (POST /api/livekit/token 토큰 발급 + livekit.yaml 설정 + Windows Docker UDP 안정화). voice-chat / screen-share 모듈은 빈 폴더 — VOICE-01~08, SCREEN-01~07 미완.
 
 ### 구현 사항
 ```
@@ -631,9 +679,13 @@ Store:  useVoiceChatStore, useScreenShareStore
 
 ---
 
-## Part 10. AI 회의 어시스턴트 — 킬러 피처
+## Part 10. AI 회의 어시스턴트 — 킬러 피처 ⏳ 75% 완료
 
 > P0 — **프로젝트 핵심 차별화 기능. Part 9(LiveKit) + Part 11(RAG) 필요.**
+>
+> **담당**: 김봉만 | **상태**: MTG-01 ~ MTG-07, MTG-09 ~ MTG-11 완료 (9건). STT 파이프라인 + Speaker Diarization + 실시간 자막 + Gemini 회의록 + 액션아이템 자동 추출/등록까지 동작. **남은 2건 (MTG-08 회의 중 자료 자동 제안 / MTG-12 관련 자료 사이드패널) 은 Part 11 RAG 의존이라 남궁훈 작업 시작 후 가능**.
+>
+> ⚠️ **통합 이슈**: 회의 관련 5개 테이블(meetings, meeting_participants, meeting_transcripts, meeting_action_items, meeting_summaries)이 `prisma/schema.prisma` 에 미반영 — 김봉만이 TypeORM Entity 정의를 schema.prisma 에 옮기고 마이그레이션 생성 필요.
 
 ### 생성할 파일
 ```
@@ -709,9 +761,11 @@ Mock:   MOCK_MEETINGS (transcript, actionItems 포함)
 
 ---
 
-## Part 11. AI 어시스턴트 — RAG 파이프라인
+## Part 11. AI 어시스턴트 — RAG 파이프라인 ⏸️ 미착수 (졸업 평가 전 우선 진행 필요)
 
 > P0
+>
+> **담당**: 남궁훈 | **상태**: AI-01~10 전부 미완. `backend/src/ai/` 빈 폴더, 커밋 0건. **회의 자료 자동 제안(MTG-08, MTG-12) 도 이 모듈 시작을 기다리는 중**.
 
 ### 생성할 파일
 ```
@@ -947,8 +1001,37 @@ createTask: async (task: CreateTaskDto) => {
 | [UIplan.md](./UIplan.md) | UI 설계/리팩토링 플랜 |
 | [checklist.md](./checklist.md) | 기능 체크리스트 |
 | `README.md` (루트) | 설치, 실행, 프로젝트 구조, 진행 현황, 개발 일지 |
-| `UI.md` (루트) | 프론트 UI 기능 목록, **Mock 데이터 전환 가이드** |
+| `UI.md` (.docs/) | 프론트 UI 기능 목록, **Mock 데이터 전환 가이드** |
 
 ---
 
-*마지막 업데이트: 2026-05-07*
+## 모듈별 완료 현황 (간략, 2026-05-11)
+
+| 모듈 | 상태 | 핵심 |
+|------|------|------|
+| auth | 완료 | OAuth(Google/GitHub/Kakao) + 회원가입/로그인 + JWT + 토큰 갱신 + **dev tester 자동 시드** |
+| groups | 완료 | CRUD + visibility + 8자리 초대코드 + join/leave/join-public + 공개 검색 + 멤버 role 관리 |
+| projects | 완료 | CRUD + project_members + **자동 type='project' 채널 생성** |
+| channels | 완료 | type별 흐름(channel/dm/project), DM 본인 한정·중복 차단·leave/delete, 멤버 추가/제거/목록, 토픽 수정 |
+| messages | 완료 | CRUD + 스레드 + 리액션 + Socket.IO Gateway |
+| meetings | 완료 | 방 생성(즉시 시작 X) + start/end/delete 권한 + visibility + meeting_participants + assertCanAccess |
+| dashboard | 완료 | 내 채널(DM 제외) + 최근 페이지 + 회의 |
+| pages, tasks, document, upload, livekit, settings | 완료 | 기본 CRUD/흐름 |
+| ai (RAG) | **미착수** | Gemini + pgvector |
+| schedules | **미착수** | — |
+| subscriptions | **미착수** | — |
+
+### 마이그레이션 7건 (모두 적용 + git에 commit됨)
+1. `add_provider_access_token`
+2. `add_group_visibility` (visibility/is_external/connected_org_ids)
+3. `align_channels_messages_with_entities` (entity ↔ DB 매핑 + invite_code/user_name/author_name/is_system/reply_count)
+4. `add_meetings_tables` (meetings/transcripts/summaries/action_items)
+5. `align_tasks_with_entity` (assignee/source_meeting_id/source_action_item_id)
+6. `add_project_members`
+7. `add_meeting_visibility_participants`
+
+다른 팀원은 `git pull && npx prisma migrate deploy` 한 번만 하면 모두 자동 적용.
+
+---
+
+*마지막 업데이트: 2026-05-11 — 정합성 fix 완료, 모듈별 완료 현황 간략화*

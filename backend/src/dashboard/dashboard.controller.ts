@@ -16,4 +16,12 @@ export class DashboardController {
   ) {
     return this.dashboardService.getDashboard(user.userId, orgId || undefined)
   }
+
+  @Get('search')
+  search(
+    @CurrentUser() user: CurrentUserPayload,
+    @Query('q') q = '',
+  ) {
+    return this.dashboardService.searchResources(user.userId, q)
+  }
 }

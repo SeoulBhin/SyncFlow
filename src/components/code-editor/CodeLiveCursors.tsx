@@ -1,53 +1,75 @@
 import { useState, useEffect } from 'react'
+import type { HocuspocusProvider } from '@hocuspocus/provider'
 
-interface CursorUser {
-  id: string
+interface RemoteUser {
+  clientId: number
   name: string
   color: string
-  bgColor: string
-  line: number
-  column: number
-  selectionEndLine?: number
-  selectionEndColumn?: number
+  line?: number
+  column?: number
 }
 
-const MOCK_CURSOR_USERS: CursorUser[] = [
-  { id: 'u2', name: '이테스터', color: '#3b82f6', bgColor: 'rgba(59,130,246,0.15)', line: 5, column: 12 },
-  { id: 'u4', name: '최테스터', color: '#22c55e', bgColor: 'rgba(34,197,94,0.15)', line: 12, column: 8, selectionEndLine: 12, selectionEndColumn: 25 },
-]
+interface CodeLiveCursorsProps {
+  provider: HocuspocusProvider | null
+}
 
-export function CodeLiveCursors() {
-  const [cursors, setCursors] = useState(MOCK_CURSOR_USERS)
+export function CodeLiveCursors({ provider }: CodeLiveCursorsProps) {
+  const [remoteUsers, setRemoteUsers] = useState<RemoteUser[]>([])
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setCursors((prev) =>
-        prev.map((c) => ({
-          ...c,
-          line: Math.max(1, c.line + Math.floor(Math.random() * 5) - 2),
-          column: Math.max(1, c.column + Math.floor(Math.random() * 7) - 3),
-        }))
-      )
-    }, 3000)
-    return () => clearInterval(interval)
-  }, [])
+    const awareness = provider?.awareness
+    if (!awareness) {
+      setRemoteUsers([])
+      return
+    }
 
-  // Monaco 에디터 위 오버레이 - 실제로는 Monaco의 decoration API를 사용
-  // 현재는 목업으로 에디터 상단에 사용자 목록만 표시
+    const update = () => {
+      const myClientId = awareness.clientID
+      const list: RemoteUser[] = []
+
+      awareness.getStates().forEach((state, clientId) => {
+        if (clientId === myClientId) return
+        const u = state.user as { name?: string; color?: string } | undefined
+        if (!u) return
+        const cursor = state.cursor as { line?: number; column?: number } | undefined
+        list.push({
+          clientId,
+          name: u.name ?? `사용자 ${clientId}`,
+          color: u.color ?? '#888',
+          line: cursor?.line,
+          column: cursor?.column,
+        })
+      })
+      setRemoteUsers(list)
+    }
+
+    awareness.on('update', update)
+    update()
+
+    return () => {
+      awareness.off('update', update)
+      setRemoteUsers([])
+    }
+  }, [provider])
+
+  if (remoteUsers.length === 0) return null
+
   return (
-    <div className="flex items-center gap-3 px-3 py-1 text-xs">
-      {cursors.map((c) => (
-        <div key={c.id} className="flex items-center gap-1.5">
+    <div className="flex items-center gap-3 px-1 text-xs">
+      {remoteUsers.map((u) => (
+        <div key={u.clientId} className="flex items-center gap-1.5">
           <div
-            className="h-2.5 w-2.5 rounded-full"
-            style={{ backgroundColor: c.color }}
+            className="h-2 w-2 shrink-0 rounded-full"
+            style={{ backgroundColor: u.color }}
           />
-          <span className="text-neutral-500 dark:text-neutral-400">
-            {c.name}
+          <span className="font-medium text-neutral-600 dark:text-neutral-300">
+            {u.name}
           </span>
-          <span className="text-neutral-400 dark:text-neutral-600">
-            L{c.line}:C{c.column}
-          </span>
+          {u.line != null && (
+            <span className="text-neutral-400 dark:text-neutral-500">
+              · {u.line}행{u.column != null ? ` ${u.column}열` : ''}
+            </span>
+          )}
         </div>
       ))}
     </div>

@@ -12,6 +12,7 @@ import {
   Globe,
   Building2,
   UserPlus,
+  Settings,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -21,27 +22,43 @@ import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
 import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { useChannelsStore } from '@/stores/useChannelsStore'
 import { MOCK_CHANNELS, MOCK_ORGANIZATIONS } from '@/constants'
 import { SharedChannelInviteModal } from './SharedChannelInviteModal'
+import { ChannelSettingsModal } from './ChannelSettingsModal'
+import { api } from '@/utils/api'
 
 export function ChannelHeader() {
   const navigate = useNavigate()
-  const { activeGroupId, activeGroupName } = useGroupContextStore()
+  const { activeGroupId, activeGroupName, activeOrgId } = useGroupContextStore()
   const { togglePanel, activePanel } = useDetailPanelStore()
   const voiceChat = useVoiceChatStore()
   const screenShare = useScreenShareStore()
   const meeting = useMeetingStore()
   const addToast = useToastStore((s) => s.addToast)
+  const channels = useChannelsStore((s) => s.channels)
 
-  const channel = MOCK_CHANNELS.find((c) => c.id === activeGroupId)
+  // 실제 채널 우선, 없으면 mock fallback (데모 모드)
+  const realChannel = channels.find((c) => c.id === activeGroupId) ?? null
+  const mockChannel = MOCK_CHANNELS.find((c) => c.id === activeGroupId)
   const isVoiceConnected = voiceChat.status !== 'disconnected'
   const isMuted = voiceChat.status === 'muted'
-  const isExternal = channel?.isExternal ?? false
-  const connectedOrgs = channel?.connectedOrgIds
+  const isExternal = mockChannel?.isExternal ?? false
+  const connectedOrgs = mockChannel?.connectedOrgIds
     ?.map((id) => MOCK_ORGANIZATIONS.find((o) => o.id === id))
     .filter(Boolean) ?? []
 
+  const description = realChannel?.description ?? mockChannel?.description ?? ''
+  const isDM = realChannel?.type === 'dm'
+  // DM 채널은 양쪽이 같은 row.name 을 갖기 때문에, 본인 입장의 상대방 이름(otherUser.userName)을 우선 사용.
+  // otherUser 가 비어있는 경우(레거시 row 등) 에만 activeGroupName 으로 폴백.
+  const displayChannelName =
+    isDM && realChannel?.otherUser?.userName
+      ? realChannel.otherUser.userName
+      : (activeGroupName ?? '채널')
+
   const [showInviteModal, setShowInviteModal] = useState(false)
+  const [showSettings, setShowSettings] = useState(false)
 
   const handleVoiceClick = () => {
     if (voiceChat.status === 'disconnected') {
@@ -68,12 +85,25 @@ export function ChannelHeader() {
 
   const handleStartMeeting = async () => {
     const channelName = activeGroupName ?? '채널'
-    const title = `${channelName} 빠른 회의`
+    const title = `${channelName} 통화`
     try {
+      // 채널 멤버를 회의 참여자로 자동 지정 (Slack Huddle 패턴)
+      let participants: { userId: string; userName: string }[] = []
+      if (realChannel) {
+        try {
+          const members = await api.get<{ userId: string; userName: string }[]>(
+            `/channels/${realChannel.id}/members`,
+          )
+          participants = members.map((m) => ({ userId: m.userId, userName: m.userName }))
+        } catch {
+          // 멤버 fetch 실패해도 회의는 생성
+        }
+      }
       const created = await meeting.createMeeting(title, {
-        groupId: activeGroupId ?? undefined,
+        groupId: activeOrgId ?? undefined,
+        visibility: 'private',
+        participants,
       })
-      meeting.startMeeting(created.id, title, channelName)
       navigate(`/app/meetings/${created.id}`)
     } catch (err) {
       addToast(
@@ -84,7 +114,7 @@ export function ChannelHeader() {
   }
 
   return (
-    <div className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
+    <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
       <div className="flex items-center gap-2">
         {isExternal ? (
           <Globe size={16} className="text-orange-500" />
@@ -92,7 +122,7 @@ export function ChannelHeader() {
           <Hash size={16} className="text-neutral-400" />
         )}
         <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-          {activeGroupName ?? '채널'}
+          {displayChannelName}
         </span>
         {isExternal && connectedOrgs.length > 0 && (
           <div className="hidden items-center gap-1 sm:flex">
@@ -107,9 +137,9 @@ export function ChannelHeader() {
             ))}
           </div>
         )}
-        {channel && !isExternal && (
+        {description && !isExternal && (
           <span className="hidden text-xs text-neutral-400 sm:inline">
-            {channel.description}
+            {description}
           </span>
         )}
       </div>
@@ -214,6 +244,17 @@ export function ChannelHeader() {
           <Sparkles size={16} />
         </button>
 
+        {/* 채널 설정 (DM 제외 — DM은 hover X로 삭제만) */}
+        {realChannel && !isDM && (
+          <button
+            onClick={() => setShowSettings(true)}
+            className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700"
+            title="채널 설정"
+          >
+            <Settings size={16} />
+          </button>
+        )}
+
         {/* 외부 조직 초대 (공유 채널일 때만) */}
         {isExternal && (
           <>
@@ -235,6 +276,11 @@ export function ChannelHeader() {
         isOpen={showInviteModal}
         onClose={() => setShowInviteModal(false)}
         channelName={activeGroupName ?? undefined}
+      />
+      <ChannelSettingsModal
+        isOpen={showSettings}
+        onClose={() => setShowSettings(false)}
+        channel={realChannel}
       />
     </div>
   )

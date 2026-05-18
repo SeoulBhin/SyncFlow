@@ -12,6 +12,7 @@ interface SidebarState {
   toggleCollapsed: () => void
   setActiveGroup: (id: string | null) => void
   setActiveProject: (id: string | null) => void
+  clearSelection: () => void
 }
 
 export const useSidebarStore = create<SidebarState>()(
@@ -27,6 +28,8 @@ export const useSidebarStore = create<SidebarState>()(
       toggleCollapsed: () => set((s) => ({ isCollapsed: !s.isCollapsed })),
       setActiveGroup: (activeGroupId) => set({ activeGroupId, activeProjectId: null }),
       setActiveProject: (activeProjectId) => set({ activeProjectId }),
+      // 로그아웃 또는 DB 초기화 후 stale persist 상태 제거
+      clearSelection: () => set({ activeGroupId: null, activeProjectId: null }),
     }),
     { name: 'syncflow-sidebar' },
   ),

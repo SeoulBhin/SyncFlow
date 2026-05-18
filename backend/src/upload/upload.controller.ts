@@ -18,12 +18,11 @@ if (!fs.existsSync(UPLOAD_DIR)) {
 }
 
 const ALLOWED_MIME = new Set([
-  // 이미지
+  // 이미지 (SVG 제외 — XSS 위험)
   'image/jpeg',
   'image/png',
   'image/gif',
   'image/webp',
-  'image/svg+xml',
   // 문서
   'application/pdf',
   'application/msword',
@@ -36,7 +35,7 @@ const ALLOWED_MIME = new Set([
   'text/plain',
   'text/csv',
   'text/markdown',
-  // XML / 다이어그램 (.drawio, .xml, .svg 등)
+  // XML / 다이어그램 (.drawio 등)
   'application/xml',
   'text/xml',
   'application/vnd.jgraph.mxfile',   // drawio
@@ -45,8 +44,21 @@ const ALLOWED_MIME = new Set([
   'application/x-zip-compressed',
   'application/x-tar',
   'application/gzip',
-  // 기타 바이너리 (일반 첨부용)
-  'application/octet-stream',
+  // application/octet-stream 제거 — MIME 위조로 실행 파일 우회 가능
+]);
+
+// 실행/스크립트 파일 확장자 차단 목록 (MIME 위조 우회 방지 이중 검증)
+const BLOCKED_EXTENSIONS = new Set([
+  // 실행 파일
+  '.exe', '.dll', '.so', '.dylib', '.com', '.scr',
+  // 셸 / 윈도우 스크립트
+  '.sh', '.bash', '.zsh', '.fish', '.bat', '.cmd', '.ps1', '.vbs', '.wsf', '.hta',
+  // 웹 스크립트 (서버 실행 가능)
+  '.php', '.php3', '.php4', '.php5', '.phtml',
+  '.py', '.rb', '.pl', '.lua', '.cgi', '.asp', '.aspx', '.jsp',
+  // 브라우저 실행 가능 (XSS 위험)
+  '.js', '.mjs', '.cjs', '.ts', '.tsx', '.jsx',
+  '.html', '.htm', '.xhtml', '.svg',
 ]);
 
 @UseGuards(JwtAuthGuard)
@@ -64,14 +76,16 @@ export class UploadController {
       }),
       limits: { fileSize: 10 * 1024 * 1024 }, // 10 MB
       fileFilter: (_req, file, cb) => {
-        if (ALLOWED_MIME.has(file.mimetype)) {
-          cb(null, true);
-        } else {
-          cb(
-            new BadRequestException(`허용되지 않는 파일 형식: ${file.mimetype}`),
-            false,
-          );
+        const ext = path.extname(file.originalname).toLowerCase();
+
+        if (BLOCKED_EXTENSIONS.has(ext)) {
+          return cb(new BadRequestException(`허용되지 않는 파일 확장자: ${ext}`), false);
         }
+        if (!ALLOWED_MIME.has(file.mimetype)) {
+          return cb(new BadRequestException(`허용되지 않는 파일 형식: ${file.mimetype}`), false);
+        }
+
+        cb(null, true);
       },
     }),
   )

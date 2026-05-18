@@ -6,12 +6,14 @@ import {
   useCallback,
   useMemo,
 } from 'react'
+import { useNavigate, useParams } from 'react-router-dom'
 import {
   Send,
   Smile,
   Paperclip,
   CheckCheck,
   MessageCircle,
+  MessageSquare,
   X,
   Hash,
   Reply,
@@ -22,14 +24,17 @@ import {
 import { cn } from '@/utils/cn'
 import { apiFetch } from '@/lib/api'
 import { useChatStore } from '@/stores/useChatStore'
+import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useThreadStore } from '@/stores/useThreadStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
+import { useSidebarStore } from '@/stores/useSidebarStore'
+import { useProjectsStore } from '@/stores/useProjectsStore'
+import { useAIStore } from '@/stores/useAIStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
 import {
   EMOJI_LIST,
-  MOCK_CHANNEL_MEMBERS,
   MOCK_CHANNELS,
   MOCK_ORG_MEMBERS,
 } from '@/constants'
@@ -106,9 +111,14 @@ export function ChannelView() {
     cleanupSocket,
   } = useChatStore()
 
-  const { activeGroupId } = useGroupContextStore()
+  const { activeGroupId, activeOrgId, setActiveGroup: setActiveGroupCtx } = useGroupContextStore()
+  const navigate = useNavigate()
+  const { setActiveGroup: setSidebarActiveGroup, setActiveProject: setSidebarActiveProject } = useSidebarStore()
+  const projects = useProjectsStore((s) => s.projects)
+  const allChannelDetails = useChannelsStore((s) => s.channels)
   const { openThread } = useThreadStore()
   const { openPanel } = useDetailPanelStore()
+  const { openPanel: openAIPanel, sendMessage: sendAIMessage } = useAIStore()
 
   const [inputText, setInputText] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -121,6 +131,20 @@ export function ChannelView() {
   const [pendingLinks, setPendingLinks] = useState<string[]>([])
   /** 현재 업로드 중인 파일명 목록 */
   const [uploadingFileNames, setUploadingFileNames] = useState<string[]>([])
+  /** 채널 멤버 목록 (멘션용) */
+  const [channelMembers, setChannelMembers] = useState<Array<{ id: string; name: string; position: string }>>([])
+
+  useEffect(() => {
+    if (!activeChannelId) return
+    apiFetch(`/api/channels/${activeChannelId}/members`)
+      .then((res) => (res.ok ? res.json() : []))
+      .then((data: Array<{ userId: string; userName: string }>) => {
+        setChannelMembers(
+          data.map((m) => ({ id: m.userId, name: m.userName, position: '멤버' })),
+        )
+      })
+      .catch(() => setChannelMembers([]))
+  }, [activeChannelId])
 
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
@@ -129,6 +153,22 @@ export function ChannelView() {
   const emojiPickerRef = useRef<HTMLDivElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const typingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // URL의 :channelId param을 useChatStore에 동기화 — 직접 진입/새로고침에도 작동
+  const { channelId: urlChannelId } = useParams<{ channelId: string }>()
+  useEffect(() => {
+    if (urlChannelId && urlChannelId !== activeChannelId) {
+      setActiveChannel(urlChannelId)
+    }
+  }, [urlChannelId, activeChannelId, setActiveChannel])
+
+  // 채널 진입 시 markRead — 사이드바 unread 배지 즉시 0
+  const markChannelRead = useChannelsStore((s) => s.markChannelRead)
+  useEffect(() => {
+    if (!urlChannelId) return
+    void apiFetch(`/api/channels/${urlChannelId}/read`, { method: 'PUT' }).catch(() => {})
+    markChannelRead(urlChannelId)
+  }, [urlChannelId, markChannelRead])
 
   // ── Socket init / cleanup ─────────────────────────────────────────────────
 
@@ -140,10 +180,21 @@ export function ChannelView() {
   // ── Channel load when group changes ───────────────────────────────────────
 
   useEffect(() => {
-    if (activeGroupId) {
-      void loadChannels(activeGroupId)
+    if (activeOrgId) {
+      void loadChannels(activeOrgId)
     }
-  }, [activeGroupId, loadChannels])
+  }, [activeOrgId, loadChannels])
+
+  // 현재 보고 있는 채널이 삭제됐을 때(채널 목록에서 사라졌을 때) 첫 번째 일반 채널로 이동
+  useEffect(() => {
+    if (!urlChannelId || channels.length === 0) return
+    const exists = channels.find((c) => c.id === urlChannelId)
+    if (!exists) {
+      const first = channels.find((c) => c.type === 'channel') ?? channels[0]
+      if (first) navigate(`/app/channel/${first.id}`)
+      else navigate('/app')
+    }
+  }, [channels, urlChannelId, navigate])
 
   // ── Scroll to bottom ──────────────────────────────────────────────────────
 
@@ -178,22 +229,60 @@ export function ChannelView() {
     [typingUsers, activeChannelId],
   )
 
-  // ── Channel / DM split ────────────────────────────────────────────────────
+  // ── Channel / ProjectChat / DM split ─────────────────────────────────────
 
-  const subChannels = channels.filter((c) => c.type !== 'dm')
+  const regularChannels = channels.filter((c) => c.type !== 'dm' && c.type !== 'project')
   const dmChannels = channels.filter((c) => c.type === 'dm')
-
   const activeChannel = channels.find((c) => c.id === activeChannelId)
+
+  // 현재 활성 채널이 일반 채널(type='channel')이면 그 채널에 소속된 프로젝트 채팅만 표시
+  // 일반 채널이 아닌 경우(프로젝트 채팅 등) 전체 프로젝트 채팅 표시
+  const activeRegularChannelId = activeChannel?.type === 'channel' ? activeChannelId : null
+  const projectChannels = channels.filter((c) => {
+    if (c.type !== 'project') return false
+    if (!activeRegularChannelId) return true // 일반 채널 컨텍스트 없으면 전부 표시
+    const detail = allChannelDetails.find((d) => d.id === c.id)
+    if (!detail?.projectId) return true
+    const project = projects.find((p) => p.id === detail.projectId)
+    if (!project) return true
+    if (!project.channelId) return true // channelId 없는 레거시 프로젝트는 항상 표시
+    return project.channelId === activeRegularChannelId
+  })
 
   // ── Mention list ──────────────────────────────────────────────────────────
 
   const allMentionItems = [
     { id: 'ai', name: 'AI', position: 'AI 어시스턴트', isAI: true },
-    ...MOCK_CHANNEL_MEMBERS.map((m) => ({ ...m, isAI: false })),
+    ...channelMembers.map((m) => ({ ...m, isAI: false })),
   ]
   const filteredMembers = allMentionItems.filter((m) =>
     m.name.toLowerCase().includes(mentionFilter.toLowerCase()),
   )
+
+  // ── Navigation helpers (store + URL 동기화) ───────────────────────────────
+
+  const openChannel = useCallback((channelId: string, channelName: string) => {
+    setActiveGroupCtx(channelId, channelName)
+    setSidebarActiveGroup(channelId)
+    setActiveChannel(channelId)
+    navigate(`/app/channel/${channelId}`)
+  }, [setActiveGroupCtx, setSidebarActiveGroup, setActiveChannel, navigate])
+
+  const openProjectChat = useCallback((channelId: string, channelName: string) => {
+    const detail = allChannelDetails.find((c) => c.id === channelId)
+    const projectId = detail?.projectId ?? null
+    setActiveGroupCtx(channelId, channelName)
+    if (projectId) setSidebarActiveProject(projectId)
+    setActiveChannel(channelId)
+    navigate(`/app/channel/${channelId}`)
+  }, [allChannelDetails, setActiveGroupCtx, setSidebarActiveProject, setActiveChannel, navigate])
+
+  const openDM = useCallback((dmId: string, dmName: string) => {
+    setActiveGroupCtx(dmId, dmName)
+    setSidebarActiveGroup(dmId)
+    setActiveChannel(dmId)
+    navigate(`/app/channel/${dmId}`)
+  }, [setActiveGroupCtx, setSidebarActiveGroup, setActiveChannel, navigate])
 
   // ── Handlers ──────────────────────────────────────────────────────────────
 
@@ -221,10 +310,19 @@ export function ChannelView() {
     const content = [inputText.trim(), ...pendingLinks].filter(Boolean).join('\n')
     if (!content.trim()) return
 
+    // @AI 멘션 감지: AI 패널로 전달 (channelId 포함하여 멤버 목록 hallucination 방지)
+    const hasAIMention = /@AI\b/i.test(inputText.trim())
+    if (hasAIMention) {
+      const aiQuery = inputText.trim().replace(/@AI\s*/gi, '').trim() || inputText.trim()
+      openPanel('ai')
+      openAIPanel()
+      void sendAIMessage(aiQuery, undefined, activeChannelId ?? undefined)
+    }
+
     sendMessage(activeChannelId, content)
     setInputText('')
     setPendingLinks([])
-  }, [inputText, pendingLinks, uploadingFileNames, activeChannelId, sendMessage])
+  }, [inputText, pendingLinks, uploadingFileNames, activeChannelId, sendMessage, openPanel, openAIPanel, sendAIMessage])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -364,23 +462,24 @@ export function ChannelView() {
     <div className="flex h-full">
       {/* 좌측: 채널 / DM 목록 */}
       <div className="hidden w-[220px] shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900 sm:flex">
-        <div className="border-b border-neutral-200 px-4 py-3 dark:border-neutral-700">
+        {/* 헤더는 사이드바/메시지패널/스레드패널과 같은 h-14 라인에 맞춤 */}
+        <div className="flex h-14 shrink-0 items-center border-b border-neutral-200 px-4 dark:border-neutral-700">
           <h2 className="text-sm font-bold text-neutral-700 dark:text-neutral-200">
             메시지
           </h2>
         </div>
 
         <div className="flex-1 overflow-y-auto py-2">
-          {/* 채널 목록 */}
-          {subChannels.length > 0 && (
+          {/* 일반 채널 목록 */}
+          {regularChannels.length > 0 && (
             <div className="mb-2">
               <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
                 채널
               </p>
-              {subChannels.map((ch) => (
+              {regularChannels.map((ch) => (
                 <button
                   key={ch.id}
-                  onClick={() => setActiveChannel(ch.id)}
+                  onClick={() => openChannel(ch.id, ch.name)}
                   className={cn(
                     'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
                     ch.id === activeChannelId
@@ -400,35 +499,76 @@ export function ChannelView() {
             </div>
           )}
 
+          {/* 프로젝트 채팅 목록 */}
+          {projectChannels.length > 0 && (
+            <div className="mb-2">
+              <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
+                프로젝트 채팅
+              </p>
+              {projectChannels.map((ch) => {
+                const detail = allChannelDetails.find((c) => c.id === ch.id)
+                const project = detail?.projectId
+                  ? projects.find((p) => p.id === detail.projectId)
+                  : null
+                const label = project?.name ?? ch.name
+                return (
+                  <button
+                    key={ch.id}
+                    onClick={() => openProjectChat(ch.id, ch.name)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
+                      ch.id === activeChannelId
+                        ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                    )}
+                  >
+                    <MessageSquare size={13} className="shrink-0 text-primary-500" />
+                    <span className="flex-1 truncate text-left">{label}</span>
+                    {ch.unreadCount > 0 && (
+                      <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                        {ch.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
+            </div>
+          )}
+
           {/* DM 목록 */}
           {dmChannels.length > 0 && (
             <div>
               <p className="px-4 pb-1 text-[10px] font-semibold uppercase tracking-wider text-neutral-400">
                 DM
               </p>
-              {dmChannels.map((dm) => (
-                <button
-                  key={dm.id}
-                  onClick={() => setActiveChannel(dm.id)}
-                  className={cn(
-                    'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
-                    dm.id === activeChannelId
-                      ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                      : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                  )}
-                >
-                  <span className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-[9px] font-bold text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200">
-                    {dm.name[0]}
-                    <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-neutral-50 bg-neutral-400 dark:border-neutral-900" />
-                  </span>
-                  <span className="flex-1 truncate text-left">{dm.name}</span>
-                  {dm.unreadCount > 0 && (
-                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
-                      {dm.unreadCount}
+              {dmChannels.map((dm) => {
+                // DM 채널의 row.name 은 처음 만든 사람이 입력한 값이라 양쪽 입장이 어긋남.
+                // 본인 입장의 상대 이름(otherUser.userName)을 항상 우선 사용.
+                const displayName = dm.otherUser?.userName?.trim() || dm.name || 'DM'
+                return (
+                  <button
+                    key={dm.id}
+                    onClick={() => openDM(dm.id, displayName)}
+                    className={cn(
+                      'flex w-full items-center gap-2 px-4 py-1.5 text-xs transition-colors',
+                      dm.id === activeChannelId
+                        ? 'bg-primary-50 font-medium text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                    )}
+                  >
+                    <span className="relative flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-neutral-300 text-[9px] font-bold text-neutral-700 dark:bg-neutral-600 dark:text-neutral-200">
+                      {displayName[0] ?? '?'}
+                      <span className="absolute -bottom-0.5 -right-0.5 h-2 w-2 rounded-full border-[1.5px] border-neutral-50 bg-neutral-400 dark:border-neutral-900" />
                     </span>
-                  )}
-                </button>
-              ))}
+                    <span className="flex-1 truncate text-left">{displayName}</span>
+                    {dm.unreadCount > 0 && (
+                      <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[9px] font-bold text-white">
+                        {dm.unreadCount}
+                      </span>
+                    )}
+                  </button>
+                )
+              })}
             </div>
           )}
 

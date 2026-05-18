@@ -1,8 +1,37 @@
 const BASE_URL = '/api'
 
+let _isRefreshing = false
+let _refreshPromise: Promise<string | null> | null = null
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (_isRefreshing) return _refreshPromise!
+  _isRefreshing = true
+  _refreshPromise = fetch('/api/auth/refresh', {
+    method: 'POST',
+    credentials: 'include',
+  })
+    .then(async (res) => {
+      if (!res.ok) return null
+      const data = (await res.json()) as { accessToken?: string }
+      const token = data.accessToken
+      if (token) {
+        localStorage.setItem('accessToken', token)
+        return token
+      }
+      return null
+    })
+    .catch(() => null)
+    .finally(() => {
+      _isRefreshing = false
+      _refreshPromise = null
+    })
+  return _refreshPromise
+}
+
 export async function apiRequest<T>(
   path: string,
   options: RequestInit = {},
+  _retried = false,
 ): Promise<T> {
   const token = localStorage.getItem('accessToken')
 
@@ -15,6 +44,17 @@ export async function apiRequest<T>(
       ...options.headers,
     },
   })
+
+  if (res.status === 401 && !_retried) {
+    const newToken = await tryRefreshToken()
+    if (newToken) {
+      return apiRequest<T>(path, options, true)
+    }
+    localStorage.removeItem('accessToken')
+    // 순환 의존성(api ↔ useAuthStore) 없이 스토어에 세션 만료를 전파한다.
+    window.dispatchEvent(new CustomEvent('auth:session-expired'))
+    throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.')
+  }
 
   if (!res.ok) {
     const error = await res.json().catch(() => ({ message: '요청 실패' }))

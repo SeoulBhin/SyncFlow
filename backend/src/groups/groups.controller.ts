@@ -48,6 +48,20 @@ export class GroupsController {
     return this.groupsService.joinGroup(req.user.id, dto)
   }
 
+  /* ── POST /api/groups/:id/leave — 본인이 조직에서 탈퇴 (owner는 불가) ── */
+  @Post(':id/leave')
+  @HttpCode(HttpStatus.OK)
+  leaveGroup(@Req() req: { user: User }, @Param('id') id: string) {
+    return this.groupsService.leaveGroup(id, req.user.id)
+  }
+
+  /* ── POST /api/groups/:id/join-public — 공개 조직에 코드 없이 직접 참여 ── */
+  @Post(':id/join-public')
+  @HttpCode(HttpStatus.OK)
+  joinPublicGroup(@Req() req: { user: User }, @Param('id') id: string) {
+    return this.groupsService.joinPublicGroup(id, req.user.id)
+  }
+
   /* ── GET /api/groups/:id ── */
   @Get(':id')
   getGroup(@Req() req: { user: User }, @Param('id') id: string) {

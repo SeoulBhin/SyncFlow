@@ -15,17 +15,9 @@ import {
   Sparkles,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
+import { apiFetch } from '@/lib/api'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useAIStore } from '@/stores/useAIStore'
-import {
-  MOCK_CHANNELS,
-  MOCK_PROJECTS,
-  MOCK_PAGES,
-  MOCK_TASKS,
-  MOCK_CHANNEL_MEMBERS,
-  MOCK_MESSAGES,
-  MOCK_MEETINGS,
-} from '@/constants'
 
 type SearchCategory = 'all' | 'channels' | 'projects' | 'pages' | 'tasks' | 'members' | 'messages' | 'meetings'
 
@@ -68,82 +60,6 @@ const TYPE_COLORS: Record<SearchResult['type'], string> = {
   meeting: 'text-orange-500',
 }
 
-function buildSearchIndex(): SearchResult[] {
-  const results: SearchResult[] = []
-
-  MOCK_CHANNELS.forEach((ch) => {
-    results.push({
-      id: ch.id,
-      type: 'channel',
-      title: ch.name,
-      subtitle: ch.description,
-      path: `/app/channel/${ch.id}`,
-    })
-  })
-
-  MOCK_PROJECTS.forEach((p) => {
-    const ch = MOCK_CHANNELS.find((c) => c.id === p.groupId)
-    results.push({
-      id: p.id,
-      type: 'project',
-      title: p.name,
-      subtitle: ch ? `${ch.name} · ${p.description}` : p.description,
-    })
-  })
-
-  MOCK_PAGES.forEach((pg) => {
-    const proj = MOCK_PROJECTS.find((p) => p.id === pg.projectId)
-    results.push({
-      id: pg.id,
-      type: 'page',
-      title: pg.name,
-      subtitle: proj?.name,
-      path: pg.type === 'doc' ? `/app/editor/${pg.id}` : `/app/code/${pg.id}`,
-    })
-  })
-
-  MOCK_TASKS.forEach((t) => {
-    const statusLabel = { todo: '할 일', 'in-progress': '진행 중', done: '완료' }[t.status]
-    results.push({
-      id: t.id,
-      type: 'task',
-      title: t.title,
-      subtitle: `${t.projectName} · ${statusLabel} · ${t.assigneeName}`,
-      path: '/app/tasks',
-    })
-  })
-
-  MOCK_CHANNEL_MEMBERS.forEach((m) => {
-    results.push({
-      id: m.id,
-      type: 'member',
-      title: m.name,
-      subtitle: m.position,
-    })
-  })
-
-  MOCK_MESSAGES.forEach((msg) => {
-    results.push({
-      id: msg.id,
-      type: 'message',
-      title: msg.content.length > 60 ? msg.content.slice(0, 60) + '…' : msg.content,
-      subtitle: `${msg.userName} · ${msg.timestamp}`,
-    })
-  })
-
-  MOCK_MEETINGS.forEach((mt) => {
-    const statusLabel = { scheduled: '예정', 'in-progress': '진행 중', ended: '종료' }[mt.status]
-    results.push({
-      id: mt.id,
-      type: 'meeting',
-      title: mt.title,
-      subtitle: `${mt.channelName} · ${statusLabel}`,
-      path: mt.status === 'ended' ? `/app/meetings/${mt.id}/summary` : `/app/meetings/${mt.id}`,
-    })
-  })
-
-  return results
-}
 
 interface SearchModalProps {
   isOpen: boolean
@@ -154,13 +70,42 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const [query, setQuery] = useState('')
   const [category, setCategory] = useState<SearchCategory>('all')
   const [selectedIndex, setSelectedIndex] = useState(0)
+  const [apiResults, setApiResults] = useState<SearchResult[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const navigate = useNavigate()
   const { openPanel } = useDetailPanelStore()
   const { openPanel: openAI, sendMessage } = useAIStore()
 
-  const searchIndex = useMemo(() => buildSearchIndex(), [])
+  // debounced API 검색
+  useEffect(() => {
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    const q = query.trim()
+    if (!q) {
+      setApiResults([])
+      return
+    }
+    debounceRef.current = setTimeout(() => {
+      apiFetch(`/api/dashboard/search?q=${encodeURIComponent(q)}`)
+        .then((res) => (res.ok ? res.json() : []))
+        .then((data: Array<{ id: string; type: string; title: string; subtitle?: string; path?: string }>) => {
+          setApiResults(
+            data.map((r) => ({
+              id: r.id,
+              type: (r.type as SearchResult['type']) ?? 'page',
+              title: r.title,
+              subtitle: r.subtitle,
+              path: r.path,
+            })),
+          )
+        })
+        .catch(() => setApiResults([]))
+    }, 300)
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current)
+    }
+  }, [query])
 
   // AI 쿼리 감지: ?로 끝나거나 한국어 질문 패턴
   const isAIQuery = useMemo(() => {
@@ -172,7 +117,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   }, [query])
 
   const results = useMemo(() => {
-    let filtered = searchIndex
+    let filtered = apiResults
 
     if (category !== 'all') {
       const typeMap: Record<string, SearchResult['type']> = {
@@ -187,15 +132,8 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
       filtered = filtered.filter((r) => r.type === typeMap[category])
     }
 
-    if (!query.trim()) return filtered.slice(0, 20)
-
-    const q = query.toLowerCase()
-    const matched = filtered
-      .filter((r) => r.title.toLowerCase().includes(q) || r.subtitle?.toLowerCase().includes(q))
-      .slice(0, 20)
-
-    return matched
-  }, [query, category, searchIndex])
+    return filtered.slice(0, 20)
+  }, [apiResults, category])
 
   const handleSelect = useCallback(
     (result: SearchResult) => {
@@ -212,6 +150,7 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
       setQuery('')
       setCategory('all')
       setSelectedIndex(0)
+      setApiResults([])
       setTimeout(() => inputRef.current?.focus(), 50)
     }
   }, [isOpen])

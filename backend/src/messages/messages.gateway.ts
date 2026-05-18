@@ -6,105 +6,57 @@ import {
   OnGatewayDisconnect,
   MessageBody,
   ConnectedSocket,
-} from '@nestjs/websockets';
-import { Server, Socket } from 'socket.io';
-import { ConfigService } from '@nestjs/config';
-import { JwtService } from '@nestjs/jwt';
-import { MessagesService } from './messages.service';
+} from '@nestjs/websockets'
+import { Server, Socket } from 'socket.io'
+import { ConfigService } from '@nestjs/config'
+import { MessagesService } from './messages.service'
+import { AiService } from '../ai/ai.service'
 
 interface SocketUser {
-  userId: string;
-  userName: string;
-}
-
-function decodeHeaderValue(value: string | undefined): string | undefined {
-  if (!value) return value;
-  try {
-    return decodeURIComponent(value);
-  } catch {
-    return value;
-  }
+  userId: string
+  userName: string
 }
 
 @WebSocketGateway({
   cors: { origin: '*', credentials: true },
-  // Vite dev server proxies /socket.io → :3000, so no need to change path
 })
 export class MessagesGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server;
+  server: Server
 
-  /** socketId → user info */
-  private readonly users = new Map<string, SocketUser>();
+  private readonly users = new Map<string, SocketUser>()
 
   constructor(
     private readonly messagesService: MessagesService,
     private readonly config: ConfigService,
-    private readonly jwtService: JwtService,
+    private readonly aiService: AiService,
   ) {}
 
-  // ── Connection lifecycle ───────────────────────────────────────────────────
-
   handleConnection(client: Socket) {
-    // 1순위: auth 객체 또는 헤더에서 명시적으로 전달된 userId
-    let userId =
+    const userId =
       (client.handshake.auth['userId'] as string | undefined) ||
       (client.handshake.headers['x-user-id'] as string | undefined) ||
-      '';
-    let userName =
+      `anon-${client.id.slice(0, 6)}`
+    const userName =
       (client.handshake.auth['userName'] as string | undefined) ||
-      decodeHeaderValue(
-        client.handshake.headers['x-user-name'] as string | undefined,
-      ) ||
-      'Unknown';
-
-    // 2순위: userId가 비어있으면 JWT 토큰에서 sub(userId) 추출
-    // → 인증된 사용자의 authorId가 REST API와 동일하게 유지됨 (403 방지)
-    if (!userId) {
-      const rawToken =
-        (client.handshake.auth['token'] as string | undefined) ||
-        (client.handshake.headers['authorization'] as string | undefined)?.replace(
-          /^Bearer\s+/i,
-          '',
-        );
-      if (rawToken) {
-        try {
-          const secret = this.config.get<string>('JWT_SECRET', 'dev-secret');
-          const payload = this.jwtService.verify<{ sub: string; name?: string }>(
-            rawToken,
-            { secret },
-          );
-          userId = payload.sub;
-          userName = payload.name ?? userName;
-        } catch {
-          // 유효하지 않거나 만료된 토큰 → 3순위(익명)로 fall-through
-        }
-      }
-    }
-
-    // 3순위: 완전 익명 (개발/테스트용)
-    if (!userId) {
-      userId = `anon-${client.id.slice(0, 6)}`;
-    }
-
-    this.users.set(client.id, { userId, userName });
+      (client.handshake.headers['x-user-name'] as string | undefined) ||
+      'Unknown'
+    this.users.set(client.id, { userId, userName })
   }
 
   handleDisconnect(client: Socket) {
-    this.users.delete(client.id);
+    this.users.delete(client.id)
   }
-
-  // ── Room join / leave ──────────────────────────────────────────────────────
 
   @SubscribeMessage('chat:join')
   handleJoin(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { channelId: string },
   ) {
-    void client.join(data.channelId);
-    return { ok: true };
+    void client.join(data.channelId)
+    return { ok: true }
   }
 
   @SubscribeMessage('chat:leave')
@@ -112,11 +64,9 @@ export class MessagesGateway
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { channelId: string },
   ) {
-    void client.leave(data.channelId);
-    return { ok: true };
+    void client.leave(data.channelId)
+    return { ok: true }
   }
-
-  // ── Message send via socket (saves + broadcasts) ───────────────────────────
 
   @SubscribeMessage('chat:message')
   async handleMessage(
@@ -124,10 +74,10 @@ export class MessagesGateway
     @MessageBody()
     data: { channelId: string; content: string; parentId?: string },
   ) {
-    const user = this.users.get(client.id);
+    const user = this.users.get(client.id)
     if (!user) {
-      client.emit('chat:error', { message: '인증되지 않은 소켓입니다' });
-      return;
+      client.emit('chat:error', { message: '인증되지 않은 소켓입니다' })
+      return
     }
 
     try {
@@ -136,36 +86,31 @@ export class MessagesGateway
         { content: data.content, parentId: data.parentId },
         user.userId,
         user.userName,
-      );
+      )
 
-      this.server.to(data.channelId).emit('chat:message', { message });
+      this.server.to(data.channelId).emit('chat:message', { message })
 
       if (/[@＠]AI/i.test(data.content)) {
-        this.handleAIResponse(data.channelId, data.content, message.id);
+        this.handleAIResponse(data.channelId, data.content, message.id, user.userId)
       }
     } catch {
-      client.emit('chat:error', { message: '메시지 전송에 실패했습니다' });
+      client.emit('chat:error', { message: '메시지 전송에 실패했습니다' })
     }
   }
-
-  // ── Typing indicator (no DB) ───────────────────────────────────────────────
 
   @SubscribeMessage('chat:typing')
   handleTyping(
     @ConnectedSocket() client: Socket,
     @MessageBody() data: { channelId: string },
   ) {
-    const user = this.users.get(client.id);
-    if (!user) return;
-    // Broadcast to all others in the room
+    const user = this.users.get(client.id)
+    if (!user) return
     client.to(data.channelId).emit('chat:typing', {
       channelId: data.channelId,
       userId: user.userId,
       userName: user.userName,
-    });
+    })
   }
-
-  // ── Reaction (saves + broadcasts) ─────────────────────────────────────────
 
   @SubscribeMessage('chat:reaction')
   async handleReaction(
@@ -173,46 +118,77 @@ export class MessagesGateway
     @MessageBody()
     data: { messageId: string; emoji: string; channelId: string },
   ) {
-    const user = this.users.get(client.id);
-    if (!user) return;
+    const user = this.users.get(client.id)
+    if (!user) return
 
     try {
       const reactions = await this.messagesService.addReaction(
         data.messageId,
         { emoji: data.emoji },
         user.userId,
-      );
+      )
       this.server.to(data.channelId).emit('chat:reaction', {
         messageId: data.messageId,
         emoji: data.emoji,
         userId: user.userId,
         reactions,
-      });
+      })
     } catch {
-      client.emit('chat:error', { message: '반응 추가에 실패했습니다' });
+      client.emit('chat:error', { message: '반응 추가에 실패했습니다' })
     }
   }
 
-  // ── Public helpers (called by MessagesController) ─────────────────────────
-
   broadcastToChannel(channelId: string, event: string, payload: unknown) {
-    this.server.to(channelId).emit(event, payload);
+    this.server.to(channelId).emit(event, payload)
   }
 
-  handleAIResponse(channelId: string, content: string, parentId: string) {
-    // Fire-and-forget simulated AI reply (replace with real AI service)
-    setTimeout(async () => {
+  /**
+   * @AI 멘션 처리 — 실제 Gemini 호출
+   * 타이핑 인디케이터 → AI 응답 → 메시지 저장 → 브로드캐스트
+   */
+  handleAIResponse(
+    channelId: string,
+    content: string,
+    parentId: string,
+    userId?: string,
+  ) {
+    // 타이핑 인디케이터 즉시 전송
+    this.server.to(channelId).emit('chat:typing', {
+      channelId,
+      userId: 'ai-system',
+      userName: 'AI 어시스턴트',
+    })
+
+    void (async () => {
       try {
-        const query = content.replace(/[@＠]AI/gi, '').trim() || '안녕하세요';
+        const query = content.replace(/[@＠]AI\s*/gi, '').trim()
+        if (!query) return
+
+        // 실제 AI 호출 (quickReply: 세션 없이 단발성)
+        const aiReply = await this.aiService.quickReply(query, {
+          channelId,
+        })
+
         const aiMsg = await this.messagesService.createSystemMessage(
           channelId,
-          `**AI 어시스턴트:** "${query}"에 대해 분석 중입니다. 프로젝트 컨텍스트를 기반으로 답변을 준비하겠습니다.`,
+          `**AI 어시스턴트:** ${aiReply}`,
           parentId,
-        );
-        this.server.to(channelId).emit('chat:message', { message: aiMsg });
-      } catch {
-        // ignore AI errors
+        )
+
+        this.server.to(channelId).emit('chat:message', { message: aiMsg })
+      } catch (err) {
+        // AI 오류 시 사용자에게 알림
+        try {
+          const errMsg = await this.messagesService.createSystemMessage(
+            channelId,
+            '**AI 어시스턴트:** 일시적인 오류가 발생했습니다. 잠시 후 다시 시도해주세요.',
+            parentId,
+          )
+          this.server.to(channelId).emit('chat:message', { message: errMsg })
+        } catch {
+          // ignore
+        }
       }
-    }, 1500);
+    })()
   }
 }

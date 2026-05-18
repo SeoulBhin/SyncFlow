@@ -10,13 +10,26 @@ interface TasksState {
   loadAll: () => Promise<void>
   createTask: (data: {
     title: string
+    description?: string
     assignee?: string | null
+    assigneeId?: string | null
+    assigneeIds?: string[]
+    startDate?: string | null
     dueDate?: string | null
     status?: ApiTaskStatus
+    priority?: 'low' | 'medium' | 'high' | 'urgent'
+    groupId?: string | null
+    projectId?: string | null
   }) => Promise<ApiTask>
   updateTask: (
     id: string,
-    data: Partial<Pick<ApiTask, 'title' | 'assignee' | 'dueDate' | 'status'>>,
+    data: Partial<Pick<ApiTask, 'title' | 'assignee' | 'dueDate' | 'status'>> & {
+      assigneeId?: string | null
+      assigneeIds?: string[]
+      priority?: 'low' | 'medium' | 'high' | 'urgent'
+      description?: string
+      startDate?: string | null
+    },
   ) => Promise<ApiTask>
   removeTask: (id: string) => Promise<void>
 

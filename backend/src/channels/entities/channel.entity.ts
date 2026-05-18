@@ -17,23 +17,33 @@ export class Channel {
   id: string;
 
   /** 소속 그룹(조직 내 채널 그룹) ID */
-  @Column()
+  @Column({ name: 'group_id', type: 'uuid' })
   groupId: string;
 
-  @Column({ type: 'varchar', default: 'channel' })
+  /** type='project' 채널의 경우 소속 프로젝트 ID. 그 외엔 null */
+  @Column({ name: 'project_id', type: 'uuid', nullable: true })
+  projectId: string | null;
+
+  @Column({ type: 'varchar', length: 10, default: 'channel' })
   type: ChannelType;
 
-  @Column()
+  @Column({ type: 'varchar', length: 100, nullable: true })
   name: string;
 
-  @Column({ nullable: true, type: 'varchar' })
+  @Column({ type: 'text', nullable: true })
   description: string | null;
 
   /** 6자리 초대 코드 (대문자 영숫자). DM/프로젝트 채널은 null. */
-  @Column({ nullable: true, type: 'varchar', length: 6, unique: true })
+  @Column({
+    name: 'invite_code',
+    type: 'varchar',
+    length: 6,
+    unique: true,
+    nullable: true,
+  })
   inviteCode: string | null;
 
-  @CreateDateColumn()
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date;
 
   @OneToMany(() => ChannelMember, (m) => m.channel, { cascade: true })

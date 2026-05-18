@@ -1,17 +1,20 @@
 import {
   BadRequestException,
+  ForbiddenException,
   Injectable,
   Logger,
   NotFoundException,
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { In, Repository } from 'typeorm'
+import { In, Not, Repository } from 'typeorm'
 import * as fs from 'fs'
 import { Meeting } from './entities/meeting.entity'
 import { MeetingTranscript } from './entities/meeting-transcript.entity'
 import { MeetingSummary } from './entities/meeting-summary.entity'
 import { MeetingActionItem } from './entities/meeting-action-item.entity'
+import { MeetingParticipant } from './entities/meeting-participant.entity'
 import { Task } from '../tasks/entities/task.entity'
+import { GroupMember } from '../groups/entities/group-member.entity'
 import { SttService } from './stt.service'
 import { SummaryService } from './summary.service'
 
@@ -37,25 +40,178 @@ export class MeetingsService {
     @InjectRepository(MeetingTranscript) private transcriptRepo: Repository<MeetingTranscript>,
     @InjectRepository(MeetingSummary) private summaryRepo: Repository<MeetingSummary>,
     @InjectRepository(MeetingActionItem) private actionItemRepo: Repository<MeetingActionItem>,
+    @InjectRepository(MeetingParticipant) private participantRepo: Repository<MeetingParticipant>,
     @InjectRepository(Task) private taskRepo: Repository<Task>,
+    @InjectRepository(GroupMember) private groupMemberRepo: Repository<GroupMember>,
     private sttService: SttService,
     private summaryService: SummaryService,
   ) {}
 
-  // 회의 생성
-  async createMeeting(title: string, hostId: string, groupId?: string, projectId?: string) {
-    // group_id / project_id 컬럼은 uuid 타입 — 비-UUID 값(MOCK 채널 "ch1" 등)이
-    // 들어오면 Postgres가 invalid input syntax 로 throw 해 500을 반환함.
-    // 프런트 보냄 값이 무엇이든 안전하게 null 로 정규화 (방어적 프로그래밍)
+  /**
+   * 회의 방 생성 — 즉시 시작하지 않음(status='scheduled').
+   * 호스트가 명시적으로 startMeeting()을 호출해야 in-progress가 됨.
+   * participants[]가 비어있고 visibility='public'이면 같은 조직 멤버 누구나 들어올 수 있음.
+   * visibility='private'이면 호스트 + participants만 접근 가능.
+   */
+  async createMeeting(
+    title: string,
+    hostId: string,
+    options: {
+      groupId?: string
+      projectId?: string
+      visibility?: 'public' | 'private'
+      participants?: { userId: string; userName: string }[]
+      scheduledAt?: Date
+    } = {},
+  ) {
+    // [HOST DEBUG] 백엔드가 실제로 받은 hostId 확인 — JWT sub와 일치해야 함
+    this.logger.log(`[HOST DEBUG] createMeeting 진입 hostId="${hostId}" title="${title}"`)
+
+    const { groupId, projectId, visibility = 'private', participants = [], scheduledAt } = options
     const meeting = this.meetingRepo.create({
       title,
       hostId: toUuidOrNull(hostId) ?? hostId,
       groupId: toUuidOrNull(groupId),
       projectId: toUuidOrNull(projectId),
-      status: 'in-progress',
-      startedAt: new Date(),
+      visibility,
+      status: 'scheduled',
+      scheduledAt: scheduledAt ?? null,
     })
+    const saved = await this.meetingRepo.save(meeting)
+
+    // 호스트는 자동 참여자
+    const allParticipants: { userId: string; userName: string }[] = []
+    const hostUuid = toUuidOrNull(hostId)
+    if (hostUuid) allParticipants.push({ userId: hostUuid, userName: '' })
+    for (const p of participants) {
+      if (toUuidOrNull(p.userId) && p.userId !== hostUuid) {
+        allParticipants.push(p)
+      }
+    }
+    if (allParticipants.length > 0) {
+      const records = allParticipants.map((p) =>
+        this.participantRepo.create({
+          meetingId: saved.id,
+          userId: p.userId,
+          userName: p.userName ?? '',
+        }),
+      )
+      await this.participantRepo.save(records)
+    }
+    return saved
+  }
+
+  /** 회의 시작 — 호스트만. status='scheduled' → 'in-progress'. */
+  async startMeeting(meetingId: string, userId: string) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    if (meeting.hostId !== userId) {
+      throw new ForbiddenException('회의 호스트만 시작할 수 있습니다')
+    }
+    if (meeting.status === 'in-progress') return meeting
+    if (meeting.status === 'ended') {
+      throw new BadRequestException('이미 종료된 회의입니다')
+    }
+    meeting.status = 'in-progress'
+    meeting.startedAt = new Date()
     return this.meetingRepo.save(meeting)
+  }
+
+  /** 회의 삭제 — 호스트 또는 조직 owner/admin만. 회의록·트랜스크립트·액션아이템 같이 삭제. */
+  async deleteMeeting(meetingId: string, userId: string) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    const isHost = meeting.hostId === userId
+    let isOrgManager = false
+    if (meeting.groupId) {
+      const member = await this.groupMemberRepo.findOne({
+        where: { groupId: meeting.groupId, userId },
+      })
+      isOrgManager = member?.role === 'owner' || member?.role === 'admin'
+    }
+    if (!isHost && !isOrgManager) {
+      throw new ForbiddenException('회의 호스트 또는 조직 관리자만 삭제할 수 있습니다')
+    }
+
+    await this.meetingRepo.delete(meetingId)
+    return { message: '회의가 삭제되었습니다' }
+  }
+
+  /** 사용자가 접근 가능한 회의 목록 — 호스트이거나 참여자로 지정된 회의. */
+  async getAccessibleMeetings(userId: string, groupId?: string) {
+    // 1) 호스트인 회의
+    const hostedQb = this.meetingRepo
+      .createQueryBuilder('m')
+      .where('m.hostId = :userId', { userId })
+    if (groupId && UUID_RE.test(groupId)) {
+      hostedQb.andWhere('m.groupId = :groupId', { groupId })
+    }
+    const hosted = await hostedQb.orderBy('m.createdAt', 'DESC').getMany()
+
+    // 2) 참여자로 지정된 회의 (호스트 제외)
+    const partRecords = await this.participantRepo.find({ where: { userId } })
+    const meetingIds = partRecords.map((p) => p.meetingId).filter((id) => !hosted.some((h) => h.id === id))
+    let participating: Meeting[] = []
+    if (meetingIds.length > 0) {
+      const partQb = this.meetingRepo
+        .createQueryBuilder('m')
+        .where('m.id IN (:...ids)', { ids: meetingIds })
+      if (groupId && UUID_RE.test(groupId)) {
+        partQb.andWhere('m.groupId = :groupId', { groupId })
+      }
+      participating = await partQb.orderBy('m.createdAt', 'DESC').getMany()
+    }
+
+    // 3) 공개 회의 (현재 활성 조직의)
+    let publicMeetings: Meeting[] = []
+    if (groupId && UUID_RE.test(groupId)) {
+      publicMeetings = await this.meetingRepo
+        .createQueryBuilder('m')
+        .where('m.groupId = :groupId', { groupId })
+        .andWhere("m.visibility = 'public'")
+        .andWhere('m.hostId != :userId', { userId })
+        .andWhere('m.id NOT IN (:...ids)', {
+          ids: meetingIds.length > 0 ? meetingIds : ['00000000-0000-0000-0000-000000000000'],
+        })
+        .orderBy('m.createdAt', 'DESC')
+        .getMany()
+    }
+
+    const all = [...hosted, ...participating, ...publicMeetings].sort(
+      (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    )
+    // 조회 시점에 만료된 예약 회의를 일괄 정리 — 목록에 ended 상태로 반영됨
+    await Promise.all(all.map((m) => this.expireNoShowMeeting(m)))
+    return all
+  }
+
+  /** 사용자가 회의에 접근 권한이 있는지 확인. private 회의록 보호용. */
+  async assertCanAccess(meetingId: string, userId: string): Promise<Meeting> {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    if (meeting.hostId === userId) return meeting
+    if (meeting.visibility === 'public') {
+      // 같은 조직 멤버면 접근 OK
+      if (meeting.groupId) {
+        const m = await this.groupMemberRepo.findOne({
+          where: { groupId: meeting.groupId, userId },
+        })
+        if (m) return meeting
+      } else {
+        return meeting // group 없는 공개 회의는 누구나
+      }
+    }
+    const isParticipant = await this.participantRepo.findOne({
+      where: { meetingId, userId },
+    })
+    if (!isParticipant) {
+      throw new ForbiddenException('회의에 접근할 권한이 없습니다')
+    }
+    return meeting
   }
 
   // 오디오 파일(디스크 경로) → STT → DB 저장
@@ -119,11 +275,25 @@ export class MeetingsService {
     return this.transcriptRepo.save(transcript)
   }
 
-  // 회의 종료 → Gemini 회의록 생성
-  async endMeeting(meetingId: string) {
+  // 회의 종료 → Gemini 회의록 생성. 호스트 또는 조직 관리자만 가능.
+  async endMeeting(meetingId: string, userId?: string) {
     assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    if (userId) {
+      const isHost = meeting.hostId === userId
+      let isOrgManager = false
+      if (meeting.groupId) {
+        const member = await this.groupMemberRepo.findOne({
+          where: { groupId: meeting.groupId, userId },
+        })
+        isOrgManager = member?.role === 'owner' || member?.role === 'admin'
+      }
+      if (!isHost && !isOrgManager) {
+        throw new ForbiddenException('회의 호스트 또는 조직 관리자만 종료할 수 있습니다')
+      }
+    }
 
     // 1. 회의 상태 업데이트
     await this.meetingRepo.update(meetingId, { status: 'ended', endedAt: new Date() })
@@ -138,8 +308,10 @@ export class MeetingsService {
       .join('\n')
 
     if (!fullText.trim()) {
+      this.logger.log(`[GEMINI SKIP] meetingId="${meetingId}" — 트랜스크립트 없음, Gemini 호출 생략`)
       return { meeting, summary: null, actionItems: [] }
     }
+    this.logger.log(`[GEMINI CALL] meetingId="${meetingId}" — transcript ${fullText.trim().length}자, Gemini 호출 시작`)
 
     // 3. Gemini 회의록 생성 — 실패해도 endMeeting 전체를 깨뜨리지 않음.
     //    AI가 다운/쿼터 초과/모델 변경 등으로 실패해도 회의는 'ended' 상태로 닫혀야 함.
@@ -189,11 +361,132 @@ export class MeetingsService {
     return { meeting, summary, actionItems }
   }
 
-  // 회의 상세 조회
+  /**
+   * 참가자 나가기 — 백엔드가 직접 nextHostId 결정 (프론트 stale 방지).
+   * remainingParticipantIds: LiveKit에 현재 연결된 참가자 userId 목록 (나가는 본인 제외).
+   *   → DB joinedAt 순서로 정렬한 뒤 이 목록에 있는 첫 번째 사람이 새 호스트.
+   * isLastParticipant: 마지막 참가자이면 true → 빈 방 자동 종료.
+   * TODO: LiveKit Webhook(room_finished) 연동 시 isLastParticipant 판단을 서버로 이전 권장.
+   */
+  async leaveMeeting(
+    meetingId: string,
+    userId: string,
+    options: { remainingParticipantIds?: string[]; isLastParticipant?: boolean } = {},
+  ) {
+    assertUuid(meetingId, 'meetingId')
+    const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+    if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+
+    // idempotent — 이미 종료된 회의
+    if (meeting.status === 'ended') {
+      return { isEnded: true, meeting }
+    }
+
+    const { remainingParticipantIds, isLastParticipant } = options
+
+    // 마지막 참가자 → 빈 방 자동 종료 (권한 체크 생략)
+    if (isLastParticipant) {
+      const result = await this.endMeeting(meetingId)
+      return { isEnded: true, meeting: result.meeting, summary: result.summary, actionItems: result.actionItems }
+    }
+
+    // 호스트가 나가는 경우 → 백엔드가 DB joinedAt 기준으로 다음 호스트 결정
+    const isHost = meeting.hostId === userId
+    if (isHost) {
+      const allParticipants = await this.participantRepo.find({
+        where: { meetingId },
+        order: { joinedAt: 'ASC' },
+      })
+
+      // 나가는 호스트 제외한 후보 목록 (joinedAt 오름차순)
+      const candidates = allParticipants.filter((p) => p.userId !== userId)
+
+      let nextHostId: string | null = null
+
+      if (remainingParticipantIds && remainingParticipantIds.length > 0) {
+        // 1순위: DB에 있고 현재 방에도 있는 참가자 (joinedAt 빠른 순)
+        const inRoom = candidates.find((p) => remainingParticipantIds.includes(p.userId))
+        if (inRoom) {
+          nextHostId = inRoom.userId
+        } else if (candidates.length > 0) {
+          // 2순위: DB에 있지만 방에 없는 참가자 (비상 백업)
+          nextHostId = candidates[0].userId
+        } else {
+          // 3순위: DB 미등록 참가자 — LiveKit identity(=userId UUID)를 직접 사용
+          // guest identity(guest-xxx-xxx)는 UUID 형식이 아니므로 UUID_RE 검사에서 자동 제외되지만
+          // startsWith('guest-') 필터로 명시적으로도 차단해 게스트가 호스트가 되는 경우를 완전히 방지.
+          const fallback = remainingParticipantIds
+            .filter((id) => !id.startsWith('guest-'))
+            .find((id) => UUID_RE.test(id))
+          nextHostId = fallback ?? null
+        }
+      } else if (candidates.length > 0) {
+        nextHostId = candidates[0].userId
+      }
+
+      if (nextHostId) {
+        meeting.hostId = nextHostId
+        const updated = await this.meetingRepo.save(meeting)
+        return { isEnded: false, newHostId: nextHostId, meeting: updated }
+      }
+    }
+
+    return { isEnded: false, meeting }
+  }
+
+  /**
+   * 참가자 등록 — LiveKit 입장 시 meeting_participants에 추가(upsert).
+   * 이 레코드가 있어야 호스트 나가기 시 해당 참가자가 nextHost 후보에 오른다.
+   * 예약 회의는 scheduledAt 전 입장 차단, 처음 입장 시 status를 in-progress로 전환.
+   */
+  async joinMeeting(meetingId: string, userId: string, userName: string) {
+    assertUuid(meetingId, 'meetingId')
+
+    // 접근 권한 + 회의 존재 여부 통합 검증
+    // - public 회의: 같은 그룹 멤버 → 입장 가능 (신규 참가자도 허용)
+    // - private 회의: meeting_participants에 사전 등록된 사용자만 입장 가능
+    // - 권한 없으면 ForbiddenException
+    const meeting = await this.assertCanAccess(meetingId, userId)
+
+    // 예약 회의 — 시간 전 입장 차단 (프론트 방어에 더해 백엔드 이중 검증)
+    if (meeting.scheduledAt && new Date() < meeting.scheduledAt) {
+      throw new ForbiddenException('예약 시간이 아직 되지 않았습니다')
+    }
+
+    // [HOST DEBUG] joinMeeting 진입 — 요청 userId와 DB의 meeting.hostId 비교
+    this.logger.log(
+      `[HOST DEBUG] joinMeeting userId="${userId}" userName="${userName}" meeting.hostId="${meeting.hostId}" isHostJoining=${meeting.hostId === userId}`,
+    )
+
+    const existing = await this.participantRepo.findOne({ where: { meetingId, userId } })
+    if (!existing) {
+      await this.participantRepo.save(
+        this.participantRepo.create({ meetingId, userId, userName }),
+      )
+    } else if (userName && existing.userName !== userName) {
+      existing.userName = userName
+      await this.participantRepo.save(existing)
+    }
+
+    // 처음 입장 시 in-progress로 전환 (startedAt 기록)
+    if (meeting.status === 'scheduled') {
+      meeting.status = 'in-progress'
+      meeting.startedAt = new Date()
+      await this.meetingRepo.save(meeting)
+    }
+
+    // [HOST DEBUG] 반환 직전 — 이 meeting.hostId가 프론트로 전달되는 값
+    this.logger.log(`[HOST DEBUG] joinMeeting 반환 meeting.hostId="${meeting.hostId}"`)
+
+    return { ok: true, meeting }
+  }
+
+  // 회의 상세 조회 — 조회 시 만료된 예약 회의 자동 종료 처리
   async getMeeting(meetingId: string) {
     assertUuid(meetingId, 'meetingId')
     const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
     if (!meeting) throw new NotFoundException('회의를 찾을 수 없습니다')
+    await this.expireNoShowMeeting(meeting)
     return meeting
   }
 
@@ -300,6 +593,43 @@ export class MeetingsService {
       where: { projectId },
       order: { createdAt: 'DESC' },
     })
+  }
+
+  /**
+   * 예약 회의 무입장 자동 종료 — 아래 4조건 모두 만족 시 ended 처리.
+   *  1) scheduledAt 존재
+   *  2) status === 'scheduled' (joinMeeting 성공 시 in-progress로 전환됨)
+   *  3) now >= scheduledAt + 10분
+   *  4) 실제 입장 기록 없음 (userName != '' 인 참가자 0명)
+   *     - createMeeting 시 호스트가 userName=''로 자동 등록되므로 ''를 제외해 실제 입장자를 카운트
+   *     - joinMeeting 성공 시 userName이 실제 이름으로 갱신되고 status가 in-progress로 변경됨
+   * Gemini 회의록 생성 없음 (transcript 없음).
+   * TODO: 추후 @nestjs/schedule의 @Cron 데코레이터로 주기적 일괄 처리 구현 권장.
+   */
+  private async expireNoShowMeeting(meeting: Meeting): Promise<void> {
+    if (!meeting.scheduledAt || meeting.status !== 'scheduled') return
+    const now = new Date()
+    const expireAt = new Date(meeting.scheduledAt.getTime() + 10 * 60 * 1000)
+    if (now < expireAt) return
+
+    // 실제 입장자 수 확인 (userName=''인 자동 등록 호스트 제외)
+    const participantCount = await this.participantRepo.count({
+      where: { meetingId: meeting.id, userName: Not('') },
+    })
+
+    if (participantCount > 0) {
+      this.logger.log(
+        `[AUTO-EXPIRE SKIP] meetingId="${meeting.id}" scheduledAt="${meeting.scheduledAt.toISOString()}" — 입장 기록 있음(${participantCount}명), 자동 종료 건너뜀`,
+      )
+      return
+    }
+
+    this.logger.log(
+      `[AUTO-EXPIRE] meetingId="${meeting.id}" scheduledAt="${meeting.scheduledAt.toISOString()}" expireAt="${expireAt.toISOString()}" now="${now.toISOString()}" participantCount=${participantCount} — 미입장, 자동 종료`,
+    )
+    await this.meetingRepo.update(meeting.id, { status: 'ended', endedAt: now })
+    meeting.status = 'ended'
+    meeting.endedAt = now
   }
 
   private safeUnlink(filePath: string) {

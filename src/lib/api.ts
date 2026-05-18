@@ -4,18 +4,37 @@ function encodeHeaderValue(value: string): string {
   return encodeURIComponent(value)
 }
 
-/**
- * fetch 래퍼 — 인증 헤더를 자동으로 첨부합니다.
- *
- * 표준 JWT 패턴 (utils/api.ts와 동일):
- *   Authorization: Bearer <localStorage.accessToken>
- *
- * 개발 편의용 dev fallback:
- *   x-user-id / x-user-name (useAuthStore.user 가 살아있을 때만)
- *
- * 새로고침 후 useAuthStore.user는 null이 되지만 accessToken은 유지되므로
- * Authorization 경로로도 인증이 통과되어야 함.
- */
+let _isRefreshing = false
+let _refreshPromise: Promise<string | null> | null = null
+
+async function tryRefreshToken(): Promise<string | null> {
+  if (_isRefreshing) return _refreshPromise!
+  _isRefreshing = true
+  _refreshPromise = fetch('/api/auth/refresh', {
+    method: 'POST',
+    credentials: 'include',
+  })
+    .then(async (res) => {
+      if (!res.ok) return null
+      const data = (await res.json()) as { accessToken?: string }
+      const token = data.accessToken
+      if (token) {
+        localStorage.setItem('accessToken', token)
+        // 새 accessToken의 sub와 authStore.user.id가 다를 수 있으므로 동기화.
+        // 다중 탭에서 다른 계정의 token refresh가 localStorage를 오염시키는 경우 방지.
+        await useAuthStore.getState().fetchMe()
+        return token
+      }
+      return null
+    })
+    .catch(() => null)
+    .finally(() => {
+      _isRefreshing = false
+      _refreshPromise = null
+    })
+  return _refreshPromise
+}
+
 export async function apiFetch(
   input: string,
   init?: RequestInit,
@@ -41,13 +60,25 @@ export async function apiFetch(
 export async function apiJson<T>(
   input: string,
   init?: RequestInit,
+  _retried = false,
 ): Promise<T> {
   const res = await apiFetch(input, init)
+
+  if (res.status === 401 && !_retried) {
+    const newToken = await tryRefreshToken()
+    if (newToken) {
+      return apiJson<T>(input, init, true)
+    }
+    localStorage.removeItem('accessToken')
+    useAuthStore.getState().logout()
+    throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.')
+  }
+
   if (!res.ok) {
     const text = await res.text().catch(() => res.statusText)
     throw new Error(text || `HTTP ${res.status}`)
   }
-  // 204 No Content 또는 빈 body → null 반환 (res.json()이 throw하는 것 방지)
+  // 204 No Content 또는 빈 body → null 반환
   const text = await res.text()
   return (text ? JSON.parse(text) : null) as T
 }

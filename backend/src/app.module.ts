@@ -16,16 +16,17 @@ import { UploadModule } from './upload/upload.module';
 import { MeetingsModule } from './meetings/meetings.module';
 import { DashboardModule } from './dashboard/dashboard.module';
 import { TasksModule } from './tasks/tasks.module';
+import { AiModule } from './ai/ai.module'
+import { CodeModule } from './code/code.module'
+import { GuestModule } from './guest/guest.module';
 
 @Module({
   imports: [
-    // Environment variables
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
     }),
 
-    // PostgreSQL + TypeORM
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -37,7 +38,7 @@ import { TasksModule } from './tasks/tasks.module';
         password: config.get('DATABASE_PASSWORD', 'syncflow1234'),
         database: config.get('DATABASE_NAME', 'syncflow'),
         autoLoadEntities: true,
-        synchronize: config.get<string>('TYPEORM_SYNC', 'false') === 'true',
+        synchronize: config.get('NODE_ENV') === 'development',
         logging: config.get('NODE_ENV') === 'development',
       }),
     }),
@@ -55,6 +56,9 @@ import { TasksModule } from './tasks/tasks.module';
     MeetingsModule,
     DashboardModule,
     TasksModule,
+    AiModule,
+    CodeModule,
+    GuestModule,
   ],
   controllers: [AppController],
   providers: [AppService],

@@ -8,6 +8,7 @@ import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
 import { Card } from '@/components/common/Card'
 import { useToastStore } from '@/stores/useToastStore'
+import { UpgradeModal, type UpgradePlanInfo } from '@/components/billing/UpgradeModal'
 
 /* ─── 플랜 데이터 ─── */
 
@@ -304,13 +305,23 @@ function CompareTable() {
 export function PricingPage() {
   const addToast = useToastStore((s) => s.addToast)
   const [yearly, setYearly] = useState(false)
+  const [upgradeTarget, setUpgradeTarget] = useState<UpgradePlanInfo | null>(null)
 
   const handleSelect = (tier: PlanTier) => {
     if (tier === 'free') {
       addToast('info', '무료 플랜으로 변경하려면 고객센터에 문의해주세요.')
-    } else {
-      addToast('success', `${tier === 'pro' ? 'Pro' : 'Team'} 플랜 결제 페이지로 이동합니다. (목업)`)
+      return
     }
+    const plan = PLANS.find((p) => p.tier === tier)
+    if (!plan) return
+    setUpgradeTarget({
+      tier,
+      name: plan.name,
+      desc: plan.desc,
+      price: plan.price,
+      priceYearly: plan.priceYearly,
+      highlights: plan.features.filter((f) => f.included).map((f) => f.label).slice(0, 5),
+    })
   }
 
   return (
@@ -392,6 +403,14 @@ export function PricingPage() {
           <ArrowRight size={14} />
         </Link>
       </div>
+
+      {/* 업그레이드 모달 */}
+      <UpgradeModal
+        isOpen={upgradeTarget !== null}
+        onClose={() => setUpgradeTarget(null)}
+        plan={upgradeTarget}
+        yearly={yearly}
+      />
     </div>
   )
 }

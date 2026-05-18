@@ -7,10 +7,11 @@ import { ChannelMember } from '../channels/entities/channel-member.entity'
 import { Meeting } from '../meetings/entities/meeting.entity'
 import { Message } from '../messages/entities/message.entity'
 import { Page } from '../pages/entities/page.entity'
+import { Project } from '../projects/entities/project.entity'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Channel, ChannelMember, Meeting, Message, Page]),
+    TypeOrmModule.forFeature([Channel, ChannelMember, Meeting, Message, Page, Project]),
   ],
   controllers: [DashboardController],
   providers: [DashboardService],

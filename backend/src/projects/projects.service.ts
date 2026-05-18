@@ -1,5 +1,6 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common'
@@ -8,11 +9,15 @@ import { Repository } from 'typeorm'
 import { Project } from './entities/project.entity'
 import { ProjectMember } from './entities/project-member.entity'
 import { GroupMember } from '../groups/entities/group-member.entity'
+import { Channel } from '../channels/entities/channel.entity'
+import { ChannelMember } from '../channels/entities/channel-member.entity'
 import { CreateProjectDto } from './dto/create-project.dto'
 import { UpdateProjectDto } from './dto/update-project.dto'
 
 @Injectable()
 export class ProjectsService {
+  private readonly logger = new Logger(ProjectsService.name)
+
   constructor(
     @InjectRepository(Project)
     private readonly projectRepo: Repository<Project>,
@@ -20,6 +25,10 @@ export class ProjectsService {
     private readonly projectMemberRepo: Repository<ProjectMember>,
     @InjectRepository(GroupMember)
     private readonly groupMemberRepo: Repository<GroupMember>,
+    @InjectRepository(Channel)
+    private readonly channelRepo: Repository<Channel>,
+    @InjectRepository(ChannelMember)
+    private readonly channelMemberRepo: Repository<ChannelMember>,
   ) {}
 
   /* ── POST /api/projects ── */
@@ -34,6 +43,7 @@ export class ProjectsService {
 
     const project = this.projectRepo.create({
       groupId: dto.groupId,
+      channelId: dto.channelId ?? null,
       name: dto.name,
       description: dto.description ?? null,
       deadline: dto.deadline ?? null,
@@ -48,6 +58,31 @@ export class ProjectsService {
       role: 'admin',
     })
     await this.projectMemberRepo.save(member)
+
+    // 프로젝트 단체 채팅방 자동 생성 (type='project') — 생성자 자동 멤버
+    try {
+      const projectChannel = this.channelRepo.create({
+        groupId: dto.groupId,
+        projectId: project.id,
+        type: 'project',
+        name: project.name,
+        description: `${project.name} 프로젝트 채팅방`,
+        inviteCode: null,
+      })
+      const savedChannel = await this.channelRepo.save(projectChannel)
+      await this.channelMemberRepo.save(
+        this.channelMemberRepo.create({
+          channelId: savedChannel.id,
+          userId,
+          userName: '',
+        }),
+      )
+    } catch (e) {
+      this.logger.error(
+        `프로젝트 채널 자동 생성 실패 (project=${project.id}): ${(e as Error).message}`,
+        (e as Error).stack,
+      )
+    }
 
     return project
   }
@@ -103,6 +138,8 @@ export class ProjectsService {
   async deleteProject(projectId: string, userId: string) {
     const project = await this.findProjectOrThrow(projectId)
     await this.requireGroupMember(project.groupId, userId, ['owner', 'admin'])
+    // TypeORM sync가 Prisma FK cascade를 drop했을 수 있으므로 연결된 project 채널 명시적 삭제
+    await this.channelRepo.delete({ projectId })
     await this.projectRepo.delete(projectId)
     return { message: '프로젝트가 삭제되었습니다' }
   }

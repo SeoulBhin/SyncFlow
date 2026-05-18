@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { FileText, Code, Plus, Pencil, Trash2, Check, X } from 'lucide-react'
 import { useSidebarStore } from '@/stores/useSidebarStore'
@@ -10,12 +10,26 @@ import { CreatePageModal } from '@/components/group/CreatePageModal'
 export function SidebarPageTree() {
   const { activeProjectId } = useSidebarStore()
   const addToast = useToastStore((s) => s.addToast)
-  const { pages: realPages, removePage, renamePage } = usePageStore()
+  const realPages = usePageStore((s) => s.pages)
+  const loadByProject = usePageStore((s) => s.loadByProject)
+  const removePage = usePageStore((s) => s.removePage)
+  const renamePage = usePageStore((s) => s.renamePage)
   const navigate = useNavigate()
   const [showCreatePage, setShowCreatePage] = useState(false)
   const [renamingId, setRenamingId] = useState<string | null>(null)
   const [renameValue, setRenameValue] = useState('')
   const [deletingId, setDeletingId] = useState<string | null>(null)
+
+  const UUID_RE =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+  // 활성 프로젝트가 바뀔 때마다 백엔드에서 페이지 목록을 받아온다.
+  // mock projectId(UUID 아님)는 fetch 스킵 — 백엔드가 400을 던지기 때문.
+  useEffect(() => {
+    if (activeProjectId && UUID_RE.test(activeProjectId)) {
+      void loadByProject(activeProjectId)
+    }
+  }, [activeProjectId, loadByProject])
 
   const mockPages = MOCK_PAGES.filter((p) => p.projectId === activeProjectId)
   const ownRealPages = realPages.filter((p) => p.projectId === activeProjectId)
@@ -28,18 +42,38 @@ export function SidebarPageTree() {
     setRenameValue(currentName)
   }
 
-  const confirmRename = (id: string) => {
-    if (renameValue.trim()) {
-      renamePage(id, renameValue.trim())
-      addToast('success', '페이지 이름이 변경되었습니다.')
+  const confirmRename = async (id: string) => {
+    const next = renameValue.trim()
+    if (!next) {
+      setRenamingId(null)
+      return
     }
-    setRenamingId(null)
+    try {
+      await renamePage(id, next)
+      addToast('success', '페이지 이름이 변경되었습니다.')
+    } catch (err) {
+      console.error('[SidebarPageTree] rename failed:', err)
+      addToast('error', '페이지 이름 변경에 실패했습니다.')
+    } finally {
+      setRenamingId(null)
+    }
   }
 
-  const confirmDelete = (id: string, name: string, isMock: boolean) => {
-    if (!isMock) removePage(id)
-    addToast('success', `"${name}" 페이지가 삭제되었습니다.`)
-    setDeletingId(null)
+  const confirmDelete = async (id: string, name: string, isMock: boolean) => {
+    if (isMock) {
+      addToast('success', `"${name}" 페이지가 삭제되었습니다.`)
+      setDeletingId(null)
+      return
+    }
+    try {
+      await removePage(id)
+      addToast('success', `"${name}" 페이지가 삭제되었습니다.`)
+    } catch (err) {
+      console.error('[SidebarPageTree] delete failed:', err)
+      addToast('error', '페이지 삭제에 실패했습니다.')
+    } finally {
+      setDeletingId(null)
+    }
   }
 
   return (

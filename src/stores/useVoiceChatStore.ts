@@ -85,12 +85,28 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     })
     .on(RoomEvent.ActiveSpeakersChanged, refreshParticipants)
     .on(RoomEvent.TrackMuted, (pub, participant) => {
+      console.log('[LiveKit Camera Debug]', {
+        event: 'TrackMuted',
+        participant: participant.identity,
+        source: pub.source,
+        kind: pub.kind,
+        hasTrack: !!pub.track,
+        cameraStreamMapSize: cameraStreamMap.size,
+      })
       if (pub.source === Track.Source.Camera) {
         cameraStreamMap.delete(participant.identity)
       }
       refreshParticipants()
     })
     .on(RoomEvent.TrackUnmuted, (pub, participant) => {
+      console.log('[LiveKit Camera Debug]', {
+        event: 'TrackUnmuted',
+        participant: participant.identity,
+        source: pub.source,
+        kind: pub.kind,
+        hasTrack: !!pub.track,
+        cameraStreamMapSize: cameraStreamMap.size,
+      })
       if (pub.source === Track.Source.Camera && pub.track) {
         cameraStreamMap.set(
           participant.identity,
@@ -101,6 +117,14 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     })
     // 로컬 카메라 track publish → 스트림 캐시 등록
     .on(RoomEvent.LocalTrackPublished, (pub) => {
+      console.log('[LiveKit Camera Debug]', {
+        event: 'LocalTrackPublished',
+        participant: room.localParticipant.identity,
+        source: pub.source,
+        kind: pub.kind,
+        hasTrack: !!pub.track,
+        cameraStreamMapSize: cameraStreamMap.size,
+      })
       if (pub.source === Track.Source.Camera && pub.track) {
         cameraStreamMap.set(
           room.localParticipant.identity,
@@ -111,6 +135,14 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     })
     // 로컬 카메라 track unpublish → 스트림 캐시 제거
     .on(RoomEvent.LocalTrackUnpublished, (pub) => {
+      console.log('[LiveKit Camera Debug]', {
+        event: 'LocalTrackUnpublished',
+        participant: room.localParticipant.identity,
+        source: pub.source,
+        kind: pub.kind,
+        hasTrack: !!pub.track,
+        cameraStreamMapSize: cameraStreamMap.size,
+      })
       if (pub.source === Track.Source.Camera) {
         cameraStreamMap.delete(room.localParticipant.identity)
       }
@@ -118,6 +150,14 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     })
     // 원격 참가자 카메라 track 구독 → 스트림 캐시 등록
     .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
+      console.log('[LiveKit Camera Debug]', {
+        event: 'TrackSubscribed',
+        participant: participant.identity,
+        source: track.source,
+        kind: track.kind,
+        hasTrack: true,
+        cameraStreamMapSize: cameraStreamMap.size,
+      })
       if (track.source === Track.Source.Camera) {
         cameraStreamMap.set(participant.identity, new MediaStream([track.mediaStreamTrack]))
         refreshParticipants()
@@ -125,6 +165,14 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
     })
     // 원격 참가자 카메라 track 구독 해제 → 스트림 캐시 제거
     .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
+      console.log('[LiveKit Camera Debug]', {
+        event: 'TrackUnsubscribed',
+        participant: participant.identity,
+        source: track.source,
+        kind: track.kind,
+        hasTrack: false,
+        cameraStreamMapSize: cameraStreamMap.size,
+      })
       if (track.source === Track.Source.Camera) {
         cameraStreamMap.delete(participant.identity)
         refreshParticipants()
@@ -177,7 +225,8 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
         let joinedMuted = false
         try {
           await room.localParticipant.setMicrophoneEnabled(true)
-        } catch {
+        } catch (micErr) {
+          console.warn('[VoiceChat] 마이크 권한 없음 — 음소거 상태로 입장', micErr)
           joinedMuted = true
         }
 
@@ -191,6 +240,7 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
 
         await get().refreshDevices()
       } catch (err) {
+        console.error('[VoiceChat] 연결 실패', err)
         const msg = err instanceof Error ? err.message : '연결에 실패했습니다'
         set({ status: 'disconnected', error: msg })
       }

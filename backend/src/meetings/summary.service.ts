@@ -1,8 +1,4 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  Logger,
-} from '@nestjs/common'
+import { Injectable, Logger } from '@nestjs/common'
 import { ConfigService } from '@nestjs/config'
 import { GoogleGenerativeAI } from '@google/generative-ai'
 
@@ -21,26 +17,14 @@ interface SummaryResult {
 @Injectable()
 export class SummaryService {
   private readonly logger = new Logger(SummaryService.name)
-  private genAI: GoogleGenerativeAI
+  private readonly genAI: GoogleGenerativeAI
   private readonly modelName: string
 
   constructor(private configService: ConfigService) {
-    const apiKey = this.configService.get<string>('GEMINI_API_KEY', '')
-    if (!apiKey) {
-      this.logger.error(
-        'GEMINI_API_KEY 가 설정되지 않았습니다. backend/.env 를 확인하세요.',
-      )
-      throw new InternalServerErrorException(
-        'Gemini API key is not configured on the server',
-      )
-    }
-    this.genAI = new GoogleGenerativeAI(apiKey)
-    // gemini-1.5-flash 는 v1beta 에서 deprecate — 기본값을 2.5-flash 로.
-    // 모델 라인업이 또 바뀌면 GEMINI_MODEL env 로 코드 수정 없이 교체 가능.
-    this.modelName = this.configService.get<string>(
-      'GEMINI_MODEL',
-      'gemini-2.5-flash',
+    this.genAI = new GoogleGenerativeAI(
+      this.configService.getOrThrow<string>('GEMINI_API_KEY'),
     )
+    this.modelName = this.configService.get<string>('GEMINI_MODEL', 'gemini-2.5-flash')
     this.logger.log(`Gemini 모델: ${this.modelName}`)
   }
 

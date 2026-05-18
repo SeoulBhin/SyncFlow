@@ -2,217 +2,150 @@
 
 AI가 회의에 참여하는 스마트 협업 플랫폼 — 실시간 문서·코드 협업, 음성 회의, 작업 관리, RAG 기반 AI를 하나의 워크스페이스에서.
 
-> 계명대학교 컴퓨터공학과 졸업 프로젝트 | 팀: 2학년의 무게 <br>
-> 팀장 - 김경빈(SeoulBhin)<br>
-> 조원 - 김명준(kkmmjj12)<br>
-> 조원 - 김봉만(b_many)<br>
-> 조원 - 이도현(di593488)<br>
-> 조원 - 남궁훈(hoon2436)<br>
+> 계명대학교 컴퓨터공학과 졸업 프로젝트 | 팀: 2학년의 무게
+> 팀장 김경빈(SeoulBhin) / 김명준(kkmmjj12) / 김봉만(b_many) / 이도현(di593488) / 남궁훈(hoon2436)
 
-## 로컬 개발 환경 실행
+---
+
+## 빠른 시작 (5분 컷)
 
 ### 사전 요구사항
+- Node.js 20+, npm 9+
+- Docker Desktop **실행 중**
+- `backend/.env` 파일 (없으면 아래 1번 참조)
 
-- Node.js 20+
-- npm 9+
-- Docker Desktop (PostgreSQL + Redis)
-
-### 설치 및 실행
+### 실행 순서
 
 ```bash
-# 1. Docker로 PostgreSQL(pgvector) + Redis 실행
+# 1) 인프라 (PostgreSQL pgvector + Redis + LiveKit)
 npm run docker:up
 
-# 2. 프론트엔드 의존성 설치 + 개발 서버 실행 (http://localhost:5174)
+# 2) 의존성 설치 (루트 한 번, backend 한 번)
 npm install
-npm run dev
+npm --prefix backend install
 
-# 3. 백엔드 의존성 설치 + 개발 서버 실행 (http://localhost:3000)
-cd backend
-npm install
-npm run start:dev
+# 3) DB 마이그레이션 (최초 1회 또는 마이그레이션 추가 후)
+docker exec syncflow-postgres psql -U syncflow -d syncflow -c "CREATE EXTENSION IF NOT EXISTS vector;"
+npx prisma migrate dev
+
+# 4) 개발 서버 (프론트 + 백 동시 실행)
+npm run dev:all
 ```
 
-테스터 계정 `tester1@test.com` / `test1234`
+- 프론트: http://localhost:5174
+- 백엔드: http://localhost:3000
+- 테스터 로그인: `tester1@test.com` / `tester2@test.com` / `tester3@test.com` (비번 모두 `test1234`)
+  - dev 부팅 시 자동 생성됨. 로그인 안 되면 백엔드 로그에 시드 메시지 확인.
 
-### 주요 명령어
+---
 
-| 명령어 | 설명 |
-|--------|------|
-| `npm run dev` | 프론트엔드 개발 서버 (Vite, HMR) |
-| `npm run dev:backend` | 백엔드 개발 서버 (NestJS, watch mode) |
-| `npm run dev:all` | 프론트 + 백엔드 동시 실행 (concurrently) |
-| `npm run build` | 프론트엔드 빌드 (tsc + Vite) |
-| `npm run build:backend` | 백엔드 빌드 (NestJS) |
-| `npm run lint` | ESLint 코드 검사 |
-| `npm run docker:up` | PostgreSQL + Redis 컨테이너 실행 |
-| `npm run docker:down` | 컨테이너 중지 |
+## .env 최신화 (가장 자주 발생하는 사고)
 
-백엔드 단독 명령은 `backend/`에서 `npm run test`, `test:watch`, `test:cov`, `test:e2e`, `format` 등 사용.
+### 보안상 git에 못 올리는 키 목록
+`backend/.env` 는 `.gitignore` 처리되어 있어 **팀원이 알아서 채워야** 한다. 누락되면 회의/AI/OAuth/업로드가 전부 죽는다.
 
-## 기술 스택
+| 키 | 어디서 발급 | 누락 시 증상 |
+|---|---|---|
+| `JWT_SECRET`, `JWT_REFRESH_SECRET` | 아무 랜덤 32바이트 (`openssl rand -hex 32`) | 로그인 직후 401 |
+| `GOOGLE_CLIENT_ID/SECRET` | https://console.cloud.google.com/apis/credentials | Google 소셜 로그인 버튼 클릭 시 500 |
+| `GITHUB_CLIENT_ID/SECRET` | https://github.com/settings/developers | GitHub 소셜 로그인 실패 |
+| `KAKAO_CLIENT_ID/SECRET` | https://developers.kakao.com/console/app | Kakao 소셜 로그인 실패 |
+| `GEMINI_API_KEY` | https://aistudio.google.com/apikey | AI 어시스턴트 응답 안 옴 |
+| `GOOGLE_STT_KEY_JSON` | GCP IAM → Service Account → JSON 키 (한 줄) | 회의 STT 안 됨 |
+| `GCS_BUCKET` | GCP Storage 버킷 이름 | 파일 업로드 시 500 |
+| `LIVEKIT_API_KEY/SECRET` | `backend/livekit.yaml` `keys` 항목과 **반드시 일치** | 회의방 입장 후 영상/음성 연결 안 됨 |
 
-### 프론트엔드
-- **빌드/언어**: Vite 7 + React 19 + TypeScript 5.9
-- **CSS**: TailwindCSS v4 (`@tailwindcss/vite`)
-- **상태 관리**: Zustand (13개 store)
-- **라우팅**: React Router v7
-- **에디터**: TipTap 3 (문서, Yjs 기반 실시간 협업), Monaco Editor (코드, 7개 언어)
-- **실시간**: Socket.IO Client, LiveKit Client SDK
-- **아이콘**: lucide-react
+> 위 키들은 팀 공용으로 한 번 발급한 값을 디스코드 비공개 채널에서 받아 `backend/.env`에 그대로 붙여넣으면 된다.
+> 새로 발급할 일이 생기면 팀장에게 공유 → 다른 팀원들은 `.env`만 교체.
 
-### 백엔드
-- **프레임워크**: NestJS 11 (TypeScript)
-- **ORM**: TypeORM + PostgreSQL 16 (pgvector 768-dim)
-- **캐시**: Redis (ioredis)
-- **인증**: JWT + Passport.js (Google / GitHub / Kakao OAuth)
-- **실시간**: Socket.IO (`@nestjs/websockets`)
-- **음성/화면**: LiveKit Server SDK (WebRTC)
-- **AI**: Google Gemini API + RAG (pgvector 벡터 검색)
-- **코드 실행**: Dockerode (Docker 컨테이너 샌드박스)
-- **스토리지**: Google Cloud Storage
-
-### 인프라
-- Docker Compose (PostgreSQL pgvector + Redis 개발 환경)
-- GCP (배포 예정)
-
-## 프로젝트 구조
-
-```
-SyncFlow/
-├── src/                          # 프론트엔드 (React + Vite)
-│   ├── app/                      # App.tsx, router.tsx
-│   ├── components/
-│   │   ├── ai/                   # AI 사이드패널, 컨텍스트 배너, 사용량 카드
-│   │   ├── auth/                 # 로그인 입력 컴포넌트
-│   │   ├── channel/              # 채널 헤더, 외부 채널 배너
-│   │   ├── chat/                 # 미니 채팅 팝업
-│   │   ├── code-editor/          # Monaco 콘솔, 언어 선택, 라이브 커서
-│   │   ├── common/               # Button, Card, Input, Toast, Skeleton, SearchModal, UserMenu
-│   │   ├── editor/               # TipTap 툴바, TOC, 버전 히스토리, 슬래시 커맨드, 콜아웃/토글 확장
-│   │   ├── group/                # 그룹/채널/프로젝트/페이지 생성·설정 모달
-│   │   ├── layout/               # AppLayout, SlackSidebar, SlackHeader, BottomToolbar, DetailPanel
-│   │   ├── meeting/              # 회의 참여자, 트랜스크립트, 노트
-│   │   ├── screen-share/         # 화면 공유 패널
-│   │   ├── tasks/                # 칸반/캘린더/간트/리스트 뷰, 커스텀 필드 에디터
-│   │   ├── thread/               # 스레드 패널
-│   │   └── voice-chat/           # 음성 채팅 패널
-│   ├── pages/
-│   │   ├── auth/                 # 로그인, 회원가입, 비밀번호 재설정, 프로필
-│   │   ├── billing/              # 구독 플랜, 결제 내역
-│   │   ├── channel/              # 채널 상세 뷰
-│   │   ├── dashboard/            # 대시보드
-│   │   ├── editor/               # 문서 에디터, 코드 에디터
-│   │   ├── errors/               # 404, 에러 페이지
-│   │   ├── group/                # 그룹 관리
-│   │   ├── landing/              # 랜딩 페이지 (Hero, Feature, CTA)
-│   │   ├── meeting/              # 회의 히스토리, 회의실, 회의 요약
-│   │   ├── messenger/            # 메신저 (풀사이즈)
-│   │   ├── settings/             # 설정
-│   │   └── tasks/                # 작업/일정
-│   ├── stores/                   # Zustand 13개 (auth, theme, sidebar, toast, chat, voiceChat,
-│   │                             #   screenShare, groupContext, detailPanel, meeting, ai,
-│   │                             #   customField, thread)
-│   ├── hooks/                    # useMediaQuery, useSystemTheme, useNotification, useForm
-│   ├── styles/                   # TailwindCSS
-│   ├── types/                    # 타입 정의
-│   ├── utils/                    # 유틸리티 (cn 등)
-│   └── constants/                # 상수, 목업 데이터 (UI 동작용)
-│
-├── backend/                      # 백엔드 (NestJS)
-│   ├── src/
-│   │   ├── main.ts               # 앱 진입점 (CORS, ValidationPipe, cookie-parser)
-│   │   ├── app.module.ts         # 루트 모듈 (ConfigModule, TypeORM)
-│   │   ├── common/               # Guard, Decorator, 공통 Entity
-│   │   ├── auth/                 # 인증 (JWT, OAuth Google/GitHub/Kakao) — 구현 완료
-│   │   ├── settings/             # 사용자 설정 (테마, 알림, 비밀번호 변경) — 구현 완료
-│   │   ├── groups/               # 그룹/채널 관리 — 미착수
-│   │   ├── projects/             # 프로젝트 — 미착수
-│   │   ├── pages/                # 페이지 (문서/코드) — 미착수
-│   │   ├── tasks/                # 할 일 — 미착수
-│   │   ├── schedules/            # 일정 — 미착수
-│   │   ├── channels/             # 채팅 채널 — 미착수
-│   │   ├── messages/             # 메시지 — 미착수
-│   │   ├── ai/                   # AI 어시스턴트 (RAG) — 미착수
-│   │   ├── voice-chat/           # 음성 채팅 (LiveKit) — 미착수
-│   │   ├── screen-share/         # 화면 공유 — 미착수
-│   │   └── subscriptions/        # 구독/결제 — 미착수
-│   ├── .env.example              # 환경변수 템플릿
-│   └── package.json
-│
-├── docker-compose.yml            # PostgreSQL(pgvector 16) + Redis(7-alpine)
-├── vite.config.ts                # Vite + /api, /socket.io 프록시
-├── .docs/                        # 프로젝트 문서
-│   ├── PROJECT.md                # 프로젝트 소개, 가시성 & 권한 모델
-│   ├── TECH.md                   # 기술 명세서, API 엔드포인트, Socket.IO 이벤트
-│   ├── ERD.md                    # DB 스키마 (29개 테이블)
-│   ├── Do.md                     # 백엔드 개발 가이드 (파트별 작업 안내)
-│   ├── UIplan.md                 # UI 설계/리팩토링 플랜
-│   └── checklist.md              # 기능 체크리스트
-├── UI.md                         # 프론트 UI 기능 목록 + Mock → API 전환 가이드
-└── package.json
+### `backend/.env`가 아예 없을 때
+```bash
+cp backend/.env.example backend/.env
+# 그 다음 비어있는 값들 채우기
 ```
 
-## 진행 현황
+---
 
-| 카테고리 | 상태 |
-|----------|------|
-| 프론트엔드 UI | 완료 (mock 데이터로 동작) |
-| 백엔드 초기 설정 | 완료 (NestJS, TypeORM, Docker, .env 템플릿) |
-| 백엔드 API — 인증 | 완료 (JWT, Google/GitHub/Kakao OAuth) |
-| 백엔드 API — 설정 | 완료 (테마, 알림, 비밀번호 변경) |
-| 백엔드 API — 그룹/프로젝트/페이지 | 진행 중 |
-| 백엔드 API — 작업/일정/메시지 | 미착수 |
-| 백엔드 API — AI/음성/화면공유 | 미착수 |
-| 백엔드 API — 구독/결제 | 미착수 |
+## 자주 뜨는 오류 → 해결법
 
-## 개발 일지
+### 1) `Error: connect ECONNREFUSED 127.0.0.1:5432`
+PostgreSQL 컨테이너가 안 떠 있음.
+```bash
+docker ps                 # syncflow-postgres 가 Up 상태인지 확인
+npm run docker:up         # 안 떠 있으면 실행
+```
 
-### 2026-03-05 (1일차)
-- 프론트엔드 프로젝트 생성 (React + Vite + TypeScript + TailwindCSS v4)
-- 랜딩, 공통 레이아웃 (사이드바, 하단 툴바, 다크모드, 반응형) 구현
-- 로그인/회원가입 페이지 UI + 테스터 계정 목업 로그인
-- 대시보드, 그룹/프로젝트/페이지 관리 UI
-- 문서 에디터 (TipTap), 코드 에디터 (Monaco) UI
-- 메신저 (풀사이즈 + 미니 팝업), 음성 채팅, 화면 공유 UI
-- AI 사이드패널, 설정, 구독/결제 페이지 UI
+### 2) `relation "users" does not exist` (또는 다른 테이블)
+마이그레이션 미적용.
+```bash
+npx prisma migrate dev    # 루트에서 실행. backend/ 아님 주의
+```
 
-### 2026-03-06 (2일차)
-- 인증 추가 UI (비밀번호 재설정, 프로필 관리, 소셜 로그인 버튼)
-- 작업 UI 5종 (칸반, 캘린더, 간트, 리스트/테이블, CRUD 모달)
-- 그룹 컨텍스트 시스템 (디스코드 서버 전환 방식 — 그룹 전환 시 채팅/음성/화면공유 자동 전환)
-- 프론트엔드 UI 100% 완료
-- NestJS 백엔드 프로젝트 생성 (`backend/`)
-- 필수 라이브러리 전체 설치 (TypeORM, JWT, Passport, Socket.IO, LiveKit SDK, Gemini SDK 등)
-- Docker Compose 구성 (PostgreSQL pgvector + Redis)
-- Vite 프록시 설정 (`/api`, `/socket.io`)
-- 백엔드 모듈 폴더 구조 생성 (14개 모듈)
+### 3) `type "vector" does not exist`
+pgvector 확장 미설치.
+```bash
+docker exec syncflow-postgres psql -U syncflow -d syncflow -c "CREATE EXTENSION IF NOT EXISTS vector;"
+```
 
-### 이후
-- UI 리팩토링 — Slack 스타일 사이드바(`SlackSidebar`), 멀티뷰 작업 패턴 정리
-- Zustand store 확장 (detailPanel, meeting, AI, customField, thread 등 추가 → 총 13개)
-- 백엔드 인증 API 구현 — 회원가입, JWT 로그인, Google/GitHub/Kakao OAuth, 토큰 갱신, 비밀번호 재설정
-- 백엔드 설정 API 구현 — 테마, 알림, 비밀번호 변경
-- UI 설계 문서 추가 (`.docs/UIplan.md`)
+### 4) `Cannot find module '@/...'` 또는 빌드 시 type error 도배
+- `npm install`을 **루트와 `backend/` 양쪽 다** 했는지 확인
+- `node_modules` 지우고 재설치: `rm -rf node_modules backend/node_modules && npm install && npm --prefix backend install`
 
-### 앞으로 해야 할 일
-- **그룹/프로젝트/페이지 CRUD API** — TypeORM Entity + REST 엔드포인트
-- **실시간 문서/코드 편집** — Socket.IO + Yjs/Hocuspocus
-- **Docker 코드 실행 환경** — 언어별 이미지, 샌드박스 실행 API
-- **할 일/일정 API** — 칸반/간트/캘린더 데이터 모델
-- **채팅 메시지 API + Socket.IO** — 채널/DM/스레드
-- **음성/화면 공유** — LiveKit 서버 + 토큰 발급 API
-- **AI RAG 파이프라인** — Gemini API + pgvector 임베딩/검색
-- **구독 결제** — Toss Payments 또는 Stripe
-- **프론트-백 API 연동** — Mock 데이터 → 실제 API 호출로 교체 (Store만 수정)
-- **GCP 배포** — Compute Engine, Cloud SQL, Nginx
+### 5) 회의 입장 후 영상/음성이 안 잡힘 (LiveKit)
+- `backend/livekit.yaml`의 `keys` 항목과 `.env`의 `LIVEKIT_API_KEY/SECRET`가 일치하는지 확인
+- 방화벽이 UDP 50000-50020 막고 있는지 확인
+- `docker logs syncflow-livekit`에서 에러 확인 (YAML 파싱 에러면 yaml 파일 깨진 것)
+
+### 6) `JwtStrategy requires a secret or key`
+`.env`의 `JWT_SECRET` / `JWT_REFRESH_SECRET`이 비어 있음. 아무 랜덤 문자열이라도 채워야 부팅됨.
+
+### 7) Google STT / Gemini 401·404
+`GEMINI_API_KEY`가 비어있거나 `GOOGLE_STT_KEY_JSON`의 JSON 형식이 깨짐. `private_key` 안의 `\n`은 그대로 둬도 됨 (코드가 자동 변환).
+
+### 8) `tester1@test.com` 로그인 안 됨
+dev 모드에서만 자동 시드됨. `NODE_ENV=production`으로 띄웠는지 확인. `.env`의 `NODE_ENV=development` 또는 미설정 상태여야 함.
+
+### 9) 프론트에서 API 호출 시 CORS 에러
+`.env`의 `FRONTEND_URL`이 실제 프론트 포트(`http://localhost:5174`)와 일치하는지 확인.
+
+### 10) 포트 충돌 (3000/5174/5432/6379/7880 already in use)
+다른 프로세스가 점유 중. Windows: `netstat -ano | findstr :3000` 으로 PID 찾고 종료. 또는 `.env`에서 `PORT` 변경.
+
+---
+
+## 주요 명령어
+
+| 명령어 | 위치 | 설명 |
+|--------|------|------|
+| `npm run dev` | 루트 | 프론트만 (Vite, :5174) |
+| `npm run dev:backend` | 루트 | 백엔드만 (NestJS, :3000) |
+| `npm run dev:all` | 루트 | 둘 다 동시에 |
+| `npm run build` | 루트 | 프론트 빌드 (tsc + Vite) |
+| `npm run lint` | 루트 | ESLint |
+| `npm run docker:up` / `docker:down` | 루트 | 인프라 컨테이너 |
+| `npx prisma migrate dev` | 루트 | DB 마이그레이션 |
+| `npm run test` | `backend/` | Jest 유닛 |
+
+---
+
+## 기술 스택 (간단)
+
+- **프론트**: React 19, Vite 7, TypeScript 5.9, TailwindCSS v4, Zustand, TipTap, Monaco, Socket.IO Client, LiveKit Client
+- **백엔드**: NestJS 11, TypeORM, PostgreSQL 16 (pgvector), Redis, JWT + Passport(OAuth), Socket.IO, LiveKit Server SDK, Hocuspocus(Yjs), Gemini API
+
+자세한 구조와 API 목록은 아래 문서 참조.
+
+---
 
 ## 문서
 
-- [PROJECT.md](.docs/PROJECT.md) — 프로젝트 소개, 핵심 기능, 가시성 & 권한 모델
-- [TECH.md](.docs/TECH.md) — 기술 명세서, API 엔드포인트(~80개), Socket.IO 이벤트, 보안
-- [ERD.md](.docs/ERD.md) — DB 스키마 (29개 테이블 CREATE TABLE)
-- [Do.md](.docs/Do.md) — 백엔드 개발 가이드 (파트별 작업 안내, 완료 조건)
-- [UIplan.md](.docs/UIplan.md) — UI 설계/리팩토링 플랜
-- [checklist.md](.docs/checklist.md) — 전체 기능 체크리스트
-- [UI.md](UI.md) — 프론트 UI 기능 목록, Mock → API 전환 가이드
+| 문서 | 내용 |
+|------|------|
+| [.docs/PROJECT.md](.docs/PROJECT.md) | 프로젝트 개요, 가시성·권한 모델 |
+| [.docs/TECH.md](.docs/TECH.md) | API 엔드포인트(~80개), Socket.IO 이벤트, 보안 |
+| [.docs/ERD.md](.docs/ERD.md) | DB 스키마 (29개 테이블) |
+| [.docs/Do.md](.docs/Do.md) | 백엔드 파트별 개발 가이드 |
+| [.docs/UI.md](.docs/UI.md) | 프론트 UI 기능 목록, Mock→API 전환, Slack 정렬 로드맵 |
+| [prisma/DATABASE_MIGRATION.md](prisma/DATABASE_MIGRATION.md) | DB 마이그레이션 상세 |
+| [SLACK_UI_IMPROVEMENTS.md](SLACK_UI_IMPROVEMENTS.md) | Slack 정렬 UI/UX 개선 제안서 |
+| [PROJECT_ISSUES.md](PROJECT_ISSUES.md) | 현재 발견된 논리적·물리적 이슈 + 수정 영향도 |

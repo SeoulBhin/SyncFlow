@@ -1,0 +1,107 @@
+name: Deploy to Lightsail
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+env:
+  VM_HOST: 15.164.16.79
+  VM_USER: ubuntu
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      # ────────── Frontend ──────────
+      - name: Install root deps
+        run: npm install --no-audit --no-fund
+
+      - name: Build frontend
+        run: npx vite build
+
+      # ────────── Backend ──────────
+      - name: Install backend deps
+        working-directory: ./backend
+        env:
+          PUPPETEER_SKIP_DOWNLOAD: 'true'
+        run: npm install --no-audit --no-fund
+
+      - name: Build backend
+        working-directory: ./backend
+        run: npm run build
+
+      # ────────── SSH 셋업 ──────────
+      - name: Configure SSH
+        env:
+          SSH_KEY: ${{ secrets.LIGHTSAIL_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          # CRLF → LF 정리 + 마지막 줄바꿈 보장
+          printf '%s\n' "$SSH_KEY" | tr -d '\r' > ~/.ssh/key.pem
+          chmod 600 ~/.ssh/key.pem
+          ssh-keyscan -H $VM_HOST >> ~/.ssh/known_hosts
+          # 키 검증 (실패 시 즉시 stop)
+          ssh-keygen -y -f ~/.ssh/key.pem > /dev/null || (echo "❌ SSH key is invalid format. Re-add LIGHTSAIL_SSH_KEY secret." && exit 1)
+
+      # ────────── VM 에 동기화 ──────────
+      - name: Sync frontend dist
+        run: |
+          rsync -avz --delete -e "ssh -i ~/.ssh/key.pem" \
+            dist/ $VM_USER@$VM_HOST:~/SyncFlow/dist/
+
+      - name: Sync backend build + package files
+        run: |
+          rsync -avz --delete -e "ssh -i ~/.ssh/key.pem" \
+            backend/dist/ $VM_USER@$VM_HOST:~/SyncFlow/backend/dist/
+          rsync -avz -e "ssh -i ~/.ssh/key.pem" \
+            backend/package.json backend/package-lock.json \
+            $VM_USER@$VM_HOST:~/SyncFlow/backend/
+
+      - name: Sync prisma + root package files
+        run: |
+          rsync -avz --delete -e "ssh -i ~/.ssh/key.pem" \
+            prisma/ $VM_USER@$VM_HOST:~/SyncFlow/prisma/
+          rsync -avz -e "ssh -i ~/.ssh/key.pem" \
+            prisma.config.ts package.json package-lock.json \
+            $VM_USER@$VM_HOST:~/SyncFlow/
+
+      # ────────── VM 에서 의존성/마이그레이션/재시작 ──────────
+      - name: Install deps, migrate, restart
+        run: |
+          ssh -i ~/.ssh/key.pem $VM_USER@$VM_HOST 'bash -s' <<'ENDSSH'
+          set -e
+          echo "▶ backend npm install"
+          cd ~/SyncFlow/backend
+          PUPPETEER_SKIP_DOWNLOAD=true npm install --no-audit --no-fund --omit=dev
+          echo "▶ root npm install (prisma 용)"
+          cd ~/SyncFlow
+          npm install --no-audit --no-fund prisma @prisma/client
+          echo "▶ prisma migrate"
+          npx prisma migrate deploy
+          echo "▶ pm2 restart"
+          pm2 restart syncflow-backend --update-env
+          sleep 2
+          pm2 status
+          ENDSSH
+
+      # ────────── Smoke test ──────────
+      - name: Smoke test
+        run: |
+          sleep 3
+          echo "▶ Backend API check"
+          curl -fsS http://$VM_HOST/api || (echo "Backend FAIL" && exit 1)
+          echo
+          echo "▶ Frontend check"
+          curl -fsS -o /dev/null http://$VM_HOST/ && echo "Frontend OK" || (echo "Frontend FAIL" && exit 1)
+          echo "✓ Deployment successful"

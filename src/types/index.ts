@@ -100,6 +100,7 @@ export interface ApiMeeting {
   projectId: string | null
   hostId: string | null
   status: MeetingApiStatus
+  scheduledAt: string | null
   startedAt: string | null
   endedAt: string | null
   createdAt: string
@@ -146,6 +147,14 @@ export interface EndMeetingResponse {
   meeting: ApiMeeting
   summary: ApiMeetingSummary | null
   actionItems: ApiMeetingActionItem[]
+}
+
+export interface LeaveMeetingResponse {
+  isEnded: boolean
+  newHostId?: string | null
+  meeting: ApiMeeting
+  summary?: ApiMeetingSummary | null
+  actionItems?: ApiMeetingActionItem[]
 }
 
 // ── Task (백엔드 tasks 테이블과 1:1) ──────────────────────────────────────────

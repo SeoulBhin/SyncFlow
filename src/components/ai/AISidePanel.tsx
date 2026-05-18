@@ -2,11 +2,12 @@ import { useState, useRef, useEffect, useMemo } from 'react'
 import {
   X, Send, Plus, Bot, User, History, Sparkles,
   FolderOpen, FileCode, FileText, RefreshCw, ChevronDown,
-  CheckCircle2, AtSign, Database, Lightbulb,
+  CheckCircle2, AtSign, Database, Lightbulb, Trash2, Loader2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAIStore } from '@/stores/useAIStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
+import { useProjectsStore } from '@/stores/useProjectsStore'
 import type { AIMessage, AIConversation, ProjectFile } from '@/stores/useAIStore'
 
 function formatTime(ts: number) {
@@ -65,7 +66,7 @@ function MarkdownLine({ line }: { line: string }) {
   if (listMatch) {
     return (
       <div className="flex gap-1.5 pl-2">
-        <span className="shrink-0 text-neutral-400">{listMatch[1].startsWith('-') ? '\u2022' : listMatch[1]}</span>
+        <span className="shrink-0 text-neutral-400">{listMatch[1].startsWith('-') ? '•' : listMatch[1]}</span>
         <span>{renderInline(listMatch[2])}</span>
       </div>
     )
@@ -134,24 +135,40 @@ function MessageBubble({ msg }: { msg: AIMessage }) {
 
 /* ─── 대화 히스토리 항목 ─── */
 
-function ConversationItem({ conv, active, onClick }: { conv: AIConversation; active: boolean; onClick: () => void }) {
+function ConversationItem({
+  conv, active, onClick, onDelete,
+}: {
+  conv: AIConversation
+  active: boolean
+  onClick: () => void
+  onDelete: (e: React.MouseEvent) => void
+}) {
   return (
-    <button onClick={onClick} className={cn(
-      'w-full rounded-lg px-3 py-2 text-left transition-colors',
-      active ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-        : 'text-neutral-600 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-700',
+    <div className={cn(
+      'group flex w-full items-center gap-1 rounded-lg transition-colors',
+      active ? 'bg-primary-50 dark:bg-primary-900/30' : 'hover:bg-neutral-100 dark:hover:bg-neutral-700',
     )}>
-      <p className="truncate text-sm font-medium">{conv.title}</p>
-      <p className="mt-0.5 truncate text-xs text-neutral-400">{conv.lastMessage || '새 대화'}</p>
-      <p className="mt-0.5 text-[10px] text-neutral-400">{formatDate(conv.timestamp)}</p>
-    </button>
+      <button onClick={onClick} className="min-w-0 flex-1 px-3 py-2 text-left">
+        <p className={cn('truncate text-sm font-medium', active ? 'text-primary-700 dark:text-primary-300' : 'text-neutral-600 dark:text-neutral-300')}>{conv.title}</p>
+        <p className="mt-0.5 truncate text-xs text-neutral-400">{conv.lastMessage || '새 대화'}</p>
+        <p className="mt-0.5 text-[10px] text-neutral-400">{formatDate(conv.timestamp)}</p>
+      </button>
+      <button
+        onClick={onDelete}
+        className="mr-1 hidden rounded p-1 text-neutral-300 hover:text-red-500 group-hover:flex dark:text-neutral-600 dark:hover:text-red-400"
+        title="대화 삭제"
+      >
+        <Trash2 size={12} />
+      </button>
+    </div>
   )
 }
 
 /* ─── 프로젝트 컨텍스트 선택기 ─── */
 
 function ProjectSelector() {
-  const { activeProject, projects, setActiveProject, reindexProject } = useAIStore()
+  const { activeProject, setActiveProject, reindexProject } = useAIStore()
+  const storeProjects = useProjectsStore((s) => s.projects)
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
 
@@ -163,7 +180,7 @@ function ProjectSelector() {
     return () => document.removeEventListener('mousedown', handler)
   }, [])
 
-  if (!activeProject) return null
+  if (storeProjects.length === 0 && !activeProject) return null
 
   return (
     <div ref={ref} className="relative border-b border-neutral-200 px-4 py-2.5 dark:border-neutral-700">
@@ -175,42 +192,50 @@ function ProjectSelector() {
           <Database size={13} className="shrink-0 text-violet-500" />
           <div className="min-w-0">
             <p className="truncate text-xs font-semibold text-neutral-700 dark:text-neutral-200">
-              {activeProject.groupName} / {activeProject.name}
+              {activeProject
+                ? `${activeProject.groupName ? activeProject.groupName + ' / ' : ''}${activeProject.name}`
+                : '프로젝트 선택'}
             </p>
-            <p className="text-[10px] text-neutral-400">
-              {activeProject.files.length}개 파일 인덱싱됨
-              {activeProject.indexedAt && ` \u00B7 ${formatTimeAgo(activeProject.indexedAt)}`}
-            </p>
+            {activeProject && (
+              <p className="text-[10px] text-neutral-400">
+                {activeProject.files.length}개 파일 인덱싱됨
+                {activeProject.indexedAt && ` · ${formatTimeAgo(activeProject.indexedAt)}`}
+              </p>
+            )}
           </div>
           <ChevronDown size={12} className={cn('shrink-0 text-neutral-400 transition-transform', open && 'rotate-180')} />
         </button>
-        <button
-          onClick={reindexProject}
-          disabled={activeProject.isIndexing}
-          className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-neutral-700 dark:hover:text-violet-400"
-          title="프로젝트 다시 인덱싱"
-        >
-          <RefreshCw size={13} className={cn(activeProject.isIndexing && 'animate-spin')} />
-        </button>
+        {activeProject && (
+          <button
+            onClick={() => void reindexProject()}
+            disabled={activeProject.isIndexing}
+            className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 hover:text-violet-600 disabled:opacity-50 dark:hover:bg-neutral-700 dark:hover:text-violet-400"
+            title="프로젝트 다시 인덱싱"
+          >
+            <RefreshCw size={13} className={cn(activeProject.isIndexing && 'animate-spin')} />
+          </button>
+        )}
       </div>
 
-      {open && (
+      {open && storeProjects.length > 0 && (
         <div className="absolute top-full left-3 right-3 z-50 mt-1 rounded-lg border border-neutral-200 bg-surface py-1 shadow-lg dark:border-neutral-600 dark:bg-neutral-800">
-          {projects.map((p) => (
+          {storeProjects.map((p) => (
             <button
               key={p.id}
-              onClick={() => { setActiveProject(p.id); setOpen(false) }}
+              onClick={() => {
+                setActiveProject(p.id, p.name, '')
+                setOpen(false)
+              }}
               className={cn(
                 'flex w-full items-center gap-2 px-3 py-2 text-left text-xs transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700',
-                p.id === activeProject.id ? 'text-violet-600 font-medium dark:text-violet-400' : 'text-neutral-600 dark:text-neutral-300',
+                p.id === activeProject?.id ? 'text-violet-600 font-medium dark:text-violet-400' : 'text-neutral-600 dark:text-neutral-300',
               )}
             >
               <FolderOpen size={12} />
               <div className="min-w-0 flex-1">
-                <p className="truncate font-medium">{p.groupName} / {p.name}</p>
-                <p className="text-[10px] text-neutral-400">{p.files.length}개 파일</p>
+                <p className="truncate font-medium">{p.name}</p>
               </div>
-              {p.id === activeProject.id && <CheckCircle2 size={12} className="text-violet-500" />}
+              {p.id === activeProject?.id && <CheckCircle2 size={12} className="text-violet-500" />}
             </button>
           ))}
         </div>
@@ -282,11 +307,44 @@ function SelectedFileTags() {
 /* ─── 프로젝트 파일 탐색기 ─── */
 
 function ProjectFilesView() {
-  const activeProject = useAIStore((s) => s.activeProject)
-  if (!activeProject) return null
+  const { activeProject } = useAIStore()
+
+  if (!activeProject) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-neutral-400">
+        <FolderOpen size={28} />
+        <p className="text-center text-xs">위에서 프로젝트를 선택하면<br />인덱싱된 파일 목록이 표시됩니다</p>
+      </div>
+    )
+  }
+
+  if (activeProject.isIndexing) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-neutral-400">
+        <Loader2 size={24} className="animate-spin text-violet-500" />
+        <p className="text-xs">인덱싱 중...</p>
+      </div>
+    )
+  }
+
+  if (activeProject.files.length === 0) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-neutral-400">
+        <FileText size={28} />
+        <p className="text-center text-xs">인덱싱된 파일이 없습니다</p>
+        {activeProject.indexMessage ? (
+          <p className="text-center text-[10px] text-amber-500 dark:text-amber-400 px-2">
+            {activeProject.indexMessage}
+          </p>
+        ) : (
+          <p className="text-center text-[10px] text-neutral-300">↻ 버튼으로 프로젝트를 인덱싱하세요</p>
+        )}
+      </div>
+    )
+  }
 
   const grouped = activeProject.files.reduce<Record<string, ProjectFile[]>>((acc, f) => {
-    const dir = f.path.includes('/') ? f.path.split('/').slice(0, -1).join('/') : '/'
+    const dir = f.path.includes('/') ? f.path.split('/').slice(0, -1).join('/') : '루트'
     ;(acc[dir] ??= []).push(f)
     return acc
   }, {})
@@ -332,8 +390,10 @@ type Tab = 'chat' | 'history' | 'files'
 export function AISidePanel() {
   const {
     messages, conversations, activeConversationId, isLoading, usage, activeProject,
-    sendMessage, selectConversation, newConversation,
+    sendMessage, selectConversation, newConversation, deleteConversation,
+    loadConversations, loadUsage,
     selectedFiles, toggleFileSelection,
+    isLoadingConversations,
   } = useAIStore()
   const { closePanel } = useDetailPanelStore()
 
@@ -344,6 +404,12 @@ export function AISidePanel() {
   const messagesEndRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
+  // 패널 오픈 시 대화 목록 및 사용량 로드
+  useEffect(() => {
+    void loadConversations()
+    void loadUsage()
+  }, [loadConversations, loadUsage])
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [messages])
@@ -352,10 +418,15 @@ export function AISidePanel() {
     inputRef.current?.focus()
   }, [])
 
+  const isOverLimit = !usage.isUnlimited && usage.daily.used >= usage.daily.limit
+  const dailyPercent = usage.isUnlimited
+    ? 0
+    : Math.min((usage.daily.used / usage.daily.limit) * 100, 100)
+
   const handleSend = () => {
     const trimmed = input.trim()
     if (!trimmed || isLoading) return
-    if (usage.daily.used >= usage.daily.limit) return
+    if (isOverLimit) return
 
     const fileNames = selectedFiles.map((fId) => {
       const file = activeProject?.files.find((f) => f.id === fId)
@@ -404,11 +475,17 @@ export function AISidePanel() {
     inputRef.current?.focus()
   }
 
-  const dailyPercent = Math.min((usage.daily.used / usage.daily.limit) * 100, 100)
-  const isOverLimit = usage.daily.used >= usage.daily.limit
+  const handleDeleteConversation = (e: React.MouseEvent, id: string) => {
+    e.stopPropagation()
+    void deleteConversation(id)
+  }
 
   const emptyPrompts = useMemo(() => {
-    if (!activeProject) return []
+    if (!activeProject) return [
+      '프로젝트에 대해 질문하세요',
+      '코드 리뷰를 요청해보세요',
+      '버그가 있는 부분을 찾아줘',
+    ]
     const files = activeProject.files.filter((f) => f.type === 'code')
     const first = files[0]?.name ?? '코드'
     return [
@@ -473,15 +550,21 @@ export function AISidePanel() {
       {activeTab === 'chat' && (
         <div className="border-b border-neutral-200 px-4 py-1.5 dark:border-neutral-700">
           <div className="flex items-center justify-between text-[10px] text-neutral-400">
-            <span>오늘 {usage.daily.used}/{usage.daily.limit}</span>
-            <span>이번 달 {usage.monthly.used}/{usage.monthly.limit}</span>
+            <span>
+              오늘 {usage.daily.used}/{usage.isUnlimited ? '무제한' : usage.daily.limit}
+            </span>
+            <span>
+              {usage.isUnlimited ? '무제한 플랜' : `이번 달 ${usage.monthly.used}/${usage.monthly.limit}`}
+            </span>
           </div>
-          <div className="mt-0.5 h-0.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
-            <div
-              className={cn('h-full rounded-full transition-all', dailyPercent >= 90 ? 'bg-red-500' : dailyPercent >= 70 ? 'bg-amber-500' : 'bg-violet-500')}
-              style={{ width: `${dailyPercent}%` }}
-            />
-          </div>
+          {!usage.isUnlimited && (
+            <div className="mt-0.5 h-0.5 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+              <div
+                className={cn('h-full rounded-full transition-all', dailyPercent >= 90 ? 'bg-red-500' : dailyPercent >= 70 ? 'bg-amber-500' : 'bg-violet-500')}
+                style={{ width: `${dailyPercent}%` }}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -491,14 +574,27 @@ export function AISidePanel() {
       {activeTab === 'history' && (
         <div className="flex-1 overflow-y-auto p-3 space-y-1">
           <p className="mb-2 px-2 text-xs font-medium text-neutral-400">이전 대화</p>
-          {conversations.map((conv) => (
-            <ConversationItem
-              key={conv.id}
-              conv={conv}
-              active={conv.id === activeConversationId}
-              onClick={() => { selectConversation(conv.id); setActiveTab('chat') }}
-            />
-          ))}
+          {isLoadingConversations ? (
+            <div className="flex items-center justify-center py-8 text-neutral-400">
+              <Loader2 size={16} className="animate-spin" />
+            </div>
+          ) : conversations.length === 0 ? (
+            <div className="flex flex-col items-center justify-center gap-2 py-8 text-neutral-400">
+              <History size={24} />
+              <p className="text-xs">이전 대화가 없습니다</p>
+              <p className="text-[10px] text-neutral-300">채팅 탭에서 AI와 대화를 시작하세요</p>
+            </div>
+          ) : (
+            conversations.map((conv) => (
+              <ConversationItem
+                key={conv.id}
+                conv={conv}
+                active={conv.id === activeConversationId}
+                onClick={() => { void selectConversation(conv.id); setActiveTab('chat') }}
+                onDelete={(e) => handleDeleteConversation(e, conv.id)}
+              />
+            ))
+          )}
         </div>
       )}
 

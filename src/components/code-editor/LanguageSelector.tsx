@@ -14,7 +14,6 @@ export const LANGUAGES: LanguageOption[] = [
   { id: 'c', label: 'C', monacoId: 'c' },
   { id: 'cpp', label: 'C++', monacoId: 'cpp' },
   { id: 'html', label: 'HTML', monacoId: 'html' },
-  { id: 'css', label: 'CSS', monacoId: 'css' },
 ]
 
 interface LanguageSelectorProps {

@@ -2,6 +2,7 @@ import {
   Entity,
   PrimaryGeneratedColumn,
   Column,
+  CreateDateColumn,
   ManyToOne,
   JoinColumn,
   Unique,
@@ -11,19 +12,22 @@ import { Message } from './message.entity';
 @Entity('message_reactions')
 @Unique(['messageId', 'userId', 'emoji'])
 export class MessageReaction {
-  @PrimaryGeneratedColumn('uuid')
-  id: string;
+  @PrimaryGeneratedColumn('increment')
+  id: number;
 
-  @Column()
+  @Column({ name: 'message_id', type: 'uuid' })
   messageId: string;
 
-  @Column()
+  @Column({ name: 'user_id', type: 'uuid' })
   userId: string;
 
-  @Column()
+  @Column({ type: 'varchar', length: 10 })
   emoji: string;
 
+  @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
+  createdAt: Date;
+
   @ManyToOne(() => Message, (m) => m.reactions, { onDelete: 'CASCADE' })
-  @JoinColumn({ name: 'messageId' })
+  @JoinColumn({ name: 'message_id' })
   message: Message;
 }

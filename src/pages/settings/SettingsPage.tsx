@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import {
   Settings, Sun, Moon, Monitor, Bell, Lock, Link2, Unlink,
   Trash2, AlertTriangle, Eye, EyeOff, Save, X, Crown, ArrowRight,
+  Building2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
@@ -11,6 +12,8 @@ import { Input } from '@/components/auth/Input'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { api } from '@/utils/api'
 import type { Theme } from '@/types'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
@@ -432,6 +435,171 @@ function DangerZone({ accessToken }: { accessToken: string | null }) {
   )
 }
 
+/* ─── 조직 위험 영역 — owner: 삭제 / 일반 멤버: 탈퇴 ─── */
+
+function OrganizationDangerZone() {
+  const addToast = useToastStore((s) => s.addToast)
+  const navigate = useNavigate()
+  const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
+  const activeOrgName = useGroupContextStore((s) => s.activeOrgName)
+  const removeGroup = useGroupContextStore((s) => s.removeGroup)
+
+  const [showConfirm, setShowConfirm] = useState(false)
+  const [confirmText, setConfirmText] = useState('')
+  const [busy, setBusy] = useState(false)
+  // store cache가 stale일 수 있으므로 백엔드에서 정확한 role 다시 fetch
+  const [actualRole, setActualRole] = useState<'owner' | 'admin' | 'member' | 'guest' | null>(
+    null,
+  )
+  const [roleLoaded, setRoleLoaded] = useState(false)
+
+  useEffect(() => {
+    if (!activeOrgId) return
+    setRoleLoaded(false)
+    api
+      .get<{ myRole?: 'owner' | 'admin' | 'member' | 'guest' | null }>(`/groups/${activeOrgId}`)
+      .then((d) => setActualRole(d.myRole ?? null))
+      .catch(() => setActualRole(null))
+      .finally(() => setRoleLoaded(true))
+  }, [activeOrgId])
+
+  if (!activeOrgId) return null
+  if (!roleLoaded) {
+    return (
+      <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-6 text-center text-xs text-neutral-400 dark:border-neutral-700 dark:bg-neutral-800/50">
+        권한 확인 중...
+      </div>
+    )
+  }
+
+  const isOwner = actualRole === 'owner'
+
+  const handleDelete = async () => {
+    if (confirmText !== activeOrgName) return
+    setBusy(true)
+    try {
+      await api.delete(`/groups/${activeOrgId}`)
+      removeGroup(activeOrgId)
+      addToast('success', `조직 "${activeOrgName}"이(가) 삭제되었습니다.`)
+      navigate('/app')
+    } catch (e) {
+      addToast('error', e instanceof Error ? e.message : '조직 삭제 실패')
+    } finally {
+      setBusy(false)
+      setShowConfirm(false)
+      setConfirmText('')
+    }
+  }
+
+  const handleLeave = async () => {
+    setBusy(true)
+    try {
+      await api.post(`/groups/${activeOrgId}/leave`, {})
+      removeGroup(activeOrgId)
+      addToast('success', `조직 "${activeOrgName}"에서 탈퇴했습니다.`)
+      navigate('/app')
+    } catch (e) {
+      addToast('error', e instanceof Error ? e.message : '조직 탈퇴 실패')
+    } finally {
+      setBusy(false)
+      setShowConfirm(false)
+    }
+  }
+
+  // ── owner: 조직 삭제 (이름 확인) ──
+  if (isOwner) {
+    return (
+      <div className="rounded-xl border-2 border-red-200 bg-red-50/50 p-6 dark:border-red-900/50 dark:bg-red-950/20">
+        <div className="mb-3 flex items-center gap-2">
+          <Building2 size={16} className="text-red-500" />
+          <h2 className="text-sm font-semibold text-red-700 dark:text-red-400">조직 삭제</h2>
+        </div>
+        <p className="mb-4 text-xs text-red-600/80 dark:text-red-400/80">
+          조직을 삭제하면 채널·프로젝트·페이지·태스크 등 모든 데이터가 영구적으로 사라집니다. 이 작업은 되돌릴 수 없습니다.
+          조직 소유자(owner)만 수행할 수 있어요.
+        </p>
+
+        {!showConfirm ? (
+          <Button variant="danger" size="sm" onClick={() => setShowConfirm(true)}>
+            <Trash2 size={14} />
+            조직 삭제
+          </Button>
+        ) : (
+          <div className="space-y-3 rounded-lg border border-red-200 bg-white p-4 dark:border-red-900/50 dark:bg-neutral-900">
+            <p className="text-sm font-medium text-red-700 dark:text-red-400">
+              정말 "{activeOrgName}" 조직을 삭제하시겠습니까?
+            </p>
+            <p className="text-xs text-neutral-500">
+              확인을 위해 조직 이름{' '}
+              <strong className="text-red-600 dark:text-red-400">"{activeOrgName}"</strong>을(를) 그대로 입력해주세요.
+            </p>
+            <input
+              type="text"
+              value={confirmText}
+              onChange={(e) => setConfirmText(e.target.value)}
+              placeholder={activeOrgName ?? ''}
+              className="w-full rounded-lg border border-red-200 px-3 py-2 text-sm outline-none transition focus:border-red-400 focus:ring-2 focus:ring-red-100 dark:border-red-800 dark:bg-neutral-800 dark:focus:ring-red-900/50"
+            />
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={() => { setShowConfirm(false); setConfirmText('') }}
+              >
+                <X size={14} />
+                취소
+              </Button>
+              <Button
+                variant="danger"
+                size="sm"
+                disabled={confirmText !== activeOrgName || busy}
+                onClick={() => void handleDelete()}
+              >
+                <Trash2 size={14} />
+                {busy ? '처리 중...' : '영구 삭제'}
+              </Button>
+            </div>
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── 일반 멤버: 조직 탈퇴 ──
+  return (
+    <div className="rounded-xl border-2 border-orange-200 bg-orange-50/40 p-6 dark:border-orange-900/50 dark:bg-orange-950/20">
+      <div className="mb-3 flex items-center gap-2">
+        <Building2 size={16} className="text-orange-500" />
+        <h2 className="text-sm font-semibold text-orange-700 dark:text-orange-400">조직 탈퇴</h2>
+      </div>
+      <p className="mb-4 text-xs text-orange-700/80 dark:text-orange-400/80">
+        이 조직에서 나갑니다. 조직 데이터는 그대로 남고, 다시 참여하려면 새 초대 코드가 필요합니다.
+      </p>
+
+      {!showConfirm ? (
+        <Button variant="danger" size="sm" onClick={() => setShowConfirm(true)}>
+          조직 탈퇴
+        </Button>
+      ) : (
+        <div className="space-y-3 rounded-lg border border-orange-200 bg-white p-4 dark:border-orange-900/50 dark:bg-neutral-900">
+          <p className="text-sm font-medium text-orange-700 dark:text-orange-400">
+            정말 "{activeOrgName}" 조직에서 탈퇴하시겠습니까?
+          </p>
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" size="sm" onClick={() => setShowConfirm(false)}>
+              <X size={14} />
+              취소
+            </Button>
+            <Button variant="danger" size="sm" disabled={busy} onClick={() => void handleLeave()}>
+              {busy ? '처리 중...' : '탈퇴하기'}
+            </Button>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 /* ─── 설정 페이지 메인 ─── */
 
 export function SettingsPage() {
@@ -452,11 +620,18 @@ export function SettingsPage() {
       .catch(() => {})
   }, [accessToken])
 
+  const activeOrgName = useGroupContextStore((s) => s.activeOrgName)
+
   return (
     <div className="mx-auto max-w-2xl p-6">
       <div className="mb-6 flex items-center gap-3">
         <Settings size={24} className="text-primary-600 dark:text-primary-400" />
-        <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">설정</h1>
+        <h1 className="text-xl font-bold text-neutral-800 dark:text-neutral-100">
+          조직 설정
+          {activeOrgName && (
+            <span className="ml-2 text-sm font-normal text-neutral-400">· {activeOrgName}</span>
+          )}
+        </h1>
       </div>
 
       <div className="space-y-6">
@@ -479,9 +654,15 @@ export function SettingsPage() {
 
         <ThemeSection accessToken={accessToken} />
         <NotificationSection accessToken={accessToken} initialNotifications={settingsData?.notifications ?? null} />
-        <PasswordSection accessToken={accessToken} />
-        <SocialSection accessToken={accessToken} initialConnected={settingsData?.social ?? null} />
-        <DangerZone accessToken={accessToken} />
+        <OrganizationDangerZone />
+
+        <p className="pt-2 text-center text-xs text-neutral-400">
+          비밀번호·소셜 연동·계정 탈퇴는{' '}
+          <Link to="/app/profile" className="text-primary-600 hover:underline dark:text-primary-400">
+            프로필 페이지
+          </Link>
+          에서 관리합니다.
+        </p>
       </div>
     </div>
   )
