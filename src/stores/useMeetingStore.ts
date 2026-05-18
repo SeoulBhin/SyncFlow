@@ -227,10 +227,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   // ── API 액션 ───────────────────────────────────────────────────────────────
 
   createMeeting: async (title, opts) => {
-    // localStorage.accessToken의 JWT sub와 authStore.user.id가 다르면 fetchMe로 동기화.
+    // sessionStorage.accessToken의 JWT sub와 authStore.user.id가 다르면 fetchMe로 동기화.
     // 다중 탭 환경에서 다른 계정의 token refresh가 localStorage를 오염시켰을 때 hostId 역전을 방지.
     const authUser = useAuthStore.getState().user
-    const rawToken = localStorage.getItem('accessToken')
+    const rawToken = sessionStorage.getItem('accessToken')
     if (authUser && rawToken) {
       try {
         const payload = JSON.parse(atob(rawToken.split('.')[1])) as { sub?: string }
@@ -294,7 +294,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       const xhr = new XMLHttpRequest()
       xhr.open('POST', `/api/meetings/${meetingId}/audio`)
 
-      const token = localStorage.getItem('accessToken')
+      const token = sessionStorage.getItem('accessToken')
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
 
       xhr.upload.addEventListener('progress', (e) => {

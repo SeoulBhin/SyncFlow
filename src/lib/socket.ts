@@ -10,7 +10,7 @@ function encodeHeaderValue(value: string): string {
 
 function buildSocket(): Socket {
   const user = useAuthStore.getState().user
-  const accessToken = localStorage.getItem('accessToken')
+  const accessToken = sessionStorage.getItem('accessToken')
   return io({
     // Vite dev proxy routes /socket.io → http://localhost:3000
     path: '/socket.io',
@@ -44,7 +44,7 @@ export function connectSocket(): void {
   if (!sock.connected) {
     // Refresh auth headers with current user before connecting
     const user = useAuthStore.getState().user
-    const accessToken = localStorage.getItem('accessToken')
+    const accessToken = sessionStorage.getItem('accessToken')
     sock.auth = {
       userId: user?.id ?? '',
       userName: user?.name ?? '',

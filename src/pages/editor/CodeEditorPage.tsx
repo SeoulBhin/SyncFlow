@@ -193,7 +193,7 @@ export function CodeEditorPage() {
   useEffect(() => {
     if (!pageId) return
     const ydoc = new Y.Doc()
-    const token = localStorage.getItem('accessToken') ?? ''
+    const token = sessionStorage.getItem('accessToken') ?? ''
     const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:3001'
     const p = new HocuspocusProvider({
       url: wsUrl,

@@ -63,12 +63,12 @@ interface ChatState {
 let _effectiveUserId: string | null = null
 
 /**
- * localStorage accessToken에서 JWT sub(userId)를 파싱.
+ * sessionStorage accessToken에서 JWT sub(userId)를 파싱.
  * /auth/me 응답이 빈 객체여서 user.id가 undefined일 때 사용하는 fallback.
  */
 function getUserIdFromToken(): string | null {
   try {
-    const token = localStorage.getItem('accessToken')
+    const token = sessionStorage.getItem('accessToken')
     if (!token) return null
     const b64 = token.split('.')[1]
     if (!b64) return null

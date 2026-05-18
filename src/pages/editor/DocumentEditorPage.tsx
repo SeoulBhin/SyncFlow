@@ -220,7 +220,7 @@ export function DocumentEditorPage() {
   // HocuspocusProvider: pageId가 바뀌면 새 연결 수립
   const provider = useMemo(() => {
     if (!pageId) return null
-    const token = localStorage.getItem('accessToken') ?? ''
+    const token = sessionStorage.getItem('accessToken') ?? ''
     const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:3001'
 
     return new HocuspocusProvider({
@@ -375,7 +375,7 @@ export function DocumentEditorPage() {
 
       setUploading(true)
       try {
-        const token = localStorage.getItem('accessToken')
+        const token = sessionStorage.getItem('accessToken')
         const formData = new FormData()
         formData.append('file', file)
         const res = await fetch(`/api/document/${pageId}/attachments`, {

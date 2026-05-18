@@ -431,7 +431,7 @@ export function MeetingRoomPage() {
     }
     audioStreamRef.current = stream
 
-    const token = localStorage.getItem('accessToken')
+    const token = sessionStorage.getItem('accessToken')
     const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
     const socket: Socket = io(`${backendUrl}/meetings`, {
       path: '/socket.io',

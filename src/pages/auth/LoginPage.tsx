@@ -50,7 +50,7 @@ export function LoginPage() {
         password: v.password,
       })
       const user = await (async () => {
-        localStorage.setItem('accessToken', accessToken)
+        sessionStorage.setItem('accessToken', accessToken)
         return api.get<{ id: string; name: string; email: string; avatarUrl?: string }>('/auth/me')
       })()
       login(
