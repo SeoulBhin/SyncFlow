@@ -28,7 +28,7 @@ export function SlackHeader() {
   }, [])
 
   return (
-    <header className="flex h-12 shrink-0 items-center justify-between border-b border-neutral-200 bg-surface px-4 dark:border-neutral-700 dark:bg-surface-dark">
+    <header className="flex h-11 shrink-0 items-center justify-between border-b border-neutral-200 bg-surface px-4 dark:border-neutral-700 dark:bg-surface-dark">
       <div className="flex items-center gap-2">
         {isMobile && (
           <button
@@ -48,13 +48,14 @@ export function SlackHeader() {
       </div>
 
       {/* 중앙 검색바 */}
-      <div className="hidden max-w-md flex-1 px-8 sm:block">
+      <div className="hidden flex-1 px-6 sm:block">
         <button
           onClick={() => setIsSearchOpen(true)}
-          className="flex w-full cursor-pointer items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-400 transition-colors hover:border-neutral-300 dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-neutral-500"
+          className="flex w-full cursor-pointer items-center gap-2 rounded-md border border-neutral-200 bg-neutral-100 px-3 py-1.5 text-sm text-neutral-400 transition-all hover:border-primary-300 hover:bg-white hover:shadow-sm dark:border-neutral-600 dark:bg-neutral-800 dark:hover:border-primary-600 dark:hover:bg-neutral-700"
         >
-          <Search size={14} />
-          <span className="flex-1 text-left text-xs">검색... ⌘K</span>
+          <Search size={14} className="shrink-0" />
+          <span className="flex-1 text-left text-sm">채널, 메시지, 사람, 파일 검색</span>
+          <kbd className="hidden rounded border border-neutral-300 px-1.5 py-0.5 text-[10px] text-neutral-400 dark:border-neutral-600 lg:block">⌘K</kbd>
         </button>
       </div>
 

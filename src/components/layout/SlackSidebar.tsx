@@ -21,6 +21,7 @@ import {
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
 import { useSidebarStore } from '@/stores/useSidebarStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useChatStore } from '@/stores/useChatStore'
@@ -61,7 +62,7 @@ function CollapsibleSection({
   const [open, setOpen] = useState(defaultOpen)
 
   return (
-    <div className="mb-1">
+    <div className="mb-2">
       <div className="group flex items-center pr-1">
         <button
           onClick={() => setOpen((v) => !v)}
@@ -268,6 +269,8 @@ export function SlackSidebar() {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const navigate = useNavigate()
   const location = useLocation()
+  const { activePanel, togglePanel } = useDetailPanelStore()
+  const isAIOpen = activePanel === 'ai'
 
   const [showOrgSwitcher, setShowOrgSwitcher] = useState(false)
   const [showCreateProject, setShowCreateProject] = useState(false)
@@ -374,12 +377,15 @@ export function SlackSidebar() {
                 if (isMobile) setOpen(false)
               }}
               className={cn(
-                'flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
                 active
                   ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                   : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
               )}
             >
+              {active && (
+                <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+              )}
               <Icon size={16} />
               <span>{item.label}</span>
             </button>
@@ -460,12 +466,15 @@ export function SlackSidebar() {
                   key={ch.id}
                   onClick={() => handleChannelSelect(ch.id, ch.name)}
                   className={cn(
-                    'flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors',
+                    'relative flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors',
                     isActive
                       ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                       : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
                   )}
                 >
+                  {isActive && (
+                    <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+                  )}
                   {ch.isExternal ? (
                     <Globe size={14} className="shrink-0 text-orange-500" />
                   ) : (
@@ -538,12 +547,15 @@ export function SlackSidebar() {
             if (isMobile) setOpen(false)
           }}
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+            'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
             location.pathname.startsWith('/app/profile')
               ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
               : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
           )}
         >
+          {location.pathname.startsWith('/app/profile') && (
+            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+          )}
           <UserCircle size={16} />
           <span>프로필</span>
         </button>
@@ -553,12 +565,15 @@ export function SlackSidebar() {
             if (isMobile) setOpen(false)
           }}
           className={cn(
-            'flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+            'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
             location.pathname.startsWith('/app/settings')
               ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
               : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
           )}
         >
+          {location.pathname.startsWith('/app/settings') && (
+            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+          )}
           <Settings size={16} />
           <span>조직 설정</span>
         </button>

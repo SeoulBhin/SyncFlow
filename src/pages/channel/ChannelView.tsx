@@ -16,8 +16,6 @@ import {
   MessageSquare,
   X,
   Hash,
-  Reply,
-  CheckSquare,
   Sparkles,
   Loader2,
   Copy,
@@ -33,6 +31,7 @@ import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useProjectsStore } from '@/stores/useProjectsStore'
 import { useAIStore } from '@/stores/useAIStore'
+import { useToastStore } from '@/stores/useToastStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
 import { useToastStore } from '@/stores/useToastStore'
@@ -661,23 +660,30 @@ export function ChannelView() {
                     {hoveredMsgId === msg.id && editingMsgId !== msg.id && (
                       <div
                         className={cn(
-                          'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-sm dark:border-neutral-700 dark:bg-neutral-800',
+                          'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-md dark:border-neutral-700 dark:bg-neutral-800',
                           msg.isOwn ? 'right-0' : 'left-0',
                         )}
                       >
+                        <button
+                          onClick={() => handleReaction(msg.id, '👍')}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-amber-500 dark:hover:bg-neutral-700"
+                          title="반응 추가"
+                        >
+                          <Smile size={14} />
+                        </button>
                         <button
                           onClick={() => handleOpenThread(msg)}
                           className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-primary-500 dark:hover:bg-neutral-700"
                           title="답글 달기"
                         >
-                          <Reply size={14} />
+                          <MessageCircle size={14} />
                         </button>
                         <button
-                          onClick={() => handleReaction(msg.id, '👍')}
-                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-amber-500 dark:hover:bg-neutral-700"
-                          title="👍"
+                          onClick={() => addToast('info', '저장 기능은 준비 중입니다.')}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-yellow-500 dark:hover:bg-neutral-700"
+                          title="저장"
                         >
-                          <Smile size={14} />
+                          <Bookmark size={14} />
                         </button>
                         <button
                           onClick={() => {
@@ -726,22 +732,34 @@ export function ChannelView() {
                         })()}
                         {msg.isOwn && (
                           <>
+                            <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />
                             <button
                               onClick={() => handleStartEdit(msg)}
                               className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-blue-500 dark:hover:bg-neutral-700"
                               title="수정"
                             >
-                              <CheckSquare size={14} />
+                              <Pencil size={14} />
                             </button>
                             <button
                               onClick={() => handleDelete(msg)}
                               className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-700"
                               title="삭제"
                             >
-                              <X size={14} />
+                              <Trash2 size={14} />
                             </button>
                           </>
                         )}
+                        <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />
+                        <button
+                          onClick={() => {
+                            void navigator.clipboard.writeText(msg.content)
+                            addToast('success', '메시지가 복사되었습니다.')
+                          }}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700"
+                          title="복사"
+                        >
+                          <Copy size={14} />
+                        </button>
                       </div>
                     )}
 

@@ -217,7 +217,6 @@ export function ChannelHeader() {
 
         <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
 
-
         {/* 멤버 */}
         <button
           onClick={() => togglePanel('members')}
