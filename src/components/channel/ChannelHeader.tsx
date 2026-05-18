@@ -13,6 +13,8 @@ import {
   Building2,
   UserPlus,
   Settings,
+  Pin,
+  FileText,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -215,6 +217,24 @@ export function ChannelHeader() {
         </button>
 
         <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+
+        {/* 핀 메시지 — 준비 중 */}
+        <button
+          onClick={() => addToast('info', '핀 메시지 기능은 준비 중입니다.')}
+          className="hidden rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 sm:block"
+          title="핀 메시지"
+        >
+          <Pin size={15} />
+        </button>
+
+        {/* 파일 목록 — 준비 중 */}
+        <button
+          onClick={() => addToast('info', '파일 목록 기능은 준비 중입니다.')}
+          className="hidden rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 sm:block"
+          title="파일 목록"
+        >
+          <FileText size={15} />
+        </button>
 
         {/* 멤버 */}
         <button

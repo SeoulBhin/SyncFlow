@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect } from 'react'
-import { X, Send, CheckCheck, Loader2, Sparkles, CheckSquare, Trash2 } from 'lucide-react'
+import { X, Send, CheckCheck, Loader2, Sparkles, Trash2, Smile, Bookmark, Copy, Pencil } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useThreadStore } from '@/stores/useThreadStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
+import { useToastStore } from '@/stores/useToastStore'
 import type { ChatMessage } from '@/types'
 
 // ── Helper ────────────────────────────────────────────────────────────────────
@@ -21,9 +22,10 @@ interface ReplyItemProps {
   reply: ChatMessage
   onDelete: (reply: ChatMessage) => void
   onEdit: (reply: ChatMessage) => void
+  addToast: (type: 'success' | 'error' | 'warning' | 'info', message: string) => void
 }
 
-function ReplyItem({ reply, onDelete, onEdit }: ReplyItemProps) {
+function ReplyItem({ reply, onDelete, onEdit, addToast }: ReplyItemProps) {
   const [hovered, setHovered] = useState(false)
 
   return (
@@ -32,27 +34,57 @@ function ReplyItem({ reply, onDelete, onEdit }: ReplyItemProps) {
       onMouseEnter={() => setHovered(true)}
       onMouseLeave={() => setHovered(false)}
     >
-      {/* Hover action bar — 본인 메시지만 표시 */}
-      {hovered && reply.isOwn && (
+      {/* Hover action bar */}
+      {hovered && (
         <div
           className={cn(
-            'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-sm dark:border-neutral-700 dark:bg-neutral-800',
+            'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-md dark:border-neutral-700 dark:bg-neutral-800',
             reply.isOwn ? 'right-0' : 'left-0',
           )}
         >
           <button
-            onClick={() => onEdit(reply)}
-            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-blue-500 dark:hover:bg-neutral-700"
-            title="수정"
+            onClick={() => addToast('info', '스레드 반응 기능은 준비 중입니다.')}
+            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-amber-500 dark:hover:bg-neutral-700"
+            title="반응 추가"
           >
-            <CheckSquare size={13} />
+            <Smile size={13} />
           </button>
           <button
-            onClick={() => onDelete(reply)}
-            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-700"
-            title="삭제"
+            onClick={() => addToast('info', '저장 기능은 준비 중입니다.')}
+            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-yellow-500 dark:hover:bg-neutral-700"
+            title="저장"
           >
-            <Trash2 size={13} />
+            <Bookmark size={13} />
+          </button>
+          {reply.isOwn && (
+            <>
+              <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />
+              <button
+                onClick={() => onEdit(reply)}
+                className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-blue-500 dark:hover:bg-neutral-700"
+                title="수정"
+              >
+                <Pencil size={13} />
+              </button>
+              <button
+                onClick={() => onDelete(reply)}
+                className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-700"
+                title="삭제"
+              >
+                <Trash2 size={13} />
+              </button>
+            </>
+          )}
+          <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />
+          <button
+            onClick={() => {
+              void navigator.clipboard.writeText(reply.content)
+              addToast('success', '메시지가 복사되었습니다.')
+            }}
+            className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700"
+            title="복사"
+          >
+            <Copy size={13} />
           </button>
         </div>
       )}
@@ -154,6 +186,7 @@ export function ThreadPanel() {
     updateReply,
   } = useThreadStore()
   const { closePanel } = useDetailPanelStore()
+  const addToast = useToastStore((s) => s.addToast)
 
   const [replyInput, setReplyInput] = useState('')
   const [editingReplyId, setEditingReplyId] = useState<string | null>(null)
@@ -311,6 +344,7 @@ export function ThreadPanel() {
                   reply={reply}
                   onDelete={(r) => void handleDelete(r)}
                   onEdit={(r) => setEditingReplyId(r.id)}
+                  addToast={addToast}
                 />
               ),
             )}
