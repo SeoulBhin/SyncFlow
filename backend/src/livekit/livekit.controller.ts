@@ -47,7 +47,11 @@ export class LiveKitController {
   @HttpCode(200)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async handleWebhook(@Req() req: any, @Headers('Authorization') authHeader: string) {
-    const rawBody: Buffer = req.rawBody ?? Buffer.alloc(0)
+    // main.ts의 express.raw 미들웨어를 통과하면 req.body가 Buffer
+    // 그 외 경로에선 NestJS의 rawBody 옵션이 채워준 req.rawBody 사용
+    const rawBody: Buffer = Buffer.isBuffer(req.body)
+      ? req.body
+      : (req.rawBody ?? Buffer.alloc(0))
     await this.livekitService.handleWebhook(rawBody, authHeader ?? '')
     return { ok: true }
   }
