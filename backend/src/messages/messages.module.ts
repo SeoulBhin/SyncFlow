@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common'
 import { TypeOrmModule } from '@nestjs/typeorm'
 import { Message } from './entities/message.entity'
 import { MessageReaction } from './entities/message-reaction.entity'
+import { SavedMessage } from './entities/saved-message.entity'
 import { MessagesController } from './messages.controller'
 import { MessagesService } from './messages.service'
 import { MessagesGateway } from './messages.gateway'
@@ -11,7 +12,7 @@ import { AiModule } from '../ai/ai.module'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Message, MessageReaction]),
+    TypeOrmModule.forFeature([Message, MessageReaction, SavedMessage]),
     ChannelsModule,
     AuthModule,
     AiModule,   // @AI 멘션 처리용

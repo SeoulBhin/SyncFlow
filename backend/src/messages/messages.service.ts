@@ -7,6 +7,7 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { Message } from './entities/message.entity';
 import { MessageReaction } from './entities/message-reaction.entity';
+import { SavedMessage } from './entities/saved-message.entity';
 import { CreateMessageDto } from './dto/create-message.dto';
 import { MessageReactionDto } from './dto/message-reaction.dto';
 
@@ -29,6 +30,12 @@ export interface MessageResponse {
   reactions: ReactionGroup[];
 }
 
+export interface BookmarkResponse {
+  messageId: string;
+  savedAt: string;
+  message: MessageResponse;
+}
+
 export interface PaginatedMessages {
   messages: MessageResponse[];
   nextCursor: string | null;
@@ -42,6 +49,8 @@ export class MessagesService {
     private readonly messageRepo: Repository<Message>,
     @InjectRepository(MessageReaction)
     private readonly reactionRepo: Repository<MessageReaction>,
+    @InjectRepository(SavedMessage)
+    private readonly savedMessageRepo: Repository<SavedMessage>,
   ) {}
 
   // ── Queries ────────────────────────────────────────────────────────────────
@@ -202,6 +211,55 @@ export class MessagesService {
       users,
       count: users.length,
     }));
+  }
+
+  // ── Bookmark ───────────────────────────────────────────────────────────────
+
+  /** 메시지의 channelId 반환 (컨트롤러 권한 검증용) */
+  async getChannelIdByMessage(messageId: string): Promise<string> {
+    const msg = await this.messageRepo.findOne({ where: { id: messageId } });
+    if (!msg) throw new NotFoundException('메시지를 찾을 수 없습니다');
+    return msg.channelId;
+  }
+
+  /** 북마크 저장 — 중복 저장은 무시 (idempotent) */
+  async bookmarkMessage(userId: string, messageId: string): Promise<void> {
+    const exists = await this.savedMessageRepo.findOne({
+      where: { userId, messageId },
+    });
+    if (!exists) {
+      await this.savedMessageRepo.save(
+        this.savedMessageRepo.create({ userId, messageId }),
+      );
+    }
+  }
+
+  /** 북마크 해제 — 없어도 성공 처리 (idempotent) */
+  async unbookmarkMessage(userId: string, messageId: string): Promise<void> {
+    await this.savedMessageRepo.delete({ userId, messageId });
+  }
+
+  /** 유저의 저장된 메시지 목록 조회 */
+  async getBookmarks(userId: string): Promise<BookmarkResponse[]> {
+    const rows = await this.savedMessageRepo.find({
+      where: { userId },
+      order: { savedAt: 'DESC' },
+    });
+    const results: BookmarkResponse[] = [];
+    for (const row of rows) {
+      if (!row.message) continue;
+      const msg = await this.messageRepo.findOne({
+        where: { id: row.messageId },
+        relations: ['reactions'],
+      });
+      if (!msg) continue;
+      results.push({
+        messageId: row.messageId,
+        savedAt: row.savedAt.toISOString(),
+        message: this.toResponse(msg),
+      });
+    }
+    return results;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

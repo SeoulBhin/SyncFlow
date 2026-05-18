@@ -13,6 +13,7 @@ import {
   Building2,
   UserPlus,
   Settings,
+  Paperclip,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -215,6 +216,7 @@ export function ChannelHeader() {
         </button>
 
         <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+
 
         {/* 멤버 */}
         <button

@@ -20,6 +20,8 @@ import {
   CheckSquare,
   Sparkles,
   Loader2,
+  Copy,
+  Bookmark,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { apiFetch } from '@/lib/api'
@@ -33,6 +35,8 @@ import { useProjectsStore } from '@/stores/useProjectsStore'
 import { useAIStore } from '@/stores/useAIStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
+import { useToastStore } from '@/stores/useToastStore'
+import { useBookmarkStore } from '@/stores/useBookmarkStore'
 import {
   EMOJI_LIST,
   MOCK_CHANNELS,
@@ -119,6 +123,9 @@ export function ChannelView() {
   const { openThread } = useThreadStore()
   const { openPanel } = useDetailPanelStore()
   const { openPanel: openAIPanel, sendMessage: sendAIMessage } = useAIStore()
+  const addToast = useToastStore((s) => s.addToast)
+  const { bookmarkedIds, load: loadBookmarks, save: saveBookmark, unsave: unsaveBookmark } =
+    useBookmarkStore()
 
   const [inputText, setInputText] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -176,6 +183,10 @@ export function ChannelView() {
     initSocket()
     return () => cleanupSocket()
   }, [initSocket, cleanupSocket])
+
+  useEffect(() => {
+    void loadBookmarks()
+  }, [loadBookmarks])
 
   // ── Channel load when group changes ───────────────────────────────────────
 
@@ -607,10 +618,16 @@ export function ChannelView() {
           ) : activeMessages.length === 0 ? (
             <div className="flex h-full items-center justify-center text-neutral-400">
               <div className="text-center">
-                <p className="text-lg font-medium">
+                <p className="text-lg font-medium text-neutral-700 dark:text-neutral-200">
                   #{activeChannel?.name ?? '채널'}
                 </p>
                 <p className="mt-1 text-sm">이 채널의 시작입니다. 첫 메시지를 보내보세요!</p>
+                <button
+                  onClick={() => textareaRef.current?.focus()}
+                  className="mt-4 rounded-lg bg-primary-500 px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-primary-600"
+                >
+                  첫 메시지 보내기
+                </button>
               </div>
             </div>
           ) : (
@@ -662,6 +679,51 @@ export function ChannelView() {
                         >
                           <Smile size={14} />
                         </button>
+                        <button
+                          onClick={() => {
+                            void navigator.clipboard.writeText(msg.content)
+                            addToast('success', '메시지를 복사했습니다.')
+                          }}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700"
+                          title="복사"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        {(() => {
+                          const isSaved = bookmarkedIds.has(msg.id)
+                          return (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  if (isSaved) {
+                                    await unsaveBookmark(msg.id)
+                                    addToast('success', '저장을 해제했습니다.')
+                                  } else {
+                                    await saveBookmark(msg.id)
+                                    addToast('success', '메시지를 저장했습니다.')
+                                  }
+                                } catch (e) {
+                                  addToast(
+                                    'error',
+                                    e instanceof Error ? e.message : '오류가 발생했습니다.',
+                                  )
+                                }
+                              }}
+                              className={cn(
+                                'rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                                isSaved
+                                  ? 'text-yellow-500'
+                                  : 'text-neutral-400 hover:text-yellow-500',
+                              )}
+                              title={isSaved ? '저장 해제' : '저장'}
+                            >
+                              <Bookmark
+                                size={14}
+                                fill={isSaved ? 'currentColor' : 'none'}
+                              />
+                            </button>
+                          )
+                        })()}
                         {msg.isOwn && (
                           <>
                             <button

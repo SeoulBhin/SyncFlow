@@ -16,6 +16,7 @@ import {
   LogIn,
   Trash2,
   UserCircle,
+  Sparkles,
 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -24,6 +25,7 @@ import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useChatStore } from '@/stores/useChatStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { api } from '@/utils/api'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { SidebarProjectList } from './SidebarProjectList'
@@ -261,6 +263,7 @@ const NAV_ITEMS = [
 export function SlackSidebar() {
   const { isOpen, setOpen } = useSidebarStore()
   const { activeOrgId, activeOrgName, activeGroupId, setActiveGroup } = useGroupContextStore()
+  const { togglePanel, activePanel } = useDetailPanelStore()
   const { setActiveGroup: setSidebarGroup } = useSidebarStore()
   const isMobile = useMediaQuery('(max-width: 639px)')
   const navigate = useNavigate()
@@ -382,6 +385,18 @@ export function SlackSidebar() {
             </button>
           )
         })}
+        <button
+          onClick={() => togglePanel('ai')}
+          className={cn(
+            'flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+            activePanel === 'ai'
+              ? 'bg-violet-50 font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+              : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+          )}
+        >
+          <Sparkles size={16} />
+          <span>AI 어시스턴트</span>
+        </button>
       </div>
 
       <div className="mx-3 h-px bg-neutral-200 dark:bg-neutral-700" />
