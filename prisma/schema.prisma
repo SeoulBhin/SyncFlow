@@ -355,6 +355,7 @@ model Meeting {
   summary      MeetingSummary?
   actionItems  MeetingActionItem[]
   participants MeetingParticipant[]
+  guestInvites MeetingGuestInvite[]
 
   @@map("meetings")
 }
@@ -545,4 +546,22 @@ model FileUpload {
 
   @@index([pageId])
   @@map("file_uploads")
+}
+
+// 29. Meeting Guest Invites
+model MeetingGuestInvite {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token     String   @unique @db.VarChar(64)
+  meetingId String   @map("meeting_id") @db.Uuid
+  createdBy String   @map("created_by") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  maxUses   Int?     @map("max_uses")
+  useCount  Int      @default(0) @map("use_count")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@map("meeting_guest_invites")
 }

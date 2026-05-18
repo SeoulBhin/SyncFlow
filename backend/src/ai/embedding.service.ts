@@ -28,7 +28,7 @@ export class EmbeddingService {
 
   async embed(text: string): Promise<number[]> {
     try {
-      const model = this.genAI.getGenerativeModel({ model: 'text-embedding-004' })
+      const model = this.genAI.getGenerativeModel({ model: 'GEMINI_EMBEDDING_MODEL' })
       const result = await model.embedContent(text)
       return result.embedding.values
     } catch (err) {
