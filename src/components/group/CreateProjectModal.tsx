@@ -15,9 +15,10 @@ interface Props {
   onCreated?: (project: ProjectSummary) => void
   /** 프로젝트를 특정 채널에 소속시킬 때 전달. 미전달 시 그룹 전체 소속. */
   initialChannelId?: string | null
+  groupId?: string
 }
 
-export function CreateProjectModal({ isOpen, onClose, editData, onCreated, initialChannelId }: Props) {
+export function CreateProjectModal({ isOpen, onClose, editData, onCreated, initialChannelId, groupId }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
   const addProject = useProjectsStore((s) => s.addProject)
@@ -38,7 +39,8 @@ export function CreateProjectModal({ isOpen, onClose, editData, onCreated, initi
       addToast('error', '프로젝트명을 입력해주세요.')
       return
     }
-    if (!isEdit && !activeOrgId) {
+    const targetGroupId = groupId ?? activeOrgId
+    if (!isEdit && !targetGroupId) {
       addToast('error', '조직이 선택되지 않았습니다.')
       return
     }
@@ -55,7 +57,7 @@ export function CreateProjectModal({ isOpen, onClose, editData, onCreated, initi
         onCreated?.(updated)
       } else {
         const created = await api.post<ProjectSummary>('/projects', {
-          groupId: activeOrgId,
+          groupId: targetGroupId,
           channelId: initialChannelId ?? undefined,
           name: name.trim(),
           description: description.trim() || undefined,

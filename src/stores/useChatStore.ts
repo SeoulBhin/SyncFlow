@@ -302,7 +302,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // 실효 userId 우선순위: store user.id > JWT sub > anon-{socketId}
       // user.id가 없는 경우(/auth/me 응답 문제)에도 JWT에서 직접 추출해 정확한 isOwn 계산
       const user = useAuthStore.getState().user
-      const effectiveId = user?.id || getUserIdFromToken() || `anon-${sock.id.slice(0, 6)}`
+      const effectiveId = user?.id || getUserIdFromToken() || `anon-${sock.id?.slice(0, 6) ?? 'xxxxxx'}`
       _effectiveUserId = effectiveId
 
       set((s) => {

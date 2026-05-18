@@ -22,9 +22,10 @@ interface Props {
   isOpen: boolean
   onClose: () => void
   projectId: string
+  onCreated?: (page: { id: string; name: string; type: 'doc' | 'code'; projectId: string }) => void
 }
 
-export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
+export function CreatePageModal({ isOpen, onClose, projectId, onCreated }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const addPage = usePageStore((s) => s.addPage)
   const navigate = useNavigate()
@@ -57,8 +58,10 @@ export function CreatePageModal({ isOpen, onClose, projectId }: Props) {
         projectId: resolvedProjectId,
       })
 
-      addPage({ id, name: title, type, projectId: resolvedProjectId })
+      const page = { id, name: title, type, projectId: resolvedProjectId }
+      addPage(page)
       addToast('success', `페이지 "${title}"이(가) 생성되었습니다.`)
+      onCreated?.(page)
       handleClose()
       navigate(type === 'code' ? `/app/code/${id}` : `/app/editor/${id}`)
     } catch (error) {

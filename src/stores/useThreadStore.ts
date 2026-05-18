@@ -142,7 +142,7 @@ export const useThreadStore = create<ThreadState>((set, get) => {
       setTimeout(() => void get().loadReplies(parentId), 300)
     },
 
-    deleteReply: async (messageId: string, channelId: string) => {
+    deleteReply: async (messageId: string, _channelId: string) => {
       await apiJson<{ success: boolean }>(`/api/messages/${messageId}`, {
         method: 'DELETE',
       })

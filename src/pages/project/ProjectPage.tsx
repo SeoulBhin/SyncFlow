@@ -4,7 +4,6 @@ import { Briefcase, Plus, FileText, Code, Calendar, ChevronLeft, Trash2, Check, 
 import { Card } from '@/components/common/Card'
 import { Button } from '@/components/common/Button'
 import { CreatePageModal } from '@/components/group/CreatePageModal'
-import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { api } from '@/utils/api'
 
@@ -27,7 +26,6 @@ interface Page {
 export function ProjectPage() {
   const { projectId } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
-  const accessToken = useAuthStore((s) => s.accessToken)
   const addToast = useToastStore((s) => s.addToast)
 
   const [project, setProject] = useState<Project | null>(null)
@@ -207,7 +205,18 @@ export function ProjectPage() {
         isOpen={showCreatePage}
         onClose={() => setShowCreatePage(false)}
         projectId={projectId ?? ''}
-        onCreated={(page) => setPages((prev) => [...prev, page as Page])}
+        onCreated={(page) =>
+          setPages((prev) => [
+            ...prev,
+            {
+              id: page.id,
+              title: page.name,
+              type: page.type === 'code' ? 'code' : 'document',
+              language: page.type === 'code' ? 'javascript' : null,
+              updatedAt: new Date().toISOString(),
+            },
+          ])
+        }
       />
     </div>
   )

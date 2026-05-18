@@ -60,18 +60,36 @@ export const MOCK_GROUPS = MOCK_CHANNELS.filter((c) => c.orgId === 'org1').map((
 
 /* ── 프로젝트 ── */
 
-export const MOCK_PROJECTS = []
+export interface MockProject {
+  id: string
+  name: string
+  description?: string
+  groupId?: string
+  dueDate?: string
+  progress?: number
+  pageCount?: number
+  memberCount?: number
+}
 
-export const MOCK_PAGES = []
+export interface MockPage {
+  id: string
+  name: string
+  projectId: string
+  type: 'doc' | 'code'
+}
 
-export const MOCK_RECENT_PAGES = []
+export const MOCK_PROJECTS: MockProject[] = []
+
+export const MOCK_PAGES: MockPage[] = []
+
+export const MOCK_RECENT_PAGES: MockPage[] = []
 
 /* ── 작업 관리 ── */
 
 export type TaskPriority = 'urgent' | 'high' | 'normal' | 'low'
 export type TaskStatus = 'todo' | 'in-progress' | 'done'
 
-export const MOCK_MY_TASKS = []
+export const MOCK_MY_TASKS: MockTask[] = []
 
 /* ── 채팅 채널 목업 데이터 ── */
 
@@ -124,7 +142,7 @@ export const EMOJI_LIST = [
   '🙏','💪','⭐','🚀','💡','📌','🎯','✨',
 ]
 
-export const MOCK_CHANNEL_MEMBERS = []
+export const MOCK_CHANNEL_MEMBERS: MockOrgMember[] = []
 
 export const MOCK_MESSAGES: MockMessage[] = []
 
@@ -286,7 +304,14 @@ export const MOCK_MILESTONES: MockMilestone[] = []
 
 export const MOCK_PASSWORD = ''
 
-export const MOCK_USERS = []
+export interface MockUser {
+  id: string
+  name: string
+  email?: string
+  avatar?: string
+}
+
+export const MOCK_USERS: MockUser[] = []
 
 /* ── 회의 목업 데이터 ── */
 

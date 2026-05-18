@@ -7,6 +7,7 @@ import { useSidebarStore } from '@/stores/useSidebarStore'
 interface AuthState {
   isAuthenticated: boolean
   user: User | null
+  accessToken: string | null
   login: (user: User, accessToken: string) => void
   logout: () => Promise<void>
   fetchMe: () => Promise<void>
@@ -15,9 +16,10 @@ interface AuthState {
 export const useAuthStore = create<AuthState>()((set) => ({
   isAuthenticated: !!localStorage.getItem('accessToken'),
   user: null,
+  accessToken: localStorage.getItem('accessToken') ?? null,
   login: (user, accessToken) => {
     localStorage.setItem('accessToken', accessToken)
-    set({ isAuthenticated: true, user })
+    set({ isAuthenticated: true, user, accessToken })
   },
   logout: async () => {
     // 서버에 로그아웃을 알려 httpOnly refresh cookie를 삭제한다.
@@ -35,15 +37,15 @@ export const useAuthStore = create<AuthState>()((set) => ({
     // Zustand persist로 유지되던 sidebar 선택 상태(activeGroupId/activeProjectId)를 초기화.
     // 이 호출이 localStorage['syncflow-sidebar'] 도 함께 갱신한다.
     useSidebarStore.getState().clearSelection()
-    set({ isAuthenticated: false, user: null })
+    set({ isAuthenticated: false, user: null, accessToken: null })
   },
   fetchMe: async () => {
     try {
       const user = await api.get<User>('/auth/me')
-      set({ isAuthenticated: true, user })
+      set({ isAuthenticated: true, user, accessToken: localStorage.getItem('accessToken') ?? null })
     } catch {
       localStorage.removeItem('accessToken')
-      set({ isAuthenticated: false, user: null })
+      set({ isAuthenticated: false, user: null, accessToken: null })
     }
   },
 }))
@@ -53,5 +55,5 @@ export const useAuthStore = create<AuthState>()((set) => ({
 window.addEventListener('auth:session-expired', () => {
   usePageStore.getState().clear()
   useSidebarStore.getState().clearSelection()
-  useAuthStore.setState({ isAuthenticated: false, user: null })
+  useAuthStore.setState({ isAuthenticated: false, user: null, accessToken: null })
 })

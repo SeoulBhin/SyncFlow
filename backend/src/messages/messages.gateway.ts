@@ -24,7 +24,7 @@ export class MessagesGateway
   implements OnGatewayConnection, OnGatewayDisconnect
 {
   @WebSocketServer()
-  server: Server
+  server!: Server
 
   private readonly users = new Map<string, SocketUser>()
 

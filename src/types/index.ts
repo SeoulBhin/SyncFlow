@@ -81,6 +81,7 @@ export interface ChatChannel {
   description: string | null
   unreadCount: number
   createdAt: string
+  otherUser?: { userName?: string }
 }
 
 export interface PaginatedMessages {
