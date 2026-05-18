@@ -217,7 +217,6 @@ export function ChannelHeader() {
         </button>
 
         <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
-
         {/* 핀 메시지 — 준비 중 */}
         <button
           onClick={() => addToast('info', '핀 메시지 기능은 준비 중입니다.')}

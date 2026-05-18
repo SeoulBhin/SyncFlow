@@ -36,6 +36,8 @@ import { useAIStore } from '@/stores/useAIStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
+import { useToastStore } from '@/stores/useToastStore'
+import { useBookmarkStore } from '@/stores/useBookmarkStore'
 import {
   EMOJI_LIST,
   MOCK_CHANNELS,
@@ -180,6 +182,10 @@ export function ChannelView() {
     initSocket()
     return () => cleanupSocket()
   }, [initSocket, cleanupSocket])
+
+  useEffect(() => {
+    void loadBookmarks()
+  }, [loadBookmarks])
 
   // ── Channel load when group changes ───────────────────────────────────────
 
@@ -680,6 +686,51 @@ export function ChannelView() {
                         >
                           <Bookmark size={14} />
                         </button>
+                        <button
+                          onClick={() => {
+                            void navigator.clipboard.writeText(msg.content)
+                            addToast('success', '메시지를 복사했습니다.')
+                          }}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700"
+                          title="복사"
+                        >
+                          <Copy size={14} />
+                        </button>
+                        {(() => {
+                          const isSaved = bookmarkedIds.has(msg.id)
+                          return (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  if (isSaved) {
+                                    await unsaveBookmark(msg.id)
+                                    addToast('success', '저장을 해제했습니다.')
+                                  } else {
+                                    await saveBookmark(msg.id)
+                                    addToast('success', '메시지를 저장했습니다.')
+                                  }
+                                } catch (e) {
+                                  addToast(
+                                    'error',
+                                    e instanceof Error ? e.message : '오류가 발생했습니다.',
+                                  )
+                                }
+                              }}
+                              className={cn(
+                                'rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                                isSaved
+                                  ? 'text-yellow-500'
+                                  : 'text-neutral-400 hover:text-yellow-500',
+                              )}
+                              title={isSaved ? '저장 해제' : '저장'}
+                            >
+                              <Bookmark
+                                size={14}
+                                fill={isSaved ? 'currentColor' : 'none'}
+                              />
+                            </button>
+                          )
+                        })()}
                         {msg.isOwn && (
                           <>
                             <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />

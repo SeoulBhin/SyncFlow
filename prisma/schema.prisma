@@ -40,6 +40,7 @@ model User {
   payments        Payment[]
   notifications   Notification[]
   fileUploads     FileUpload[]
+  savedMessages   SavedMessage[]
 
   @@index([email])
   @@map("users")
@@ -316,6 +317,7 @@ model Message {
   replies     Message[]         @relation("Replies")
   reactions   MessageReaction[]
   fileUploads FileUpload[]
+  savedBy     SavedMessage[]
 
   @@index([channelId, createdAt])
   @@map("messages")
@@ -564,4 +566,20 @@ model MeetingGuestInvite {
 
   @@index([meetingId])
   @@map("meeting_guest_invites")
+}
+
+// 30. Saved Messages (북마크)
+model SavedMessage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  savedAt   DateTime @default(now()) @map("saved_at") @db.Timestamptz
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId])
+  @@index([messageId])
+  @@map("saved_messages")
 }
