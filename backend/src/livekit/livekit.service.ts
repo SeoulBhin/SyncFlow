@@ -10,6 +10,8 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AccessToken, RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
 import { GroupMember } from '../groups/entities/group-member.entity';
+import { Channel } from '../channels/entities/channel.entity';
+import { ChannelMember } from '../channels/entities/channel-member.entity';
 import { Meeting } from '../meetings/entities/meeting.entity';
 import { MeetingParticipant } from '../meetings/entities/meeting-participant.entity';
 import { MeetingTranscript } from '../meetings/entities/meeting-transcript.entity';
@@ -27,6 +29,8 @@ export class LiveKitService {
     private readonly config: ConfigService,
     private readonly summaryService: SummaryService,
     @InjectRepository(GroupMember) private readonly groupMemberRepo: Repository<GroupMember>,
+    @InjectRepository(Channel) private readonly channelRepo: Repository<Channel>,
+    @InjectRepository(ChannelMember) private readonly channelMemberRepo: Repository<ChannelMember>,
     @InjectRepository(Meeting) private readonly meetingRepo: Repository<Meeting>,
     @InjectRepository(MeetingParticipant) private readonly participantRepo: Repository<MeetingParticipant>,
     @InjectRepository(MeetingTranscript) private readonly transcriptRepo: Repository<MeetingTranscript>,
@@ -46,17 +50,29 @@ export class LiveKitService {
       throw new BadRequestException('유효하지 않은 roomName 형식입니다. voice-{id} 형식이어야 합니다.')
     }
 
-    // meetingId 기반 검증 우선 — meetings 테이블 조회
+    // 1순위: meetingId 기반 검증 — meetings 테이블 조회
     const meeting = await this.meetingRepo.findOne({ where: { id: extractedId } })
     if (meeting) {
       await this.assertMeetingAccess(meeting, extractedId, userId)
     } else {
-      // legacy fallback: voice-{groupId} 구조 — GroupMember 검증
-      const member = await this.groupMemberRepo.findOne({
-        where: { groupId: extractedId, userId },
-      })
-      if (!member) {
-        throw new ForbiddenException('해당 그룹에 접근할 권한이 없습니다.')
+      // 2순위: channelId 기반 검증 — channels → channel_members 조회
+      // ChannelHeader 음성채팅은 voice-{channelId} 형태를 사용하므로 여기서 처리
+      const channel = await this.channelRepo.findOne({ where: { id: extractedId } })
+      if (channel) {
+        const channelMember = await this.channelMemberRepo.findOne({
+          where: { channelId: extractedId, userId },
+        })
+        if (!channelMember) {
+          throw new ForbiddenException('해당 채널에 접근할 권한이 없습니다.')
+        }
+      } else {
+        // 3순위 legacy fallback: voice-{groupId} 구조 — GroupMember 검증
+        const member = await this.groupMemberRepo.findOne({
+          where: { groupId: extractedId, userId },
+        })
+        if (!member) {
+          throw new ForbiddenException('해당 그룹에 접근할 권한이 없습니다.')
+        }
       }
     }
 

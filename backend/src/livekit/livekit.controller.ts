@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common'
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
@@ -47,8 +47,13 @@ export class LiveKitController {
   @HttpCode(200)
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   async handleWebhook(@Req() req: any, @Headers('Authorization') authHeader: string) {
-    const rawBody: Buffer = req.rawBody ?? Buffer.alloc(0)
-    await this.livekitService.handleWebhook(rawBody, authHeader ?? '')
+    if (!req.rawBody || !Buffer.isBuffer(req.rawBody)) {
+      throw new BadRequestException('Missing raw body')
+    }
+    if (!authHeader) {
+      throw new BadRequestException('Missing Authorization header')
+    }
+    await this.livekitService.handleWebhook(req.rawBody as Buffer, authHeader)
     return { ok: true }
   }
 }

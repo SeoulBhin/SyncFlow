@@ -5,8 +5,6 @@ import {
   Video,
   Mic,
   MicOff,
-  Monitor,
-  MonitorOff,
   Sparkles,
   PhoneOff,
   Globe,
@@ -20,7 +18,6 @@ import { cn } from '@/utils/cn'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
-import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
@@ -34,7 +31,6 @@ export function ChannelHeader() {
   const { activeGroupId, activeGroupName, activeOrgId } = useGroupContextStore()
   const { togglePanel, activePanel } = useDetailPanelStore()
   const voiceChat = useVoiceChatStore()
-  const screenShare = useScreenShareStore()
   const meeting = useMeetingStore()
   const addToast = useToastStore((s) => s.addToast)
   const channels = useChannelsStore((s) => s.channels)
@@ -69,18 +65,6 @@ export function ChannelHeader() {
       togglePanel('voice')
     } else {
       togglePanel('voice')
-    }
-  }
-
-  const handleScreenShareClick = () => {
-    if (!screenShare.sharingUser) {
-      if (activeGroupId && activeGroupName) {
-        screenShare.startSharing(activeGroupId, activeGroupName)
-      }
-    } else if (screenShare.isSharing) {
-      screenShare.stopSharing()
-    } else {
-      togglePanel('screen-share')
     }
   }
 
@@ -191,20 +175,6 @@ export function ChannelHeader() {
             <Mic size={16} />
           </button>
         )}
-
-        {/* 화면 공유 */}
-        <button
-          onClick={handleScreenShareClick}
-          className={cn(
-            'rounded-lg p-1.5 transition-colors',
-            screenShare.sharingUser
-              ? 'text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700',
-          )}
-          title="화면 공유"
-        >
-          {screenShare.sharingUser ? <MonitorOff size={16} /> : <Monitor size={16} />}
-        </button>
 
         {/* 회의 시작 */}
         <button
