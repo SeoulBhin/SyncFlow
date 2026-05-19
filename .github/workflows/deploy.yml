@@ -27,8 +27,8 @@ jobs:
       - name: Install root deps
         run: npm install --no-audit --no-fund
 
-      - name: Build frontend
-        run: npx vite build
+      - name: Build frontend (tsc -b + vite build)
+        run: npm run build
 
       # ────────── Backend ──────────
       - name: Install backend deps
