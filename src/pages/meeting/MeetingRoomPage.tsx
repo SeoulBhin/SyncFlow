@@ -50,12 +50,6 @@ function formatTime(seconds: number) {
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
-function makeRoomName(groupId: string) {
-  return `voice-${groupId}`
-}
-
-
-
 export function MeetingRoomPage() {
   const { id: meetingId } = useParams<{ id: string }>()
   const groupId = meetingId

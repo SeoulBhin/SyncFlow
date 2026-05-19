@@ -177,11 +177,9 @@ const statusConfig: Record<TaskStatus, { label: string; icon: typeof Circle }> =
 
 export function DashboardPage() {
   const user = useAuthStore((s) => s.user)
-  const addToast = useToastStore((s) => s.addToast)
   const navigate = useNavigate()
-  const { activeOrgId, activeGroupName, setActiveOrg, myGroups } = useGroupContextStore()
+  const { activeOrgId, setActiveOrg, myGroups } = useGroupContextStore()
   const meetingStore = useMeetingStore()
-  const [inviteCode, setInviteCode] = useState('')
   const [showCreateGroup, setShowCreateGroup] = useState(false)
   const [showJoinGroup, setShowJoinGroup] = useState(false)
   const [channels, setChannels] = useState<any[]>([])
@@ -222,35 +220,6 @@ export function DashboardPage() {
 
   const scheduledMeetings = meetings.filter((m) => m.status === 'scheduled')
   const recentMeetings = meetings.filter((m) => m.status === 'ended').slice(0, 3)
-
-  const [joining, setJoining] = useState(false)
-
-  const handleJoinGroup = async () => {
-    const trimmed = inviteCode.trim().toUpperCase()
-    if (!trimmed) {
-      addToast('error', '초대 코드를 입력해주세요.')
-      return
-    }
-    if (trimmed.length !== 6) {
-      addToast('error', '초대 코드는 6자리입니다.')
-      return
-    }
-    setJoining(true)
-    try {
-      const channel = await api.post<{ id: string; name: string }>(
-        '/channels/join-by-code',
-        { code: trimmed },
-      )
-      addToast('success', `"${channel.name}" 채널에 참여했습니다.`)
-      setInviteCode('')
-      fetchDashboard()
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '참여 실패'
-      addToast('error', msg)
-    } finally {
-      setJoining(false)
-    }
-  }
 
   const handleOpenMeetingModal = () => {
     setShowCreateMeeting(true)

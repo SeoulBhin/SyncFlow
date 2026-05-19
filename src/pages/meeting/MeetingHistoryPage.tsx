@@ -31,7 +31,7 @@ function formatDuration(start: string | null, end: string | null): string {
 
 export function MeetingHistoryPage() {
   const navigate = useNavigate()
-  const { activeGroupName, activeOrgId } = useGroupContextStore()
+  const { activeOrgId } = useGroupContextStore()
   const meetings = useMeetingStore((s) => s.meetings)
   const isLoading = useMeetingStore((s) => s.isLoading)
   const error = useMeetingStore((s) => s.error)

@@ -38,7 +38,6 @@ import { JoinGroupModal } from '@/components/group/JoinGroupModal'
 import { CreateProjectModal } from '@/components/group/CreateProjectModal'
 import { CreateGroupModal } from '@/components/group/CreateGroupModal'
 import { OrganizationSettingsModal } from '@/components/group/OrganizationSettingsModal'
-import { PublicGroupSearchModal } from '@/components/group/PublicGroupSearchModal'
 import { NewDMModal } from '@/components/messages/NewDMModal'
 import {
   MOCK_ORGANIZATIONS,
