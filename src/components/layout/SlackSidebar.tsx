@@ -676,33 +676,6 @@ export function SlackSidebar() {
               <UserCircle size={16} />
               <span>프로필</span>
             </button>
-          )
-        })}
-        {/* AI 어시스턴트 */}
-        <button
-          onClick={() => togglePanel('ai')}
-          className={cn(
-            'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
-            isAIOpen
-              ? 'bg-violet-50 font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
-              : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
-          )}
-        >
-          {isAIOpen && (
-            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-violet-500 dark:bg-violet-400" />
-          )}
-          <Sparkles size={16} />
-          <span>AI 어시스턴트</span>
-        </button>
-      </div>
-
-      <div className="mx-3 h-px bg-neutral-200 dark:bg-neutral-700" />
-
-      {/* 스크롤 가능 섹션 */}
-      <div className="flex-1 overflow-y-auto px-2 py-2">
-        {/* 즐겨찾기 */}
-        <CollapsibleSection title="즐겨찾기">
-          {FAVORITES.map((fav) => (
             <button
               onClick={() => {
                 navigate('/app/settings')
