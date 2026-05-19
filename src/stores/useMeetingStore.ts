@@ -8,6 +8,7 @@ import type {
   ApiMeetingTranscript,
   EndMeetingResponse,
   LeaveMeetingResponse,
+  RegenerateSummaryResponse,
   UploadAudioResponse,
 } from '@/types'
 
@@ -106,6 +107,8 @@ interface MeetingState {
   ) => Promise<LeaveMeetingResponse>
   setCurrentMeeting: (meeting: ApiMeeting) => void
   refreshCurrentMeeting: (meetingId: string) => Promise<void>
+  setAiNotes: (notes: string[]) => void
+  regenerateSummary: (meetingId: string) => Promise<RegenerateSummaryResponse>
 }
 
 // ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -481,6 +484,22 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       console.warn('[Meeting] refreshCurrentMeeting 실패', err)
       // 네트워크 실패 시 무시 — 다음 ParticipantDisconnected에서 재시도
     }
+  },
+
+  setAiNotes: (notes) => set({ aiNotes: notes }),
+
+  regenerateSummary: async (meetingId) => {
+    const data = await apiJson<RegenerateSummaryResponse>(
+      `/api/meetings/${meetingId}/summary/regenerate`,
+      { method: 'POST', body: JSON.stringify({}) },
+    )
+    set((s) => ({
+      currentSummary: data.summary,
+      currentActionItems: data.actionItems,
+      meetings: s.meetings.map((m) => (m.id === data.meeting.id ? data.meeting : m)),
+      actionItems: toActionItems(data.actionItems),
+    }))
+    return data
   },
 
   confirmActionItems: async (meetingId, actionItemIds) => {

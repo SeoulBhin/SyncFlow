@@ -311,6 +311,15 @@ export class MeetingsService {
       this.logger.log(`[GEMINI SKIP] meetingId="${meetingId}" — 트랜스크립트 없음, Gemini 호출 생략`)
       return { meeting, summary: null, actionItems: [] }
     }
+
+    // webhook과 API가 동시에 호출되는 race condition 대비 — 이미 요약이 존재하면 중복 생성 방지
+    const existingSummary = await this.summaryRepo.findOne({ where: { meetingId } })
+    if (existingSummary) {
+      this.logger.log(`[GEMINI SKIP] meetingId="${meetingId}" — 요약 이미 존재, 중복 생성 건너뜀`)
+      const existingItems = await this.actionItemRepo.find({ where: { meetingId } })
+      return { meeting, summary: existingSummary, actionItems: existingItems }
+    }
+
     this.logger.log(`[GEMINI CALL] meetingId="${meetingId}" — transcript ${fullText.trim().length}자, Gemini 호출 시작`)
 
     // 3. Gemini 회의록 생성 — 실패해도 endMeeting 전체를 깨뜨리지 않음.
@@ -359,6 +368,57 @@ export class MeetingsService {
     )
 
     return { meeting, summary, actionItems }
+  }
+
+  /** 회의 요약 재생성 — 호스트 또는 접근 권한 보유자만. 트랜스크립트 없으면 400. Gemini 실패 시 기존 요약 유지(throw). */
+  async regenerateSummary(meetingId: string, userId: string) {
+    const meeting = await this.assertCanAccess(meetingId, userId)
+
+    const transcripts = await this.transcriptRepo.find({
+      where: { meetingId },
+      order: { startTime: 'ASC' },
+    })
+    const fullText = transcripts
+      .map((t) => (t.speaker ? `[${t.speaker}] ${t.text}` : t.text))
+      .join('\n')
+
+    if (!fullText.trim()) {
+      throw new BadRequestException('회의 트랜스크립트가 없어 요약을 생성할 수 없습니다')
+    }
+
+    // Gemini 실패 시 그대로 throw — 기존 요약 보존
+    this.logger.log(`[GEMINI REGEN] meetingId="${meetingId}" userId="${userId}" — 요약 재생성 시작`)
+    const aiResult = await this.summaryService.generateSummary(fullText)
+
+    // 기존 요약 upsert
+    let summary = await this.summaryRepo.findOne({ where: { meetingId } })
+    if (summary) {
+      summary.summary = aiResult.summary
+      summary.keywords = JSON.stringify(aiResult.keywords)
+    } else {
+      summary = this.summaryRepo.create({
+        meetingId,
+        summary: aiResult.summary,
+        keywords: JSON.stringify(aiResult.keywords),
+      })
+    }
+    const savedSummary = await this.summaryRepo.save(summary)
+
+    // 미확정(confirmed=false) 액션아이템 삭제 후 재생성, 확정된 것은 보존
+    await this.actionItemRepo.delete({ meetingId, confirmed: false })
+    const actionItems = await this.actionItemRepo.save(
+      aiResult.actionItems.map((item) =>
+        this.actionItemRepo.create({
+          meetingId,
+          title: item.title,
+          assignee: item.assignee,
+          dueDate: item.dueDate,
+        }),
+      ),
+    )
+
+    this.logger.log(`[GEMINI REGEN] meetingId="${meetingId}" — 완료, actionItems=${actionItems.length}개`)
+    return { meeting, summary: savedSummary, actionItems }
   }
 
   /**

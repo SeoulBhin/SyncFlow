@@ -28,8 +28,9 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = 
   const currentUserId = useAuthStore((s) => s.user?.id)
   const createMeeting = useMeetingStore((s) => s.createMeeting)
 
+  const defaultVisibility: 'public' | 'private' = hideSchedule ? 'public' : 'private'
   const [title, setTitle] = useState('')
-  const [visibility, setVisibility] = useState<'public' | 'private'>('private')
+  const [visibility, setVisibility] = useState<'public' | 'private'>(defaultVisibility)
   const [scheduledAt, setScheduledAt] = useState('')
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([])
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
@@ -71,7 +72,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = 
 
   const handleClose = () => {
     setTitle('')
-    setVisibility('private')
+    setVisibility(defaultVisibility)
     setScheduledAt('')
     setSelectedUserIds(new Set())
     onClose()

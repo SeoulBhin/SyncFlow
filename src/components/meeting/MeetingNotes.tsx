@@ -63,6 +63,9 @@ export function MeetingNotes({ notes, actionItems }: Props) {
 
       {notes.length === 0 && actionItems.length === 0 && (
         <div className="flex h-32 items-center justify-center">
+          {/* TODO: 실시간 AI 노트 생성은 추후 STT transcript batch summarization으로 구현 예정.
+              STT 세그먼트가 N개 누적될 때마다 Gemini를 호출해 중간 요약을 업데이트하는 방식으로,
+              Gemini 호출 비용·주기 제어 설계가 선행되어야 한다. */}
           <p className="text-base text-neutral-400 dark:text-neutral-500">
             AI가 회의 내용을 분석 중입니다...
           </p>
