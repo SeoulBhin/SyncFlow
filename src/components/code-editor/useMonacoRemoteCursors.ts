@@ -70,6 +70,7 @@ export function useMonacoRemoteCursors(
     if (!editor || !provider) return
 
     const awareness = provider.awareness
+    if (!awareness) return
     decoCollRef.current = editor.createDecorationsCollection([])
 
     const style = document.createElement('style')

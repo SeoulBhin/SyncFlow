@@ -8,6 +8,8 @@ interface Props {
   onClose: () => void
   groupName: string
   inviteCode: string
+  groupId?: string
+  onDeleted?: () => void | Promise<void>
 }
 
 export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: Props) {

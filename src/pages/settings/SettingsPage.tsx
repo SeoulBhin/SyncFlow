@@ -603,7 +603,7 @@ function OrganizationDangerZone() {
 /* ─── 설정 페이지 메인 ─── */
 
 export function SettingsPage() {
-  const accessToken = useAuthStore((s) => s.accessToken)
+  const accessToken = sessionStorage.getItem('accessToken')
   const [settingsData, setSettingsData] = useState<{
     notifications: { message: boolean; task: boolean; deadline: boolean; browser: boolean }
     social: { google: boolean; github: boolean; kakao: boolean }

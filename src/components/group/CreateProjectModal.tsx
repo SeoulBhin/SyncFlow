@@ -11,10 +11,12 @@ import { api } from '@/utils/api'
 interface Props {
   isOpen: boolean
   onClose: () => void
-  editData?: { id: string; name: string; description: string; deadline?: string }
+  editData?: { id: string; name: string; description: string; deadline?: string; dueDate?: string }
   onCreated?: (project: ProjectSummary) => void
   /** 프로젝트를 특정 채널에 소속시킬 때 전달. 미전달 시 그룹 전체 소속. */
   initialChannelId?: string | null
+  /** 호출자 전달용. 컴포넌트는 useGroupContextStore.activeOrgId 를 우선 사용한다. */
+  groupId?: string
 }
 
 export function CreateProjectModal({ isOpen, onClose, editData, onCreated, initialChannelId }: Props) {

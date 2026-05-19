@@ -81,6 +81,8 @@ export interface ChatChannel {
   description: string | null
   unreadCount: number
   createdAt: string
+  /** DM 채널에서 백엔드가 채워주는 상대방 정보 (DM이 아닌 경우 undefined) */
+  otherUser?: { userId: string; userName: string }
 }
 
 export interface PaginatedMessages {

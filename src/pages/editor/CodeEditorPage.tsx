@@ -216,8 +216,9 @@ export function CodeEditorPage() {
 
   // awareness에 내 유저 정보 등록 (remote cursor label 포함)
   useEffect(() => {
-    if (!presenceProvider) return
-    presenceProvider.awareness.setLocalStateField('user', presenceUser)
+    const awareness = presenceProvider?.awareness
+    if (!awareness) return
+    awareness.setLocalStateField('user', presenceUser)
   }, [presenceProvider, presenceUser])
 
   // Monaco ↔ Y.Text 바인딩: 편집기 마운트 + provider + 언어가 모두 준비되면 연결
@@ -249,16 +250,17 @@ export function CodeEditorPage() {
 
   // Monaco 커서/선택 → awareness 브로드캐스트
   useEffect(() => {
-    if (!monacoEditor || !presenceProvider) return
+    const awareness = presenceProvider?.awareness
+    if (!monacoEditor || !awareness) return
     const d1 = monacoEditor.onDidChangeCursorPosition((e) => {
-      presenceProvider.awareness.setLocalStateField('cursor', {
+      awareness.setLocalStateField('cursor', {
         line: e.position.lineNumber,
         column: e.position.column,
       })
     })
     const d2 = monacoEditor.onDidChangeCursorSelection((e) => {
       const s = e.selection
-      presenceProvider.awareness.setLocalStateField('monacoSel', {
+      awareness.setLocalStateField('monacoSel', {
         startLineNumber: s.startLineNumber,
         startColumn: s.startColumn,
         endLineNumber: s.endLineNumber,
