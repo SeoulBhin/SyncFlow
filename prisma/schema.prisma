@@ -217,13 +217,18 @@ model PageVersion {
 model Task {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId          String?   @map("project_id") @db.Uuid
+  groupId            String?   @map("group_id") @db.Uuid
+  parentTaskId       String?   @map("parent_task_id") @db.Uuid
   title              String    @db.VarChar(300)
   description        String?
   status             String    @default("todo") @db.VarChar(20)
   priority           String    @default("medium") @db.VarChar(10)
   assigneeId         String?   @map("assignee_id") @db.Uuid
   assignee           String?   @db.VarChar(100)
+  startDate          DateTime? @map("start_date") @db.Date
   dueDate            DateTime? @map("due_date") @db.Date
+  tags               Json?
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
   sortOrder          Int       @default(0) @map("sort_order")
   sourceMeetingId    String?   @map("source_meeting_id") @db.Uuid
   sourceActionItemId String?   @map("source_action_item_id") @db.Uuid
@@ -231,15 +236,54 @@ model Task {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assigneeUser User? @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
-  creator   User?    @relation("CreatedTasks", fields: [createdBy], references: [id])
-  assignees TaskAssignee[]
+  project           Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assigneeUser      User?                 @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+  creator           User?                 @relation("CreatedTasks", fields: [createdBy], references: [id])
+  assignees         TaskAssignee[]
+  customFieldValues CustomFieldValue[]
+  parentTask        Task?                 @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks          Task[]                @relation("TaskSubtasks")
 
   @@index([projectId])
   @@index([assigneeId])
   @@index([sourceMeetingId])
+  @@index([groupId])
+  @@index([parentTaskId])
   @@map("tasks")
+}
+
+// 11-2. Custom Field Definitions (프로젝트별 커스텀 필드 정의)
+model CustomFieldDefinition {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String   @db.VarChar(100)
+  type      String   @db.VarChar(20)
+  options   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  values CustomFieldValue[]
+
+  @@index([projectId])
+  @@map("custom_field_definitions")
+}
+
+// 11-3. Custom Field Values (task ↔ field 값 매핑)
+model CustomFieldValue {
+  id        Int      @id @default(autoincrement())
+  taskId    String   @map("task_id") @db.Uuid
+  fieldId   String   @map("field_id") @db.Uuid
+  value     Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  task  Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  field CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, fieldId])
+  @@index([taskId])
+  @@index([fieldId])
+  @@map("custom_field_values")
 }
 
 // 11-1. Task Assignees (다중 담당자 매핑 — TypeORM TaskAssignee 와 1:1 매핑)
@@ -599,6 +643,43 @@ model SavedMessage {
   @@index([userId])
   @@index([messageId])
   @@map("saved_messages")
+}
+
+// 32. AI Chat History (TypeORM AiChatHistory 와 1:1 — CreateDateColumn 기본 timestamp)
+model AiChatHistory {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId  String   @map("session_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  groupId    String?  @map("group_id") @db.Uuid
+  channelId  String?  @map("channel_id") @db.Uuid
+  role       String   @db.VarChar(10)
+  content    String
+  sourceIds  Json?    @map("source_ids")
+  tokenCount Int?     @map("token_count")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([groupId])
+  @@map("ai_chat_history")
+}
+
+// 33. AI Knowledge (RAG 임베딩 청크)
+model AiKnowledge {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId    String?  @map("group_id") @db.Uuid
+  sourceType String   @map("source_type") @db.VarChar(20)
+  sourceId   String?  @map("source_id") @db.Uuid
+  title      String?  @db.VarChar(500)
+  content    String
+  embedding  String?
+  chunkIndex Int      @default(0) @map("chunk_index")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@index([groupId])
+  @@map("ai_knowledge")
 }
 
 // 31. Attachments (문서 페이지 첨부파일)
