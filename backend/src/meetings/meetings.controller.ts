@@ -208,6 +208,13 @@ export class MeetingsController {
     return this.meetingsService.getSummary(id)
   }
 
+  // 회의 요약 재생성 — Gemini 실패 시 기존 요약 유지
+  @Post(':id/summary/regenerate')
+  @HttpCode(200)
+  regenerateSummary(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {
+    return this.meetingsService.regenerateSummary(id, user.userId)
+  }
+
   // 액션아이템 조회 — 비공개 회의는 참여자만
   @Get(':id/action-items')
   async getActionItems(@Param('id') id: string, @CurrentUser() user: CurrentUserPayload) {

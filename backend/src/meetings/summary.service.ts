@@ -28,6 +28,40 @@ export class SummaryService {
     this.logger.log(`Gemini 모델: ${this.modelName}`)
   }
 
+  /**
+   * 회의 중 실시간 AI 노트 생성 — 경량 프롬프트로 현재 논의 상황을 4개 항목으로 요약.
+   * TODO: 호출 빈도 제어(throttle/debounce)는 호출자(MeetingsGateway)가 담당한다.
+   *       Gemini 비용 절감을 위해 transcript 누적 N개 또는 주기 기반 batch 방식으로 호출할 것.
+   * 실패 시 에러를 그대로 throw — 호출자가 catch하여 기존 노트를 유지한다.
+   */
+  async generateMeetingNotes(transcripts: string): Promise<string[]> {
+    const model = this.genAI.getGenerativeModel({ model: this.modelName })
+
+    const prompt = `아래는 현재 진행 중인 회의의 발화 내용입니다.
+지금까지 논의된 내용을 다음 4가지 항목으로 각 1~2문장 한국어로 요약하세요.
+순수 JSON 배열로만 응답하세요 (코드블록·추가 설명 없이).
+
+예시 형식:
+["현재 논의 주제: ...", "주요 결정사항: ...", "향후 할 일 후보: ...", "주요 이슈/리스크: ..."]
+
+발화 내용:
+${transcripts}`
+
+    const result = await model.generateContent(prompt)
+    const text = result.response.text().trim()
+
+    try {
+      const json = text.replace(/```json\n?|\n?```/g, '').trim()
+      const parsed = JSON.parse(json) as unknown
+      if (Array.isArray(parsed) && parsed.every((v) => typeof v === 'string')) {
+        return parsed as string[]
+      }
+      return [text]
+    } catch {
+      return [text]
+    }
+  }
+
   async generateSummary(transcripts: string): Promise<SummaryResult> {
     const model = this.genAI.getGenerativeModel({ model: this.modelName })
 

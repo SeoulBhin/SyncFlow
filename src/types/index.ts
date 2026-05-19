@@ -157,6 +157,12 @@ export interface LeaveMeetingResponse {
   actionItems?: ApiMeetingActionItem[]
 }
 
+export interface RegenerateSummaryResponse {
+  meeting: ApiMeeting
+  summary: ApiMeetingSummary
+  actionItems: ApiMeetingActionItem[]
+}
+
 // ── Task (백엔드 tasks 테이블과 1:1) ──────────────────────────────────────────
 export type ApiTaskStatus = 'todo' | 'in-progress' | 'done'
 
