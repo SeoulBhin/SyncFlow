@@ -5,7 +5,9 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: syncflow
-      POSTGRES_PASSWORD: syncflow1234
+      # 시크릿 — 루트 .env 의 POSTGRES_PASSWORD 에서 주입.
+      # 미설정 시 docker compose 가 즉시 실패하므로 .env 누락을 빨리 발견할 수 있음.
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD must be set in root .env}
       POSTGRES_DB: syncflow
     ports:
       - '5432:5432'

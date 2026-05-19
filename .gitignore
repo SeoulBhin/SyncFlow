@@ -30,6 +30,20 @@ presentation
 livekit.yaml
 backend/livekit.yaml
 
+# Environment variables (시크릿 포함 — 절대 커밋 금지)
+.env
+.env.local
+.env.*.local
+backend/.env
+backend/.env.local
+backend/.env.*.local
+# docker-compose 로컬 override (옵션)
+docker-compose.override.yml
+
+# Backup files (서버에서 nano 등으로 백업한 파일)
+*.bak
+*.bak.*
+
 # Uploaded user files
 backend/uploads/
 
