@@ -18,6 +18,8 @@ import {
   UserCircle,
   Sparkles,
   Bookmark,
+  PanelLeftClose,
+  PanelLeftOpen,
 } from 'lucide-react'
 import { useLocation, useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
@@ -263,7 +265,7 @@ const NAV_ITEMS = [
 
 /* ── 메인 SlackSidebar ── */
 export function SlackSidebar() {
-  const { isOpen, setOpen } = useSidebarStore()
+  const { isOpen, isCollapsed, setOpen, toggleCollapsed } = useSidebarStore()
   const { activeOrgId, activeOrgName, activeGroupId, setActiveGroup } = useGroupContextStore()
   const { togglePanel, activePanel } = useDetailPanelStore()
   const { setActiveGroup: setSidebarGroup } = useSidebarStore()
@@ -325,69 +327,354 @@ export function SlackSidebar() {
   }
 
   const sidebarContent = (
-    <div className="flex h-full w-[260px] shrink-0 flex-col border-r border-neutral-200 bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-900">
-      {/* 조직 헤더 */}
-      <div className="relative flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
-        <button
-          onClick={() => setShowOrgSwitcher((v) => !v)}
-          className="flex flex-1 items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-800"
-        >
-          <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-500 text-xs font-bold text-white">
-            {activeOrgName?.[0] ?? 'O'}
+    <div className={cn(
+      'flex h-full shrink-0 flex-col overflow-hidden border-r border-neutral-200 bg-neutral-50 transition-all duration-200 dark:border-neutral-700 dark:bg-neutral-900',
+      isCollapsed ? 'w-14' : 'w-[260px]',
+    )}>
+      {isCollapsed ? (
+        /* ── 접힌 상태: 아이콘 전용 컬럼 ── */
+        <div className="flex h-full flex-col items-center">
+          {/* 조직 아바타 */}
+          <div className="relative flex h-14 w-full shrink-0 items-center justify-center border-b border-neutral-200 dark:border-neutral-700">
+            <button
+              onClick={() => setShowOrgSwitcher((v) => !v)}
+              title={activeOrgName ?? '조직 선택'}
+              className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-500 text-xs font-bold text-white transition-opacity hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-primary-400"
+            >
+              {activeOrgName?.[0] ?? 'O'}
+            </button>
+            {showOrgSwitcher && (
+              <OrgSwitcherDropdown onClose={() => setShowOrgSwitcher(false)} />
+            )}
           </div>
-          <span className="max-w-[120px] truncate text-sm font-bold text-neutral-800 dark:text-neutral-100">
-            {activeOrgName ?? '조직 선택'}
-          </span>
-          <ChevronDown size={14} className="shrink-0 text-neutral-400" />
-        </button>
-        <div className="flex items-center gap-1">
-          {activeOrgId && activeGroupSummary && (
-            <button
-              onClick={() => setShowOrgSettings(true)}
-              title="조직 설정"
-              className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-            >
-              <Settings size={15} />
-            </button>
-          )}
-          {isMobile && (
-            <button
-              onClick={() => setOpen(false)}
-              className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700"
-            >
-              <X size={18} />
-            </button>
-          )}
-        </div>
-        {showOrgSwitcher && (
-          <OrgSwitcherDropdown onClose={() => setShowOrgSwitcher(false)} />
-        )}
-      </div>
 
-      {/* 네비게이션 섹션 */}
-      <div className="px-2 py-2">
-        {NAV_ITEMS.map((item) => {
-          const active = isNavActive(item)
-          const Icon = item.icon
-          return (
+          {/* 펼치기 버튼 */}
+          <div className="flex w-full items-center justify-center py-2">
             <button
-              key={item.id}
+              onClick={toggleCollapsed}
+              title="사이드바 펼치기"
+              aria-label="사이드바 펼치기"
+              className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-primary-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+            >
+              <PanelLeftOpen size={15} />
+            </button>
+          </div>
+
+          {/* 네비 아이콘 */}
+          <div className="flex w-full flex-col items-center gap-0.5 px-2 pb-2">
+            {NAV_ITEMS.map((item) => {
+              const active = isNavActive(item)
+              const Icon = item.icon
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => navigate(item.to)}
+                  title={item.label}
+                  aria-label={item.label}
+                  className={cn(
+                    'relative flex h-9 w-9 items-center justify-center rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400',
+                    active
+                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                      : 'text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800',
+                  )}
+                >
+                  {active && (
+                    <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+                  )}
+                  <Icon size={16} />
+                </button>
+              )
+            })}
+            <button
+              onClick={() => togglePanel('ai')}
+              title="AI 어시스턴트"
+              aria-label="AI 어시스턴트"
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400',
+                isAIOpen
+                  ? 'bg-violet-50 text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                  : 'text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800',
+              )}
+            >
+              <Sparkles size={16} />
+            </button>
+          </div>
+
+          {/* 하단: 프로필 + 설정 */}
+          <div className="mt-auto flex w-full flex-col items-center gap-0.5 border-t border-neutral-200 px-2 py-2 dark:border-neutral-700">
+            <button
+              onClick={() => navigate('/app/profile')}
+              title="프로필"
+              aria-label="프로필"
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400',
+                location.pathname.startsWith('/app/profile')
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800',
+              )}
+            >
+              <UserCircle size={16} />
+            </button>
+            <button
+              onClick={() => navigate('/app/settings')}
+              title="조직 설정"
+              aria-label="조직 설정"
+              className={cn(
+                'flex h-9 w-9 items-center justify-center rounded-lg transition-colors focus:outline-none focus:ring-2 focus:ring-primary-400',
+                location.pathname.startsWith('/app/settings')
+                  ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'text-neutral-500 hover:bg-neutral-200 dark:text-neutral-400 dark:hover:bg-neutral-800',
+              )}
+            >
+              <Settings size={16} />
+            </button>
+          </div>
+        </div>
+      ) : (
+        /* ── 펼친 상태: 기존 레이아웃 유지 ── */
+        <>
+          {/* 조직 헤더 */}
+          <div className="relative flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
+            <button
+              onClick={() => setShowOrgSwitcher((v) => !v)}
+              className="flex flex-1 items-center gap-2 rounded-lg px-1 py-1 transition-colors hover:bg-neutral-200 dark:hover:bg-neutral-800"
+            >
+              <div className="flex h-7 w-7 items-center justify-center rounded-lg bg-primary-500 text-xs font-bold text-white">
+                {activeOrgName?.[0] ?? 'O'}
+              </div>
+              <span className="max-w-[120px] truncate text-sm font-bold text-neutral-800 dark:text-neutral-100">
+                {activeOrgName ?? '조직 선택'}
+              </span>
+              <ChevronDown size={14} className="shrink-0 text-neutral-400" />
+            </button>
+            <div className="flex items-center gap-1">
+              {activeOrgId && activeGroupSummary && (
+                <button
+                  onClick={() => setShowOrgSettings(true)}
+                  title="조직 설정"
+                  className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                >
+                  <Settings size={15} />
+                </button>
+              )}
+              {!isMobile && (
+                <button
+                  onClick={toggleCollapsed}
+                  title="사이드바 접기"
+                  aria-label="사이드바 접기"
+                  className="rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 focus:outline-none focus:ring-2 focus:ring-primary-400 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                >
+                  <PanelLeftClose size={15} />
+                </button>
+              )}
+              {isMobile && (
+                <button
+                  onClick={() => setOpen(false)}
+                  className="rounded-lg p-1.5 text-neutral-400 hover:bg-neutral-200 dark:hover:bg-neutral-700"
+                >
+                  <X size={18} />
+                </button>
+              )}
+            </div>
+            {showOrgSwitcher && (
+              <OrgSwitcherDropdown onClose={() => setShowOrgSwitcher(false)} />
+            )}
+          </div>
+
+          {/* 네비게이션 섹션 */}
+          <div className="px-2 py-2">
+            {NAV_ITEMS.map((item) => {
+              const active = isNavActive(item)
+              const Icon = item.icon
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    navigate(item.to)
+                    if (isMobile) setOpen(false)
+                  }}
+                  className={cn(
+                    'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                    active
+                      ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                      : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                  )}
+                >
+                  {active && (
+                    <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+                  )}
+                  <Icon size={16} />
+                  <span>{item.label}</span>
+                </button>
+              )
+            })}
+            <button
+              onClick={() => togglePanel('ai')}
+              className={cn(
+                'flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                activePanel === 'ai'
+                  ? 'bg-violet-50 font-semibold text-violet-700 dark:bg-violet-900/30 dark:text-violet-300'
+                  : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+              )}
+            >
+              <Sparkles size={16} />
+              <span>AI 어시스턴트</span>
+            </button>
+          </div>
+
+          <div className="mx-3 h-px bg-neutral-200 dark:bg-neutral-700" />
+
+          {/* 스크롤 가능 섹션 */}
+          <div className="flex-1 overflow-y-auto px-2 py-2">
+            {/* 즐겨찾기 */}
+            <CollapsibleSection title="즐겨찾기">
+              {FAVORITES.map((fav) => (
+                <button
+                  key={fav.id}
+                  onClick={() => {
+                    if (fav.type === 'channel') {
+                      const ch = MOCK_CHANNELS.find((c) => c.id === fav.refId)
+                      if (ch) handleChannelSelect(ch.id, ch.name)
+                    }
+                  }}
+                  className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  <Star size={12} className="shrink-0 text-yellow-500" />
+                  <span className="flex-1 truncate text-left text-xs">{fav.name}</span>
+                </button>
+              ))}
+            </CollapsibleSection>
+
+            {/* 채널 */}
+            <CollapsibleSection
+              title="채널"
+              action={
+                activeOrgId && (
+                  <button
+                    onClick={() => setShowCreateChannel(true)}
+                    title="채널 추가"
+                    className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                  >
+                    <Plus size={12} />
+                  </button>
+                )
+              }
+            >
+              {channels.length === 0 ? (
+                <div className="px-3 py-3 text-center">
+                  <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-200 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
+                    <Hash size={14} strokeWidth={1.75} />
+                  </div>
+                  <p className="text-[11px] text-neutral-400">아직 채널이 없어요</p>
+                  <p className="mt-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">
+                    첫 채널을 만들어 대화를 시작하세요
+                  </p>
+                </div>
+              ) : (
+                channels.map((ch) => {
+                  const isActive = activeGroupId === ch.id
+                  const chatChannels = MOCK_CHAT_CHANNELS.filter(
+                    (cc) => cc.channelName === ch.name,
+                  )
+                  const totalUnread = chatChannels.reduce((sum, cc) => sum + cc.unread, 0)
+
+                  return (
+                    <button
+                      key={ch.id}
+                      onClick={() => handleChannelSelect(ch.id, ch.name)}
+                      className={cn(
+                        'relative flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors',
+                        isActive
+                          ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                          : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                      )}
+                    >
+                      {isActive && (
+                        <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+                      )}
+                      {ch.isExternal ? (
+                        <Globe size={14} className="shrink-0 text-orange-500" />
+                      ) : (
+                        <Hash size={14} className="shrink-0" />
+                      )}
+                      <span className="flex-1 truncate text-left text-xs">{ch.name}</span>
+                      {totalUnread > 0 && (
+                        <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                          {totalUnread}
+                        </span>
+                      )}
+                    </button>
+                  )
+                })
+              )}
+            </CollapsibleSection>
+
+            {/* 프로젝트 (클릭 시 하위 페이지 인라인 펼침) */}
+            <CollapsibleSection
+              title="프로젝트"
+              action={
+                activeOrgId && (
+                  <button
+                    onClick={() => setShowCreateProject(true)}
+                    title="프로젝트 추가"
+                    className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                  >
+                    <Plus size={12} />
+                  </button>
+                )
+              }
+            >
+              <SidebarProjectList />
+            </CollapsibleSection>
+
+            {/* DM (조직원 1:1 대화) */}
+            <CollapsibleSection
+              title="다이렉트 메시지"
+              action={
+                activeOrgId && (
+                  <button
+                    onClick={() => setShowNewDM(true)}
+                    title="새 DM 시작"
+                    className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+                  >
+                    <Plus size={12} />
+                  </button>
+                )
+              }
+            >
+              <SidebarDMList
+                activeChannelId={activeGroupId}
+                onSelect={(c) => {
+                  // DM은 채널 name이 아닌 본인 입장의 상대방 이름을 컨텍스트에 set
+                  const displayName = c.type === 'dm' && c.otherUser ? c.otherUser.userName : c.name
+                  setActiveGroup(c.id, displayName)
+                  setActiveChatChannel(c.id)
+                  navigate(`/app/channel/${c.id}`)
+                  if (isMobile) setOpen(false)
+                }}
+              />
+            </CollapsibleSection>
+          </div>
+
+          {/* 하단: 프로필 + 조직 설정 */}
+          <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-2 dark:border-neutral-700">
+            <button
               onClick={() => {
-                navigate(item.to)
+                navigate('/app/profile')
                 if (isMobile) setOpen(false)
               }}
               className={cn(
                 'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
-                active
+                location.pathname.startsWith('/app/profile')
                   ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                   : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
               )}
             >
-              {active && (
+              {location.pathname.startsWith('/app/profile') && (
                 <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
               )}
-              <Icon size={16} />
-              <span>{item.label}</span>
+              <UserCircle size={16} />
+              <span>프로필</span>
             </button>
           )
         })}
@@ -417,171 +704,26 @@ export function SlackSidebar() {
         <CollapsibleSection title="즐겨찾기">
           {FAVORITES.map((fav) => (
             <button
-              key={fav.id}
               onClick={() => {
-                if (fav.type === 'channel') {
-                  const ch = MOCK_CHANNELS.find((c) => c.id === fav.refId)
-                  if (ch) handleChannelSelect(ch.id, ch.name)
-                }
+                navigate('/app/settings')
+                if (isMobile) setOpen(false)
               }}
-              className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              className={cn(
+                'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
+                location.pathname.startsWith('/app/settings')
+                  ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                  : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+              )}
             >
-              <Star size={12} className="shrink-0 text-yellow-500" />
-              <span className="flex-1 truncate text-left text-xs">{fav.name}</span>
+              {location.pathname.startsWith('/app/settings') && (
+                <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+              )}
+              <Settings size={16} />
+              <span>조직 설정</span>
             </button>
-          ))}
-        </CollapsibleSection>
-
-        {/* 채널 */}
-        <CollapsibleSection
-          title="채널"
-          action={
-            activeOrgId && (
-              <button
-                onClick={() => setShowCreateChannel(true)}
-                title="채널 추가"
-                className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-              >
-                <Plus size={12} />
-              </button>
-            )
-          }
-        >
-          {channels.length === 0 ? (
-            <div className="px-3 py-3 text-center">
-              <div className="mx-auto mb-1.5 flex h-8 w-8 items-center justify-center rounded-lg bg-neutral-200 text-neutral-400 dark:bg-neutral-800 dark:text-neutral-500">
-                <Hash size={14} strokeWidth={1.75} />
-              </div>
-              <p className="text-[11px] text-neutral-400">아직 채널이 없어요</p>
-              <p className="mt-0.5 text-[10px] text-neutral-400 dark:text-neutral-500">
-                첫 채널을 만들어 대화를 시작하세요
-              </p>
-            </div>
-          ) : (
-            channels.map((ch) => {
-              const isActive = activeGroupId === ch.id
-              const chatChannels = MOCK_CHAT_CHANNELS.filter(
-                (cc) => cc.channelName === ch.name,
-              )
-              const totalUnread = chatChannels.reduce((sum, cc) => sum + cc.unread, 0)
-
-              return (
-                <button
-                  key={ch.id}
-                  onClick={() => handleChannelSelect(ch.id, ch.name)}
-                  className={cn(
-                    'relative flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors',
-                    isActive
-                      ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-                      : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
-                  )}
-                >
-                  {isActive && (
-                    <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
-                  )}
-                  {ch.isExternal ? (
-                    <Globe size={14} className="shrink-0 text-orange-500" />
-                  ) : (
-                    <Hash size={14} className="shrink-0" />
-                  )}
-                  <span className="flex-1 truncate text-left text-xs">{ch.name}</span>
-                  {totalUnread > 0 && (
-                    <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
-                      {totalUnread}
-                    </span>
-                  )}
-                </button>
-              )
-            })
-          )}
-        </CollapsibleSection>
-
-        {/* 프로젝트 (클릭 시 하위 페이지 인라인 펼침) */}
-        <CollapsibleSection
-          title="프로젝트"
-          action={
-            activeOrgId && (
-              <button
-                onClick={() => setShowCreateProject(true)}
-                title="프로젝트 추가"
-                className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-              >
-                <Plus size={12} />
-              </button>
-            )
-          }
-        >
-          <SidebarProjectList />
-        </CollapsibleSection>
-
-        {/* DM (조직원 1:1 대화) */}
-        <CollapsibleSection
-          title="다이렉트 메시지"
-          action={
-            activeOrgId && (
-              <button
-                onClick={() => setShowNewDM(true)}
-                title="새 DM 시작"
-                className="rounded p-1 text-neutral-400 transition-colors hover:bg-neutral-200 hover:text-neutral-600 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
-              >
-                <Plus size={12} />
-              </button>
-            )
-          }
-        >
-          <SidebarDMList
-            activeChannelId={activeGroupId}
-            onSelect={(c) => {
-              // DM은 채널 name이 아닌 본인 입장의 상대방 이름을 컨텍스트에 set
-              const displayName = c.type === 'dm' && c.otherUser ? c.otherUser.userName : c.name
-              setActiveGroup(c.id, displayName)
-              setActiveChatChannel(c.id)
-              navigate(`/app/channel/${c.id}`)
-              if (isMobile) setOpen(false)
-            }}
-          />
-        </CollapsibleSection>
-      </div>
-
-      {/* 하단: 프로필 + 조직 설정 */}
-      <div className="shrink-0 space-y-0.5 border-t border-neutral-200 px-2 py-2 dark:border-neutral-700">
-        <button
-          onClick={() => {
-            navigate('/app/profile')
-            if (isMobile) setOpen(false)
-          }}
-          className={cn(
-            'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
-            location.pathname.startsWith('/app/profile')
-              ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-              : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
-          )}
-        >
-          {location.pathname.startsWith('/app/profile') && (
-            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
-          )}
-          <UserCircle size={16} />
-          <span>프로필</span>
-        </button>
-        <button
-          onClick={() => {
-            navigate('/app/settings')
-            if (isMobile) setOpen(false)
-          }}
-          className={cn(
-            'relative flex w-full items-center gap-2.5 rounded-lg px-3 py-1.5 text-sm transition-colors',
-            location.pathname.startsWith('/app/settings')
-              ? 'bg-primary-50 font-semibold text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
-              : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
-          )}
-        >
-          {location.pathname.startsWith('/app/settings') && (
-            <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
-          )}
-          <Settings size={16} />
-          <span>조직 설정</span>
-        </button>
-      </div>
+          </div>
+        </>
+      )}
     </div>
   )
 

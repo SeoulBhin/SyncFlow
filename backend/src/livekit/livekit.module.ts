@@ -8,6 +8,8 @@ import { MeetingParticipant } from '../meetings/entities/meeting-participant.ent
 import { MeetingTranscript } from '../meetings/entities/meeting-transcript.entity';
 import { MeetingSummary } from '../meetings/entities/meeting-summary.entity';
 import { MeetingActionItem } from '../meetings/entities/meeting-action-item.entity';
+import { Channel } from '../channels/entities/channel.entity';
+import { ChannelMember } from '../channels/entities/channel-member.entity';
 import { SummaryService } from '../meetings/summary.service';
 
 // GuestModule → LiveKitModule → MeetingsModule 순환 참조를 방지하기 위해
@@ -21,6 +23,8 @@ import { SummaryService } from '../meetings/summary.service';
       MeetingTranscript,
       MeetingSummary,
       MeetingActionItem,
+      Channel,
+      ChannelMember,
     ]),
   ],
   controllers: [LiveKitController],

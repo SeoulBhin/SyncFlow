@@ -7,6 +7,29 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { api } from '@/utils/api'
 
+function getNext10MinBoundary(): string {
+  const d = new Date()
+  const rem = d.getMinutes() % 10
+  if (rem !== 0) d.setMinutes(d.getMinutes() + (10 - rem))
+  d.setSeconds(0)
+  d.setMilliseconds(0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function roundUpTo10Min(value: string): string {
+  if (!value) return value
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return value
+  const rem = d.getMinutes() % 10
+  if (rem === 0) return value
+  d.setMinutes(d.getMinutes() + (10 - rem))
+  d.setSeconds(0)
+  d.setMilliseconds(0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 interface Props {
   isOpen: boolean
   onClose: () => void
@@ -36,6 +59,13 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = 
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // 모달이 열릴 때 예약 시간 기본값을 다음 10분 단위로 초기화
+  useEffect(() => {
+    if (isOpen && !hideSchedule) {
+      setScheduledAt(getNext10MinBoundary())
+    }
+  }, [isOpen, hideSchedule])
 
   useEffect(() => {
     if (!isOpen || !activeOrgId) return
@@ -86,6 +116,13 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = 
     if (!activeOrgId) {
       addToast('error', '조직이 선택되지 않았습니다.')
       return
+    }
+    if (!hideSchedule && scheduledAt) {
+      const minutes = new Date(scheduledAt).getMinutes()
+      if (minutes % 10 !== 0) {
+        addToast('error', '예약 시간은 10분 단위로 선택해주세요.')
+        return
+      }
     }
     setSubmitting(true)
     try {
@@ -161,6 +198,8 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = 
                 type="datetime-local"
                 value={scheduledAt}
                 onChange={(e) => setScheduledAt(e.target.value)}
+                onBlur={(e) => setScheduledAt(roundUpTo10Min(e.target.value))}
+                step={600}
                 className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
               />
             </div>

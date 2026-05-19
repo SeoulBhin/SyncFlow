@@ -3,6 +3,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
 import { raw } from 'express';
 import * as path from 'path';
+import express from 'express';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
 import cookieParser from 'cookie-parser';

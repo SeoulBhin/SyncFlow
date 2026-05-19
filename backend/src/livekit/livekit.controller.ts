@@ -1,4 +1,4 @@
-import { Body, Controller, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common'
+import { BadRequestException, Body, Controller, Headers, HttpCode, Post, Req, UseGuards } from '@nestjs/common'
 import { IsNotEmpty, IsOptional, IsString } from 'class-validator'
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard'
 import { CurrentUser } from '../auth/decorators/current-user.decorator'
