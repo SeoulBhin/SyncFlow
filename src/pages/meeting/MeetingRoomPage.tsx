@@ -19,6 +19,7 @@ import {
   Loader2,
   FolderOpen,
   Link2,
+  UserPlus,
   ChevronRight,
   MoreHorizontal,
 } from 'lucide-react'
@@ -771,6 +772,18 @@ export function MeetingRoomPage() {
     { key: 'notes' as const, label: 'AI 노트', icon: MessageSquare },
   ]
 
+  // 상단 제목: API에서 받은 실제 제목 → 스토어 타이틀 → 기본값
+  const displayTitle =
+    meeting.currentMeeting?.title ||
+    meeting.meetingTitle ||
+    '빠른 회의'
+
+  // 상태 문구: 혼자 있을 때와 여럿일 때 구분
+  const participantCount = voiceChat.participants.length
+  const statusText = isAlone || participantCount <= 1
+    ? `혼자 회의 중 · ${formatTime(elapsed)}`
+    : `진행 중 · ${formatTime(elapsed)} · ${participantCount}명 참여`
+
   return (
     <div className="flex h-full flex-col">
       {/* 상단 바 — 화면 공유 중 compact 모드로 높이 절약 */}
@@ -778,49 +791,61 @@ export function MeetingRoomPage() {
         'flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface dark:border-neutral-700 dark:bg-surface-dark',
         isScreenSharing ? 'px-4 py-1.5' : 'px-6 py-3',
       )}>
-        <div className="flex items-center gap-2">
-          <Video size={isScreenSharing ? 18 : 20} className="shrink-0 text-primary-500" />
-          <h1 className={cn('font-bold text-neutral-800 dark:text-neutral-100', isScreenSharing ? 'text-sm' : 'text-base')}>
-            {meeting.meetingTitle || `${groupName} 회의`}
-          </h1>
-        </div>
-        <div className={cn('flex items-center', isScreenSharing ? 'gap-1.5' : 'gap-3')}>
-          {/* 진행 상태 통합 배지: 진행 중 · 시간 · 참가자 수 */}
-          <div className={cn(
-            'flex items-center gap-1.5 rounded-lg bg-green-50 dark:bg-green-900/20',
-            isScreenSharing ? 'px-2 py-0.5' : 'px-3 py-1.5',
-          )}>
-            <span className={cn('rounded-full bg-green-500', isScreenSharing ? 'h-1.5 w-1.5' : 'h-2 w-2')} />
-            <span className={cn('font-medium tabular-nums text-green-600 dark:text-green-400', isScreenSharing ? 'text-xs' : 'text-sm')}>
-              진행 중 · {formatTime(elapsed)} · {voiceChat.participants.length}명 참여
-            </span>
+        {/* 왼쪽: 회의 제목 + 상태 */}
+        <div className="flex min-w-0 flex-col justify-center">
+          <div className="flex items-center gap-2">
+            <Video size={isScreenSharing ? 16 : 18} className="shrink-0 text-primary-500" />
+            <h1 className={cn(
+              'truncate font-bold text-neutral-800 dark:text-neutral-100',
+              isScreenSharing ? 'max-w-[160px] text-sm' : 'max-w-[280px] text-base',
+            )}>
+              {displayTitle}
+            </h1>
           </div>
+          {!isScreenSharing && (
+            <div className="mt-0.5 flex items-center gap-1.5 pl-6">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              <span className="text-xs text-neutral-500 dark:text-neutral-400 tabular-nums">
+                {statusText}
+              </span>
+            </div>
+          )}
+        </div>
 
-          {/* 링크 복사 */}
+        <div className={cn('flex items-center', isScreenSharing ? 'gap-1' : 'gap-2')}>
+          {/* compact 모드에서만 상태 배지 인라인 표시 */}
+          {isScreenSharing && (
+            <div className="flex items-center gap-1 rounded-md bg-green-50 px-2 py-0.5 dark:bg-green-900/20">
+              <span className="h-1.5 w-1.5 rounded-full bg-green-500" />
+              <span className="text-xs font-medium tabular-nums text-green-600 dark:text-green-400">
+                {statusText}
+              </span>
+            </div>
+          )}
+
+          {/* 링크 복사 — 아이콘 전용 */}
           <button
             onClick={() => void handleCopyInviteLink()}
             title="내부 사용자 초대 링크 복사"
             className={cn(
-              'flex items-center gap-1 rounded-lg bg-neutral-200 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
-              isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+              'flex items-center justify-center rounded-lg bg-neutral-200 text-neutral-600 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-600',
+              isScreenSharing ? 'h-6 w-6' : 'h-8 w-8',
             )}
           >
             <Link2 size={isScreenSharing ? 13 : 15} />
-            링크 복사
           </button>
 
-          {/* 게스트 초대 — 호스트 전용 */}
+          {/* 게스트 초대 — 호스트 전용, 아이콘 전용 */}
           {isHost && (
             <button
               onClick={() => void handleCopyGuestLink()}
               title="외부 게스트 초대 링크 생성 및 복사"
               className={cn(
-                'flex items-center gap-1 rounded-lg bg-amber-100 font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50',
-                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+                'flex items-center justify-center rounded-lg bg-amber-100 text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50',
+                isScreenSharing ? 'h-6 w-6' : 'h-8 w-8',
               )}
             >
-              <Link2 size={isScreenSharing ? 13 : 15} />
-              게스트 초대
+              <UserPlus size={isScreenSharing ? 13 : 15} />
             </button>
           )}
 
@@ -830,10 +855,10 @@ export function MeetingRoomPage() {
               onClick={() => void handleLeave()}
               className={cn(
                 'flex items-center gap-1 rounded-lg bg-neutral-200 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
-                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
               )}
             >
-              <LogOut size={isScreenSharing ? 13 : 15} />
+              <LogOut size={isScreenSharing ? 13 : 14} />
               나가기
             </button>
           )}
@@ -844,10 +869,10 @@ export function MeetingRoomPage() {
               onClick={() => setShowEndConfirm(true)}
               className={cn(
                 'flex items-center gap-1 rounded-lg bg-red-500 font-medium text-white transition-colors hover:bg-red-600',
-                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
+                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-sm',
               )}
             >
-              <PhoneOff size={isScreenSharing ? 13 : 15} />
+              <PhoneOff size={isScreenSharing ? 13 : 14} />
               회의 종료
             </button>
           )}

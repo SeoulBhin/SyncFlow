@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useLocation } from 'react-router-dom'
 import {
   Mic,
   MicOff,
@@ -28,11 +28,16 @@ function formatTime(seconds: number) {
 
 export function MeetingBanner() {
   const navigate = useNavigate()
+  const location = useLocation()
   const meeting = useMeetingStore()
   const voiceChat = useVoiceChatStore()
   const authUser = useAuthStore((s) => s.user)
   const { endMeetingFull } = useEndMeetingAction()
   const [showConfirm, setShowConfirm] = useState<'end' | 'leave' | null>(null)
+
+  // 회의 방 페이지(/app/meetings/:id)에서는 배너 숨김
+  // MeetingRoomPage가 자체 헤더에서 제목·시간·참가자·컨트롤을 모두 제공하므로 중복 방지
+  const isMeetingRoomPage = /^\/app\/meetings\/[^/]+$/.test(location.pathname)
 
   useEffect(() => {
     if (meeting.status !== 'in-meeting') return
@@ -62,7 +67,7 @@ export function MeetingBanner() {
     navigate('/app/meetings')
   }
 
-  if (meeting.status !== 'in-meeting') {
+  if (meeting.status !== 'in-meeting' || isMeetingRoomPage) {
     return null
   }
 
