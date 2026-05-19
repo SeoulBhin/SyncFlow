@@ -124,6 +124,10 @@ export function ChannelView() {
   const { openPanel } = useDetailPanelStore()
   const { openPanel: openAIPanel, sendMessage: sendAIMessage } = useAIStore()
   const addToast = useToastStore((s) => s.addToast)
+  const bookmarkedIds = useBookmarkStore((s) => s.bookmarkedIds)
+  const loadBookmarks = useBookmarkStore((s) => s.load)
+  const saveBookmark = useBookmarkStore((s) => s.save)
+  const unsaveBookmark = useBookmarkStore((s) => s.unsave)
 
   const [inputText, setInputText] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
