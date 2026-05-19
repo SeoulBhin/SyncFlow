@@ -549,6 +549,7 @@ export function DashboardPage() {
         isOpen={showCreateMeeting}
         onClose={() => setShowCreateMeeting(false)}
         onCreated={(id) => navigate(`/app/meetings/${id}`)}
+        hideSchedule
       />
     </div>
   )
