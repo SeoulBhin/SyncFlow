@@ -192,6 +192,7 @@ model Page {
   versions    PageVersion[]
   embeddings  Embedding[]
   fileUploads FileUpload[]
+  attachments Attachment[]
 
   @@index([projectId])
   @@map("pages")
@@ -582,4 +583,24 @@ model SavedMessage {
   @@index([userId])
   @@index([messageId])
   @@map("saved_messages")
+}
+
+// 31. Attachments (문서 페이지 첨부파일)
+// TypeORM Entity(backend/src/document/entities/attachment.entity.ts)와 동작 호환을 위해
+// 컬럼명을 camelCase 그대로 사용 — 다른 모델의 snake_case 컨벤션과 다름.
+model Attachment {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageId     String    @db.Uuid
+  filename   String    @db.VarChar(255)
+  url        String    @db.Text
+  mimeType   String?   @db.VarChar(100)
+  size       BigInt
+  uploadedBy String?   @db.Uuid
+  createdAt  DateTime  @default(now()) @db.Timestamp(6)
+  deletedAt  DateTime? @db.Timestamp(6)
+
+  page Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@map("attachments")
 }
