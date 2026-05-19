@@ -203,7 +203,8 @@ export function MeetingRoomPage() {
     }
 
     if (useMeetingStore.getState().status !== 'in-meeting') {
-      useMeetingStore.getState().startMeeting(id, `${groupName} 회의`, groupName)
+      const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
+      useMeetingStore.getState().startMeeting(id, meetingTitle, groupName)
     }
     // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
     setElapsed(0)
