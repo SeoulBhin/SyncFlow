@@ -36,7 +36,6 @@ import { useAIStore } from '@/stores/useAIStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
-import { useToastStore } from '@/stores/useToastStore'
 import { useBookmarkStore } from '@/stores/useBookmarkStore'
 import {
   EMOJI_LIST,

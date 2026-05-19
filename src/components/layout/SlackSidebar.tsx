@@ -26,7 +26,6 @@ import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
 import { useChatStore } from '@/stores/useChatStore'
 import { useToastStore } from '@/stores/useToastStore'
-import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { api } from '@/utils/api'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 import { SidebarProjectList } from './SidebarProjectList'
@@ -269,7 +268,6 @@ export function SlackSidebar() {
   const isMobile = useMediaQuery('(max-width: 639px)')
   const navigate = useNavigate()
   const location = useLocation()
-  const { activePanel, togglePanel } = useDetailPanelStore()
   const isAIOpen = activePanel === 'ai'
 
   const [showOrgSwitcher, setShowOrgSwitcher] = useState(false)
