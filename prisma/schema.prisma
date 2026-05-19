@@ -303,20 +303,30 @@ model TaskAssignee {
 
 // 12. Schedules
 model Schedule {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
-  title       String   @db.VarChar(300)
-  startDate   DateTime @map("start_date") @db.Timestamptz
-  endDate     DateTime @map("end_date") @db.Timestamptz
-  allDay      Boolean  @default(false) @map("all_day")
-  createdBy   String   @map("created_by") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String?   @map("project_id") @db.Uuid
+  groupId     String?   @map("group_id") @db.Uuid
+  taskId      String?   @map("task_id") @db.Uuid
+  meetingId   String?   @map("meeting_id") @db.Uuid
+  title       String    @db.VarChar(300)
+  description String?
+  startAt     DateTime? @map("start_at") @db.Timestamptz
+  endAt       DateTime? @map("end_at") @db.Timestamptz
+  allDay      Boolean   @default(false) @map("all_day")
+  repeat      String    @default("none") @db.VarChar(20)
+  color       String?   @db.VarChar(20)
+  location    String?   @db.VarChar(300)
+  attendees   Json?
+  createdBy   String?   @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  creator User    @relation(fields: [createdBy], references: [id])
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User?    @relation(fields: [createdBy], references: [id])
 
   @@index([projectId])
+  @@index([groupId])
+  @@index([createdBy])
   @@map("schedules")
 }
 
