@@ -26,9 +26,18 @@ export class ChatDto {
   channelId?: string
 
   @IsOptional()
+  @IsUUID()
+  pageId?: string
+
+  @IsOptional()
   @IsArray()
   @IsString({ each: true })
   referencedFiles?: string[]
+
+  @IsOptional()
+  @IsArray()
+  @IsUUID('4', { each: true })
+  referencedFileIds?: string[]
 }
 
 export class InlineQueryDto {

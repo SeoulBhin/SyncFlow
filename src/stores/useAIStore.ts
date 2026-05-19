@@ -70,7 +70,7 @@ interface AIState {
   togglePanel: () => void
   openPanel: () => void
   closePanel: () => void
-  sendMessage: (content: string, referencedFiles?: string[], channelId?: string) => Promise<void>
+  sendMessage: (content: string, referencedFiles?: string[], channelId?: string, pageId?: string, referencedFileIds?: string[]) => Promise<void>
   loadConversations: () => Promise<void>
   selectConversation: (id: string) => Promise<void>
   newConversation: () => void
@@ -110,7 +110,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
 
-  sendMessage: async (content: string, referencedFiles?: string[], channelId?: string) => {
+  sendMessage: async (content: string, referencedFiles?: string[], channelId?: string, pageId?: string, referencedFileIds?: string[]) => {
     const userMsg: AIMessage = {
       id: `m${++msgCounter}`,
       role: 'user',
@@ -149,7 +149,9 @@ export const useAIStore = create<AIState>((set, get) => ({
           content,
           conversationId: isUUID(activeConversationId) ? activeConversationId : undefined,
           referencedFiles: referencedFiles?.length ? referencedFiles : undefined,
-          channelId: channelId ?? undefined,
+          referencedFileIds: referencedFileIds?.length ? referencedFileIds : undefined,
+          channelId: channelId || undefined,
+          pageId: pageId || undefined,
         }),
       })
 

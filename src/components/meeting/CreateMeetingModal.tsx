@@ -11,6 +11,7 @@ interface Props {
   isOpen: boolean
   onClose: () => void
   onCreated?: (meetingId: string) => void
+  hideSchedule?: boolean
 }
 
 interface OrgMember {
@@ -21,7 +22,7 @@ interface OrgMember {
   user: { id: string; name: string; email?: string }
 }
 
-export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
+export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = false }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
   const currentUserId = useAuthStore((s) => s.user?.id)
@@ -95,7 +96,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
         groupId: activeOrgId,
         visibility,
         participants,
-        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+        scheduledAt: !hideSchedule && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
       })
       addToast(
         'success',
@@ -149,18 +150,20 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
             />
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              예약 시간{' '}
-              <span className="font-normal text-neutral-400">(선택 — 비워두면 즉시 입장 가능)</span>
-            </label>
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
-            />
-          </div>
+          {!hideSchedule && (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                예약 시간{' '}
+                <span className="font-normal text-neutral-400">(선택 — 비워두면 즉시 입장 가능)</span>
+              </label>
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
+              />
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">

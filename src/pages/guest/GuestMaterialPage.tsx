@@ -1,6 +1,17 @@
 import { useEffect, useRef, useState } from 'react'
 import { useParams } from 'react-router-dom'
 import { FileText, Code2, Loader2 } from 'lucide-react'
+import * as Y from 'yjs'
+import { yDocToProsemirrorJSON } from 'y-prosemirror'
+import { useEditor, EditorContent } from '@tiptap/react'
+import StarterKit from '@tiptap/starter-kit'
+import { Table as TipTapTable } from '@tiptap/extension-table'
+import { TableRow } from '@tiptap/extension-table-row'
+import { TableCell } from '@tiptap/extension-table-cell'
+import { TableHeader } from '@tiptap/extension-table-header'
+import { Image as TipTapImage } from '@tiptap/extension-image'
+import { CodeBlockLowlight } from '@tiptap/extension-code-block-lowlight'
+import { common, createLowlight } from 'lowlight'
 import { cn } from '@/utils/cn'
 
 // ── 타입 ──────────────────────────────────────────────────────────────────────
@@ -27,6 +38,64 @@ async function guestFetch<T>(path: string): Promise<T> {
   return res.json() as Promise<T>
 }
 
+// ── Yjs 디코더 ────────────────────────────────────────────────────────────────
+
+function base64ToUint8Array(base64: string): Uint8Array {
+  const binary = atob(base64)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i)
+  }
+  return bytes
+}
+
+/**
+ * DB에 저장된 content(base64 Yjs binary)를 렌더링 가능한 형태로 변환.
+ * - 협업문서: Y.Doc 'default' XML fragment → TipTap/ProseMirror JSON
+ * - 협업코드: Y.Doc getText(language) Y.Text → 코드 string
+ */
+function decodeYjsContent(
+  raw: unknown,
+  type: string | null,
+  language: string | null,
+): unknown {
+  if (raw === null || raw === undefined) return null
+  // 이미 객체(TipTap JSON 또는 legacy JSON) → 그대로 사용
+  if (typeof raw === 'object') return raw
+
+  if (typeof raw !== 'string' || raw.length === 0) return raw
+
+  // base64 Yjs 디코드 시도
+  try {
+    const bytes = base64ToUint8Array(raw)
+    const ydoc = new Y.Doc()
+    Y.applyUpdate(ydoc, bytes)
+
+    let decoded: unknown
+    if (type === 'code') {
+      const langKey = language ?? 'javascript'
+      decoded = ydoc.getText(langKey).toString()
+    } else {
+      decoded = yDocToProsemirrorJSON(ydoc, 'default')
+    }
+
+    ydoc.destroy()
+    return decoded
+  } catch {
+    // Yjs 디코드 실패
+  }
+
+  // JSON 문자열 시도 (legacy TipTap JSON)
+  try {
+    return JSON.parse(raw)
+  } catch {
+    // JSON 아님
+  }
+
+  // 그 외: 문자열 그대로 반환 (legacy HTML 또는 plain text)
+  return raw
+}
+
 // ── 언어 레이블 ───────────────────────────────────────────────────────────────
 
 const LANG_LABEL: Record<string, string> = {
@@ -40,156 +109,70 @@ const LANG_LABEL: Record<string, string> = {
   rust: 'Rust',
 }
 
-// ── TipTap Prosemirror JSON 읽기 전용 렌더러 ─────────────────────────────────
+// ── 읽기 전용 TipTap 문서 뷰어 ────────────────────────────────────────────────
+// editable: false + EditorContent → app.css의 .tiptap 스타일 자동 적용
+// (table/th/td/h1~h3/ul/ol/blockquote/pre 전부 기존 스타일 사용)
 
-type TipTapMark = { type: string; attrs?: Record<string, unknown> }
+const lowlight = createLowlight(common)
 
-type TipTapNode = {
-  type: string
-  text?: string
-  content?: TipTapNode[]
-  attrs?: Record<string, unknown>
-  marks?: TipTapMark[]
-}
+type TipTapDocContent = Record<string, unknown>
 
-function applyMarks(text: string, marks: TipTapMark[] | undefined): React.ReactNode {
-  if (!marks || marks.length === 0) return text
-  let node: React.ReactNode = text
-  for (const mark of marks) {
-    switch (mark.type) {
-      case 'bold':
-        node = <strong>{node}</strong>
-        break
-      case 'italic':
-        node = <em>{node}</em>
-        break
-      case 'strike':
-        node = <s>{node}</s>
-        break
-      case 'underline':
-        node = <u>{node}</u>
-        break
-      case 'code':
-        node = (
-          <code className="rounded bg-neutral-200 px-1 py-0.5 font-mono text-[11px] text-violet-700 dark:bg-neutral-700 dark:text-violet-300">
-            {node}
-          </code>
-        )
-        break
-    }
-  }
-  return node
-}
-
-function renderTipTapNode(node: TipTapNode, key: number): React.ReactNode {
-  const children = node.content?.map((child, i) => renderTipTapNode(child, i)) ?? []
-
-  switch (node.type) {
-    case 'doc':
-      return <div key={key}>{children}</div>
-
-    case 'paragraph':
-      return (
-        <p key={key} className="mb-2 leading-relaxed text-neutral-700 dark:text-neutral-200">
-          {children.length ? children : <br />}
-        </p>
-      )
-
-    case 'text':
-      return <span key={key}>{applyMarks(node.text ?? '', node.marks)}</span>
-
-    case 'hardBreak':
-      return <br key={key} />
-
-    case 'heading': {
-      const level = (node.attrs?.level as number) ?? 1
-      const cls =
-        level === 1
-          ? 'mt-6 mb-3 text-2xl font-bold text-neutral-900 dark:text-neutral-50'
-          : level === 2
-            ? 'mt-5 mb-2 text-xl font-bold text-neutral-800 dark:text-neutral-100'
-            : 'mt-4 mb-2 text-lg font-semibold text-neutral-800 dark:text-neutral-100'
-      return (
-        <div key={key} className={cls}>
-          {children}
-        </div>
-      )
-    }
-
-    case 'bulletList':
-      return (
-        <ul key={key} className="mb-3 ml-5 list-disc space-y-1 text-neutral-700 dark:text-neutral-200">
-          {children}
-        </ul>
-      )
-
-    case 'orderedList':
-      return (
-        <ol key={key} className="mb-3 ml-5 list-decimal space-y-1 text-neutral-700 dark:text-neutral-200">
-          {children}
-        </ol>
-      )
-
-    case 'listItem':
-      return <li key={key}>{children}</li>
-
-    case 'blockquote':
-      return (
-        <blockquote
-          key={key}
-          className="mb-3 border-l-4 border-neutral-300 pl-4 italic text-neutral-500 dark:border-neutral-600 dark:text-neutral-400"
-        >
-          {children}
-        </blockquote>
-      )
-
-    case 'codeBlock': {
-      const lang = node.attrs?.language as string | undefined
-      const code = node.content?.map((n) => n.text ?? '').join('') ?? ''
-      return (
-        <pre
-          key={key}
-          className="mb-4 overflow-x-auto rounded-lg bg-neutral-950 p-4 text-sm leading-relaxed text-neutral-200"
-        >
-          {lang && (
-            <div className="mb-2 text-[11px] uppercase tracking-wider text-neutral-500">{lang}</div>
-          )}
-          <code className="font-mono">{code}</code>
-        </pre>
-      )
-    }
-
-    case 'horizontalRule':
-      return <hr key={key} className="my-4 border-neutral-200 dark:border-neutral-700" />
-
-    default:
-      return children.length ? <div key={key}>{children}</div> : null
-  }
-}
-
-function TipTapRenderer({ content }: { content: unknown }) {
-  if (content === null || content === undefined) {
-    return <p className="text-sm text-neutral-500">내용이 없습니다.</p>
-  }
-  if (typeof content !== 'object' || Array.isArray(content)) {
-    return <p className="text-sm text-neutral-500">내용을 표시할 수 없습니다.</p>
-  }
-
-  const doc = content as TipTapNode
-  if (doc.type !== 'doc' || !Array.isArray(doc.content)) {
-    return <p className="text-sm text-neutral-500">내용을 표시할 수 없습니다.</p>
-  }
-
-  const hasContent = doc.content.some(
-    (n) =>
-      n.type !== 'paragraph' ||
-      (n.content && n.content.some((c) => c.text && c.text.trim().length > 0)),
+function ReadOnlyDocumentViewer({ content }: { content: TipTapDocContent }) {
+  const editor = useEditor(
+    {
+      editable: false,
+      content: content,
+      extensions: [
+        // TipTap v3 StarterKit: Underline/History 내장
+        StarterKit.configure({ codeBlock: false }),
+        TipTapTable.configure({ resizable: false }),
+        TableRow,
+        TableCell,
+        TableHeader,
+        TipTapImage.configure({ inline: false, allowBase64: true }),
+        CodeBlockLowlight.configure({ lowlight }),
+      ],
+      editorProps: {
+        attributes: { class: 'focus:outline-none' },
+      },
+    },
+    [],
   )
-  if (!hasContent) {
-    return <p className="text-sm text-neutral-500">내용이 없습니다.</p>
+
+  if (!editor) {
+    return (
+      <div className="flex items-center gap-2 py-4 text-sm text-neutral-400">
+        <Loader2 size={16} className="animate-spin" />
+        <span>문서 렌더링 중...</span>
+      </div>
+    )
   }
 
-  return <div className="text-sm">{doc.content.map((node, i) => renderTipTapNode(node, i))}</div>
+  return <EditorContent editor={editor} />
+}
+
+// ── 문자열 fallback 뷰어 (Yjs 디코드 실패 또는 legacy HTML/plain text) ─────────
+
+function StringFallbackViewer({ content }: { content: string }) {
+  if (!content) return <p className="text-sm text-neutral-500">내용이 없습니다.</p>
+
+  // HTML 문자열: DOMParser로 텍스트 추출 (dangerouslySetInnerHTML XSS 방지)
+  if (content.trimStart().startsWith('<')) {
+    const parser = new DOMParser()
+    const doc = parser.parseFromString(content, 'text/html')
+    const text = doc.body.textContent ?? ''
+    return (
+      <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-700 dark:text-neutral-200">
+        {text || '내용이 없습니다.'}
+      </pre>
+    )
+  }
+
+  return (
+    <pre className="whitespace-pre-wrap text-sm leading-relaxed text-neutral-700 dark:text-neutral-200">
+      {content}
+    </pre>
+  )
 }
 
 // ── 코드 뷰어 ─────────────────────────────────────────────────────────────────
@@ -233,7 +216,7 @@ function CodeViewer({ content, language }: { content: unknown; language: string 
   )
 }
 
-// ── 라인 번호 ref (스크롤 복원용) ────────────────────────────────────────────
+// ── 스크롤 복원 ref ──────────────────────────────────────────────────────────
 
 function useScrollToTop() {
   const ref = useRef<HTMLDivElement>(null)
@@ -241,6 +224,17 @@ function useScrollToTop() {
     ref.current?.scrollTo({ top: 0 })
   }, [])
   return ref
+}
+
+// ── 문서 content 렌더링 분기 헬퍼 ────────────────────────────────────────────
+
+function isTipTapDoc(content: unknown): content is TipTapDocContent {
+  return (
+    content !== null &&
+    typeof content === 'object' &&
+    !Array.isArray(content) &&
+    (content as { type?: string }).type === 'doc'
+  )
 }
 
 // ── 메인 컴포넌트 ─────────────────────────────────────────────────────────────
@@ -259,7 +253,22 @@ export function GuestMaterialPage() {
       return
     }
     guestFetch<MaterialDetail>(`/api/guest/meetings/${token}/materials/${pageId}`)
-      .then((data) => { setPage(data); setState('done') })
+      .then((data) => {
+        console.log('[GuestMaterial Debug]', {
+          pageId,
+          type: data.type,
+          contentType: typeof data.content,
+          contentLength: typeof data.content === 'string' ? data.content.length : null,
+          contentPreview:
+            typeof data.content === 'string'
+              ? data.content.slice(0, 80)
+              : JSON.stringify(data.content)?.slice(0, 80),
+        })
+
+        const decodedContent = decodeYjsContent(data.content, data.type, data.language)
+        setPage({ ...data, content: decodedContent })
+        setState('done')
+      })
       .catch((err: unknown) => {
         setState('error')
         setErrorMsg(err instanceof Error ? err.message : '자료를 불러올 수 없습니다.')
@@ -338,8 +347,12 @@ export function GuestMaterialPage() {
         <div className="mx-auto max-w-4xl px-6 py-8">
           {isCode ? (
             <CodeViewer content={page.content} language={page.language} />
+          ) : isTipTapDoc(page.content) ? (
+            <ReadOnlyDocumentViewer content={page.content} />
+          ) : page.content === null || page.content === undefined ? (
+            <p className="text-sm text-neutral-500">내용이 없습니다.</p>
           ) : (
-            <TipTapRenderer content={page.content} />
+            <StringFallbackViewer content={String(page.content)} />
           )}
 
           <p className="mt-10 border-t border-neutral-200 pt-5 text-center text-xs text-neutral-400 dark:border-neutral-700 dark:text-neutral-600">

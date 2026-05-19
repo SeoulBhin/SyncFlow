@@ -1,4 +1,4 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   Mic,
@@ -22,6 +22,7 @@ import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useAIStore } from '@/stores/useAIStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useToastStore } from '@/stores/useToastStore'
+import { CreateMeetingModal } from '@/components/meeting/CreateMeetingModal'
 
 /* 툴바 버튼 공통 컴포넌트 */
 function ToolbarButton({
@@ -84,6 +85,7 @@ export function BottomToolbar() {
   const { isOpen: isAIOpen, togglePanel: toggleAIPanel } = useAIStore()
   const { openPanel, togglePanel: toggleDetailPanel } = useDetailPanelStore()
   const addToast = useToastStore((s) => s.addToast)
+  const [showMeetingModal, setShowMeetingModal] = useState(false)
 
   /* 회의 타이머 */
   useEffect(() => {
@@ -127,24 +129,6 @@ export function BottomToolbar() {
     }
   }
 
-  /* 회의 시작 핸들러 — 백엔드에 회의 레코드 생성 후 회의룸으로 이동 */
-  const handleStartMeeting = async () => {
-    const channelName = activeGroupName ?? '채널'
-    const title = `${channelName} 빠른 회의`
-    try {
-      const created = await meeting.createMeeting(title, {
-        groupId: activeGroupId ?? undefined,
-      })
-      meeting.startMeeting(created.id, title, channelName)
-      navigate(`/app/meetings/${created.id}`)
-    } catch (err) {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
-      )
-    }
-  }
-
   /* 회의 종료 핸들러 — 백엔드 종료 API 호출 + 로컬 정리 + 요약 페이지 이동 */
   const handleEndMeeting = async () => {
     const id = meeting.activeMeetingId
@@ -168,6 +152,13 @@ export function BottomToolbar() {
   const isInMeeting = meeting.status === 'in-meeting'
 
   return (
+    <>
+    <CreateMeetingModal
+      hideSchedule
+      isOpen={showMeetingModal}
+      onClose={() => setShowMeetingModal(false)}
+      onCreated={(id) => navigate(`/app/meetings/${id}`)}
+    />
     <div
       className={cn(
         'fixed right-0 bottom-0 left-0 z-30 flex h-12 items-center border-t px-4 backdrop-blur-md',
@@ -242,7 +233,7 @@ export function BottomToolbar() {
         <div className="flex items-center gap-1">
           {/* 회의 시작 버튼 */}
           <button
-            onClick={handleStartMeeting}
+            onClick={() => setShowMeetingModal(true)}
             className="flex items-center gap-1.5 rounded-lg bg-primary-500 px-3 py-1.5 text-xs font-medium text-white transition-colors hover:bg-primary-600 dark:bg-primary-600 dark:hover:bg-primary-500"
           >
             <Video size={14} />
@@ -328,5 +319,6 @@ export function BottomToolbar() {
         </div>
       )}
     </div>
+    </>
   )
 }
