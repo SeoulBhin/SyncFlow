@@ -29,8 +29,16 @@ export default defineConfig({
             id.includes('y-protocols') ||
             id.includes('y-websocket')
           ) return 'yjs'
-          if (id.includes('react-router')) return 'react-router'
-          if (id.includes('react-dom') || id.includes('/react/')) return 'react'
+          // React 19 는 react / react-dom / scheduler / react-is 가 같은 청크에서 초기화돼야 한다.
+          // 분리되면 "Cannot set properties of undefined (setting 'Activity')" 로 부팅이 깨진다.
+          // react-router 도 React 내부에 의존하므로 같은 청크로 묶는다.
+          if (
+            id.includes('/react/') ||
+            id.includes('/react-dom/') ||
+            id.includes('/scheduler/') ||
+            id.includes('/react-is/') ||
+            id.includes('react-router')
+          ) return 'react'
           if (id.includes('lowlight') || id.includes('highlight.js')) return 'lowlight'
           if (id.includes('lucide-react')) return 'icons'
           return 'vendor'
