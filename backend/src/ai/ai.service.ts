@@ -698,16 +698,10 @@ ${content}
     }
   }
 
-  private async getUserPlan(userId: string): Promise<string> {
-    try {
-      const rows = await this.dataSource.query<Array<{ plan: string }>>(
-        `SELECT plan FROM subscriptions WHERE user_id = $1 AND status = 'active' ORDER BY created_at DESC LIMIT 1`,
-        [userId],
-      )
-      return rows[0]?.plan ?? 'free'
-    } catch {
-      return 'free'
-    }
+  private async getUserPlan(_userId: string): Promise<string> {
+    // subscriptions 테이블 미구현 — 전원 free 플랜으로 처리
+    // 구독 기능(backend/src/subscriptions) 구현 시 이 메서드에 DB 쿼리 추가
+    return 'free'
   }
 
   private async countTodayUserMessages(userId: string): Promise<number> {

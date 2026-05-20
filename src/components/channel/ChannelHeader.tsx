@@ -101,13 +101,13 @@ export function ChannelHeader() {
 
   return (
     <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         {isExternal ? (
-          <Globe size={16} className="text-orange-500" />
+          <Globe size={16} className="shrink-0 text-orange-500" />
         ) : (
-          <Hash size={16} className="text-neutral-400" />
+          <Hash size={16} className="shrink-0 text-neutral-400" />
         )}
-        <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+        <span className="min-w-0 truncate text-sm font-semibold text-neutral-800 dark:text-neutral-100">
           {displayChannelName}
         </span>
         {isExternal && connectedOrgs.length > 0 && (
@@ -124,12 +124,12 @@ export function ChannelHeader() {
           </div>
         )}
         {description && !isExternal && (
-          <span className="hidden text-xs text-neutral-400 sm:inline">
+          <span className="hidden min-w-0 truncate text-xs text-neutral-400 sm:inline">
             {description}
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {/* 음성 채팅 */}
         {isVoiceConnected ? (
           <>

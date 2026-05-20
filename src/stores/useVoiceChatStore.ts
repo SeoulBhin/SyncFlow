@@ -2,6 +2,7 @@ import { create } from 'zustand'
 import { RoomEvent, Track, type Participant, type DisconnectReason } from 'livekit-client'
 import { room, fetchToken } from '@/lib/livekitRoom'
 import { useAuthStore } from './useAuthStore'
+import { useDetailPanelStore } from './useDetailPanelStore'
 
 export interface VoiceParticipant {
   id: string
@@ -187,6 +188,10 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
         connectedGroupName: null,
         isCameraEnabled: false,
       })
+      // 연결 끊김 시 우측 음성 패널 자동 닫기
+      if (useDetailPanelStore.getState().activePanel === 'voice') {
+        useDetailPanelStore.getState().closePanel()
+      }
     })
 
   return {
@@ -265,6 +270,10 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
         connectedGroupName: null,
         isCameraEnabled: false,
       })
+      // 명시적 disconnect 시 우측 음성 패널 닫기 (RoomEvent.Disconnected가 먼저 실행될 수도 있지만 중복 호출은 무해)
+      if (useDetailPanelStore.getState().activePanel === 'voice') {
+        useDetailPanelStore.getState().closePanel()
+      }
     },
 
     toggleMute: async () => {
