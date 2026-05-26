@@ -42,8 +42,8 @@ export class Group {
   })
   connectedOrgIds: string[] | null
 
-  @Column({ name: 'created_by', type: 'uuid' })
-  createdBy: string
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy: string | null
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date

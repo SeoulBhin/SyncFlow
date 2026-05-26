@@ -21,9 +21,9 @@ export class Message {
   @Column({ name: 'channel_id', type: 'uuid' })
   channelId: string;
 
-  /** ERD/Prisma 상의 user_id 컬럼 — 메시지 작성자(또는 시스템 발화자) */
-  @Column({ name: 'user_id', type: 'uuid' })
-  authorId: string;
+  /** ERD/Prisma 상의 user_id 컬럼 — 메시지 작성자(탈퇴 시 NULL) */
+  @Column({ name: 'user_id', type: 'uuid', nullable: true })
+  authorId: string | null;
 
   @Column({ name: 'author_name', type: 'varchar', length: 100, default: '' })
   authorName: string;

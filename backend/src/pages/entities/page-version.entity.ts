@@ -20,8 +20,8 @@ export class PageVersion {
   @Column({ type: 'jsonb' })
   content: Record<string, unknown>
 
-  @Column({ name: 'created_by', type: 'uuid' })
-  createdBy: string
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy: string | null
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date

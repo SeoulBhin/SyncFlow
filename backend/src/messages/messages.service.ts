@@ -20,7 +20,7 @@ export interface ReactionGroup {
 export interface MessageResponse {
   id: string;
   channelId: string;
-  authorId: string;
+  authorId: string | null;
   authorName: string;
   content: string;
   parentId: string | null;

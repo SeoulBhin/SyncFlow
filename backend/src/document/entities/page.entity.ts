@@ -23,8 +23,8 @@ export class Page {
   @Column({ nullable: true, type: 'uuid' })
   channelId: string | null
 
-  @Column({ name: 'created_by', type: 'uuid' })
-  createdBy: string
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy: string | null
 
   @Column({ nullable: true, type: 'varchar', length: 20, default: 'doc' })
   type: string | null
