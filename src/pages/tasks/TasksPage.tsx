@@ -26,6 +26,13 @@ const FRONT_TO_API_PRIORITY: Record<TaskPriority, 'low' | 'medium' | 'high' | 'u
   urgent: 'urgent',
 }
 
+const API_TO_FRONT_PRIORITY: Record<'low' | 'medium' | 'high' | 'urgent', TaskPriority> = {
+  low: 'low',
+  medium: 'normal',
+  high: 'high',
+  urgent: 'urgent',
+}
+
 interface OrgMemberRow {
   id: number
   userId: string
@@ -57,13 +64,13 @@ function adaptApiTask(t: ApiTask): MockTask {
   return {
     id: t.id,
     title: t.title,
-    description: '',
+    description: t.description ?? '',
     status: (t.status as TaskStatus) ?? 'todo',
-    priority: 'normal',
+    priority: t.priority ? API_TO_FRONT_PRIORITY[t.priority] : 'normal',
     assigneeId: member?.id ?? 'u1',
     assigneeName: t.assignee ?? '미지정',
     dueDate: t.dueDate ?? t.createdAt.slice(0, 10),
-    startDate: t.createdAt.slice(0, 10),
+    startDate: t.startDate ?? t.createdAt.slice(0, 10),
     projectName: meeting ? '회의 액션아이템' : '일반',
     groupName: meeting ? '회의 액션아이템' : '일반',
     fromMeeting: meeting?.title ?? (t.sourceMeetingId ?? undefined),
@@ -89,7 +96,7 @@ export function TasksPage() {
 
   useEffect(() => {
     void loadAll()
-  }, [loadAll])
+  }, [loadAll, activeOrgId])
 
   // 활성 조직 멤버 fetch — TaskModal 담당자 콤보박스 채우는 용도
   useEffect(() => {

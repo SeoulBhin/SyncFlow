@@ -167,13 +167,19 @@ export interface RegenerateSummaryResponse {
 
 // ── Task (백엔드 tasks 테이블과 1:1) ──────────────────────────────────────────
 export type ApiTaskStatus = 'todo' | 'in-progress' | 'done'
+export type ApiTaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
 export interface ApiTask {
   id: string
   title: string
+  description?: string | null
   assignee: string | null
+  startDate?: string | null
   dueDate: string | null
   status: ApiTaskStatus
+  priority?: ApiTaskPriority
+  groupId?: string | null
+  projectId?: string | null
   sourceMeetingId: string | null
   sourceActionItemId: string | null
   createdAt: string
