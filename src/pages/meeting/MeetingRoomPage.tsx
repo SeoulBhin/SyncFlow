@@ -183,6 +183,8 @@ export function MeetingRoomPage() {
   // 페이지 unmount 와 무관하게 살아있어야 다른 페이지(문서/DM)로 이동해도 자막이 계속 쌓인다.
   const startSttSession = useMeetingSessionStore((s) => s.startStt)
   const stopSttSession = useMeetingSessionStore((s) => s.stopStt)
+  const pauseSttSession = useMeetingSessionStore((s) => s.pauseStt)
+  const resumeSttSession = useMeetingSessionStore((s) => s.resumeStt)
   const enterMeetingSession = useMeetingSessionStore((s) => s.enterMeeting)
   const endMeetingSession = useMeetingSessionStore((s) => s.endSession)
 
@@ -452,10 +454,15 @@ export function MeetingRoomPage() {
     }
   }, [authUser?.name, voiceChat.participants, startSttSession, addToast, meeting])
 
-  // STT 토글 처리: 이전 값과 비교해 실제 변화 시에만 store 호출.
-  // useEffect cleanup 으로 stop 을 호출하면 페이지 unmount 시에도 cleanup 이 트리거되어
-  // 다른 페이지로 이동하면 STT 가 끊기는 문제가 있었다. 그래서 ref 로 prev 값 추적해
-  // unmount 시에는 아무것도 하지 않는다 (store 가 백그라운드 유지).
+  // STT 토글 처리: 콜백 deps 가 매 렌더링마다 변하지 않도록 ref 로 안정화한다.
+  // 기존엔 startRealtimeSTT/stopAudioOnly 가 voiceChat.participants 등 deps 로 매번
+  // 재생성되어 useEffect 가 sttEnabled 변화와 무관하게 매 렌더링마다 트리거됐고,
+  // prevSttEnabledRef 비교가 의도대로 동작 안 해 첫 토글이 무시되던 버그가 있었다.
+  const startSttRef = useRef(startRealtimeSTT)
+  const stopSttRef = useRef(stopAudioOnly)
+  startSttRef.current = startRealtimeSTT
+  stopSttRef.current = stopAudioOnly
+
   const prevSttEnabledRef = useRef(meeting.sttEnabled)
   useEffect(() => {
     if (!meetingId) return
@@ -464,16 +471,28 @@ export function MeetingRoomPage() {
     if (prev === meeting.sttEnabled) {
       // 마운트 또는 변화 없음 — 진행 중인 세션이 있으면 그대로 둠
       if (meeting.sttEnabled && !useMeetingSessionStore.getState().sttEnabled) {
-        void startRealtimeSTT(meetingId)
+        void startSttRef.current(meetingId)
       }
       return
     }
     if (meeting.sttEnabled) {
-      void startRealtimeSTT(meetingId)
+      void startSttRef.current(meetingId)
     } else {
-      stopAudioOnly()
+      stopSttRef.current()
     }
-  }, [meeting.sttEnabled, meetingId, startRealtimeSTT, stopAudioOnly])
+  }, [meeting.sttEnabled, meetingId])
+
+  // 음소거 ↔ STT 동기화: 마이크 음소거 시 recorder pause, 해제 시 resume.
+  // 이전엔 LiveKit 음소거와 별개 audioStream 으로 STT 가 진행되어 음소거 상태에서도
+  // 발화가 자막에 잡히던 문제. 음소거 토글에만 반응하고 STT 시작/종료에는 영향 없음.
+  useEffect(() => {
+    if (!useMeetingSessionStore.getState().sttEnabled) return
+    if (voiceChat.status === 'muted') {
+      pauseSttSession()
+    } else {
+      resumeSttSession()
+    }
+  }, [voiceChat.status, pauseSttSession, resumeSttSession])
 
   // 녹화 정리는 unmount 시에도 필요 (화면공유 stream 이 사라지면 무의미한 데이터만 쌓임)
   useEffect(() => () => {

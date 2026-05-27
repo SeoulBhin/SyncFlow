@@ -39,6 +39,12 @@ interface MeetingSessionState {
   /** STT 끄기 — audio/recorder 만 중단, socket 은 ai-notes 수신을 위해 유지 */
   stopStt: () => void
 
+  /** 음소거 등으로 일시 정지 — recorder 만 pause, socket·stream 유지 */
+  pauseStt: () => void
+
+  /** pause 후 재개 — recorder 만 resume */
+  resumeStt: () => void
+
   /** 회의 leave/종료 — 모든 자원 해제, activeMeetingId 도 null */
   endSession: () => void
 }
@@ -180,6 +186,30 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
     }
     // socket 자체는 유지 — ai-notes 수신을 위해
     set({ _recorder: null, _audioStream: null, sttEnabled: false })
+  },
+
+  pauseStt: () => {
+    // 음소거 시 호출 — recorder 만 pause 해 audio chunk emit 을 멈춘다.
+    // socket 과 audio stream 은 살려두어 음소거 해제 시 즉시 resume 가능.
+    const { _recorder } = get()
+    if (_recorder && _recorder.state === 'recording') {
+      try {
+        _recorder.pause()
+      } catch {
+        // ignore
+      }
+    }
+  },
+
+  resumeStt: () => {
+    const { _recorder } = get()
+    if (_recorder && _recorder.state === 'paused') {
+      try {
+        _recorder.resume()
+      } catch {
+        // ignore
+      }
+    }
   },
 
   endSession: () => {

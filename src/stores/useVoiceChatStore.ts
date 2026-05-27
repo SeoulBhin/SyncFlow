@@ -149,34 +149,40 @@ export const useVoiceChatStore = create<VoiceChatState>((set, get) => {
       }
       refreshParticipants()
     })
-    // 원격 참가자 카메라 track 구독 → 스트림 캐시 등록
+    // 원격 참가자 track 구독 → 카메라는 스트림 캐시, 오디오는 DOM 에 attach 해 재생
     .on(RoomEvent.TrackSubscribed, (track, _pub, participant) => {
-      console.log('[LiveKit Camera Debug]', {
+      console.log('[LiveKit Track Debug]', {
         event: 'TrackSubscribed',
         participant: participant.identity,
         source: track.source,
         kind: track.kind,
-        hasTrack: true,
-        cameraStreamMapSize: cameraStreamMap.size,
       })
       if (track.source === Track.Source.Camera) {
         cameraStreamMap.set(participant.identity, new MediaStream([track.mediaStreamTrack]))
         refreshParticipants()
+      } else if (track.kind === Track.Kind.Audio) {
+        // LiveKit Client SDK 는 audio track 을 자동 재생하지 않는다.
+        // attach() 로 HTMLAudioElement 를 만들어 DOM 에 부착해야 들린다.
+        const el = track.attach() as HTMLAudioElement
+        el.id = `lk-audio-${participant.identity}-${track.sid ?? track.source}`
+        el.style.display = 'none'
+        el.autoplay = true
+        document.body.appendChild(el)
       }
     })
-    // 원격 참가자 카메라 track 구독 해제 → 스트림 캐시 제거
+    // 원격 참가자 track 구독 해제 → 카메라 캐시 제거, 오디오 detach
     .on(RoomEvent.TrackUnsubscribed, (track, _pub, participant) => {
-      console.log('[LiveKit Camera Debug]', {
+      console.log('[LiveKit Track Debug]', {
         event: 'TrackUnsubscribed',
         participant: participant.identity,
         source: track.source,
         kind: track.kind,
-        hasTrack: false,
-        cameraStreamMapSize: cameraStreamMap.size,
       })
       if (track.source === Track.Source.Camera) {
         cameraStreamMap.delete(participant.identity)
         refreshParticipants()
+      } else if (track.kind === Track.Kind.Audio) {
+        track.detach().forEach((el) => el.remove())
       }
     })
     .on(RoomEvent.Disconnected, (_reason?: DisconnectReason) => {
