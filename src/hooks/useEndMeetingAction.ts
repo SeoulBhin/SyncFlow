@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { room } from '@/lib/livekitRoom'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 import { useToastStore } from '@/stores/useToastStore'
 
 /**
@@ -40,8 +41,9 @@ export function useEndMeetingAction() {
         }
       }
 
-      // 2. LiveKit 연결 해제
+      // 2. LiveKit 연결 해제 + 백그라운드 STT 세션 정리
       await disconnect()
+      useMeetingSessionStore.getState().endSession()
 
       // 3. 백엔드 회의 종료 + AI 회의록 생성 (fire-and-forget)
       void finalizeMeeting(meetingId).catch((err) => {

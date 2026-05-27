@@ -5,6 +5,7 @@ import { usePageStore } from '@/stores/usePageStore'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useAIStore } from '@/stores/useAIStore'
 import { useTasksStore } from '@/stores/useTasksStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 
 interface AuthState {
   isAuthenticated: boolean
@@ -41,6 +42,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
     useAIStore.getState().reset()
     // 작업 목록도 잔류하지 않도록 비운다.
     useTasksStore.setState({ tasks: [], isLoading: false, error: null })
+    // 백그라운드 회의 세션(STT socket·audio) 정리 — 로그아웃 후 다음 사용자 컨텍스트로 누설 방지
+    useMeetingSessionStore.getState().endSession()
     set({ isAuthenticated: false, user: null })
   },
   fetchMe: async () => {
@@ -61,5 +64,6 @@ window.addEventListener('auth:session-expired', () => {
   useSidebarStore.getState().clearSelection()
   useAIStore.getState().reset()
   useTasksStore.setState({ tasks: [], isLoading: false, error: null })
+  useMeetingSessionStore.getState().endSession()
   useAuthStore.setState({ isAuthenticated: false, user: null })
 })
