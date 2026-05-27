@@ -512,9 +512,10 @@ export function MeetingRoomPage() {
 
     // store 가 socket·audio·recorder lifecycle 전부 관리. 페이지 unmount 와 무관하게 유지.
     // 회의 입장 직후 자동 시작은 LiveKit 핸드셰이크와 자원 경쟁으로 실패할 수 있어
-    // 점진적 backoff 로 3회까지 silent 재시도. 사용자 토스트는 마지막 실패 시에만.
+    // 짧은 backoff 로 3회까지 silent 재시도. 사용자 토스트는 마지막 실패 시에만.
+    // 첫 시도가 timeout(8s) 으로 끝나도 즉시(1s) 재시도해 체감 지연을 최소화.
     console.log('[STT] startRealtimeSTT 시도', { meetingId: id, speakerMap })
-    const delays = [0, 2000, 4000]
+    const delays = [0, 1000, 3000]
     let result: { ok: boolean; error?: string } = { ok: false }
     for (let i = 0; i < delays.length; i++) {
       if (delays[i] > 0) {
