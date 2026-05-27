@@ -457,7 +457,13 @@ export class MeetingsService {
 
     // Gemini 실패 시 그대로 throw — 기존 요약 보존
     this.logger.log(`[GEMINI REGEN] meetingId="${meetingId}" userId="${userId}" — 요약 재생성 시작`)
-    const aiResult = await this.summaryService.generateSummary(fullText)
+    const raw = await this.summaryService.generateSummary(fullText)
+    // Gemini 응답 schema 가 어긋난 경우(키 누락, 잘못된 dueDate, 길이 초과 등)에도
+    // DB 저장 단계에서 500 이 나지 않도록 정규화. endMeeting 과 동일 가드.
+    const aiResult = normalizeAiResult(raw)
+    if (!aiResult.summary) {
+      aiResult.summary = '요약 생성 결과가 비어 있습니다 — 잠시 후 다시 시도해주세요'
+    }
 
     // 기존 요약 upsert
     let summary = await this.summaryRepo.findOne({ where: { meetingId } })
@@ -475,16 +481,23 @@ export class MeetingsService {
 
     // 미확정(confirmed=false) 액션아이템 삭제 후 재생성, 확정된 것은 보존
     await this.actionItemRepo.delete({ meetingId, confirmed: false })
-    const actionItems = await this.actionItemRepo.save(
-      aiResult.actionItems.map((item) =>
-        this.actionItemRepo.create({
-          meetingId,
-          title: item.title,
-          assignee: item.assignee,
-          dueDate: item.dueDate,
-        }),
-      ),
-    )
+    let actionItems: MeetingActionItem[] = []
+    if (aiResult.actionItems.length > 0) {
+      try {
+        actionItems = await this.actionItemRepo.save(
+          aiResult.actionItems.map((item) =>
+            this.actionItemRepo.create({
+              meetingId,
+              title: item.title,
+              assignee: item.assignee,
+              dueDate: item.dueDate,
+            }),
+          ),
+        )
+      } catch (err) {
+        this.logger.error(`[GEMINI REGEN] 액션아이템 저장 실패 — 빈 배열로 응답: ${(err as Error).message}`)
+      }
+    }
 
     this.logger.log(`[GEMINI REGEN] meetingId="${meetingId}" — 완료, actionItems=${actionItems.length}개`)
     return { meeting, summary: savedSummary, actionItems }
