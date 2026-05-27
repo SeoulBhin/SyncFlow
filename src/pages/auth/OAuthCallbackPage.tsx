@@ -3,7 +3,9 @@ import { useNavigate } from 'react-router-dom'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+// 운영 빌드에서 VITE_API_URL 미설정 시 상대경로 '' 로 fallback — Nginx 가 /api 를 backend 로 프록시.
+// 'http://localhost:3000' 을 기본값으로 두면 HTTPS 운영 환경에서 Mixed Content 오류가 발생한다.
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 const isSafeAppRedirect = (value: string | null): value is string =>
   !!value && (value === '/app' || value.startsWith('/app/'))

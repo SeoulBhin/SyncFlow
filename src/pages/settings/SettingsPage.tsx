@@ -14,7 +14,8 @@ import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { api } from '@/utils/api'
 import type { Theme } from '@/types'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+// 운영 빌드에서 VITE_API_URL 미설정 시 상대경로 '' 로 fallback — /api/* 요청이 Nginx 경유.
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 /* ─── 테마 선택 ─── */
 

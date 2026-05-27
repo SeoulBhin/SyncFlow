@@ -61,6 +61,33 @@ function resolveBackendUrl(): string {
   return ''
 }
 
+// ArrayBuffer → base64 변환.
+// spread 방식(btoa(String.fromCharCode(...new Uint8Array(buf))))은 큰 chunk 에서
+// "Maximum number of arguments exceeded" RangeError 를 유발할 수 있어 loop 방식으로 교체.
+// 백그라운드 탭 복귀 후 여러 초 치 데이터가 한 번에 발화될 때도 안전하게 동작한다.
+function arrayBufferToBase64(buf: ArrayBuffer): string {
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  for (let i = 0; i < bytes.byteLength; i++) {
+    binary += String.fromCharCode(bytes[i])
+  }
+  return btoa(binary)
+}
+
+// recorder 를 안전하게 종료.
+// stop() 만 호출하면 브라우저가 마지막 ondataavailable 을 한 번 더 발화해
+// continuation cluster(WEBM 헤더 없음)가 새 Google STT stream 으로 유입된다.
+// ondataavailable 을 먼저 null 로 막아 마지막 chunk 누출(code=3 원인)을 차단한다.
+function stopRecorderSafely(recorder: MediaRecorder | null | undefined): void {
+  if (!recorder) return
+  recorder.ondataavailable = null
+  try {
+    recorder.stop()
+  } catch {
+    // 이미 inactive 상태면 무시
+  }
+}
+
 export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => ({
   activeMeetingId: null,
   activeMeetingTitle: null,
@@ -81,6 +108,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
 
   startStt: async (ctx) => {
     const { activeMeetingId, _recorder, _audioStream, _socket } = get()
+    console.log('[STT] startStt 호출', { meetingId: ctx.meetingId, hasSocket: !!_socket, sttEnabled: get().sttEnabled })
     if (!activeMeetingId || activeMeetingId !== ctx.meetingId) {
       return { ok: false, error: '회의 세션이 활성화되지 않았습니다' }
     }
@@ -97,7 +125,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
     }
 
     // 기존 마이크/recorder 가 비정상적으로 살아있으면 정리
-    _recorder?.stop()
+    stopRecorderSafely(_recorder)
     _audioStream?.getTracks().forEach((t) => t.stop())
 
     let stream: MediaStream
@@ -114,6 +142,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           autoGainControl: true,
         },
       })
+      console.log('[STT] 마이크 획득 성공')
     } catch (err) {
       return {
         ok: false,
@@ -152,20 +181,20 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       })
 
       socket.on('connect', () => {
+        console.log('[STT] socket connect', { initialJoinPending })
         if (initialJoinPending) return
         // socket.io 자동 reconnect 후 호출. backend STT 세션이 fresh 상태라
         // MediaRecorder 도 새로 시작해서 WEBM 헤더 포함 첫 청크가 새 backend stream
         // 으로 흐르도록 동기화. 안 그러면 옛 recorder 의 cluster only 청크가 도착해
         // code=3 encoding error 무한 반복.
-        console.log('[STT] socket reconnected — meeting:join 재 emit + recorder 재시작')
+        console.log('[STT] reconnect 후 meeting:join 재발행')
         socket?.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+        console.log('[STT] meeting:join emit (reconnect)')
         const cur = get()
         if (cur._audioStream && cur.sttEnabled) {
-          try {
-            cur._recorder?.stop()
-          } catch {
-            // ignore
-          }
+          console.log('[STT] reconnect 후 recorder restart')
+          // ondataavailable 을 먼저 null 로 막아 마지막 chunk 가 새 stream 에 유입되지 않게 차단
+          stopRecorderSafely(cur._recorder)
           const newRecorder = new MediaRecorder(cur._audioStream, {
             mimeType: 'audio/webm;codecs=opus',
           })
@@ -173,14 +202,20 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
             const s = get()._socket
             if (e.data.size > 0 && s?.connected) {
               void e.data.arrayBuffer().then((buf) => {
-                const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+                const b64 = arrayBufferToBase64(buf)
                 s.emit('meeting:audio-chunk', { chunk: b64 })
+                console.log(`[STT] audio chunk emit size=${e.data.size}`)
               })
             }
           }
           newRecorder.start(1000)
+          console.log('[STT] recorder start (reconnect)')
           set({ _recorder: newRecorder })
         }
+      })
+
+      socket.on('connect_error', (err) => {
+        console.log('[STT] socket connect_error', { message: err.message })
       })
 
       socket.on(
@@ -235,13 +270,14 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       // 흘러가게 한다. 이걸 안 하면 새 stream 엔 cluster only 청크만 도착해서
       // Google STT 가 디코딩 못 함 → code=3 encoding error 무한 반복 → 자막 멈춤.
       socket.on('meeting:stt-recycle', () => {
+        console.log('[STT RECYCLE] received')
         const cur = get()
         if (!cur._audioStream || !cur.sttEnabled) return
-        try {
-          cur._recorder?.stop()
-        } catch {
-          // 이미 stop 된 경우 무시
-        }
+        // ondataavailable 을 먼저 null 로 막아야 한다.
+        // stop() 직후 브라우저가 마지막 ondataavailable 을 한 번 더 발화하는데,
+        // 이 chunk 는 WEBM 헤더 없는 continuation cluster 일 수 있어 새 stream 에서 code=3 유발.
+        console.log('[STT RECYCLE] old recorder cleanup')
+        stopRecorderSafely(cur._recorder)
         const newRecorder = new MediaRecorder(cur._audioStream, {
           mimeType: 'audio/webm;codecs=opus',
         })
@@ -249,20 +285,25 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           const s = get()._socket
           if (e.data.size > 0 && s?.connected) {
             void e.data.arrayBuffer().then((buf) => {
-              const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+              const b64 = arrayBufferToBase64(buf)
               s.emit('meeting:audio-chunk', { chunk: b64 })
+              console.log(`[STT] audio chunk emit size=${e.data.size}`)
             })
           }
         }
         newRecorder.start(1000)
+        console.log('[STT RECYCLE] new recorder started')
         set({ _recorder: newRecorder })
       })
     } else {
       // 이미 살아있는 socket 이면 meeting:join 만 재발행 (speakerMap 갱신 가능)
+      console.log('[STT] 기존 socket 재사용, connected=', socket.connected)
       if (socket.connected) {
         socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+        console.log('[STT] meeting:join emit (기존 socket, connected)')
         joined = true
       }
+      // connected 아닌 경우: joined=false → 아래 connectResult Promise 에서 재대기
     }
 
     if (!joined) {
@@ -279,6 +320,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           window.clearTimeout(timeout)
           socket.off('connect_error', onError)
           socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+          console.log('[STT] meeting:join emit (onConnect)')
           joined = true
           initialJoinPending = false
           resolve({ ok: true })
@@ -287,12 +329,21 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
         const onError = (err: Error) => {
           window.clearTimeout(timeout)
           socket.off('connect', onConnect)
+          // timeout/error 시에도 initialJoinPending 해제 — 자동 reconnect 핸들러가 동작해야 함
+          console.log('[STT] connect_error', { message: err.message })
+          initialJoinPending = false
           resolve({ ok: false, error: err.message })
         }
 
         const timeout = window.setTimeout(() => {
           socket.off('connect', onConnect)
           socket.off('connect_error', onError)
+          // [핵심 수정] timeout 시에도 initialJoinPending 을 반드시 false 로 해제.
+          // 해제하지 않으면 이후 socket.io 자동 reconnect 가 발생해도
+          // socket.on('connect') 핸들러가 'if (initialJoinPending) return' 으로 즉시 반환 →
+          // meeting:join 재발행 없음 → backend STT 세션 없음 → 자막 영구 멈춤.
+          console.log('[STT] connect timeout — initialJoinPending 해제')
+          initialJoinPending = false
           resolve({ ok: false, error: 'STT socket connection timed out' })
         }, 6000)
 
@@ -315,8 +366,9 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       const s = get()._socket
       if (e.data.size > 0 && s?.connected) {
         void e.data.arrayBuffer().then((buf) => {
-          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+          const b64 = arrayBufferToBase64(buf)
           s.emit('meeting:audio-chunk', { chunk: b64 })
+          console.log(`[STT] audio chunk emit size=${e.data.size}`)
         })
       }
     }
@@ -324,6 +376,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
     // 250ms 로 줄였더니 Google STT 가 code=3 "encoding error" 를 반복했음.
     // 체감 속도는 백엔드 interimResults=true 로 보완(발화 중에도 partial 자막).
     recorder.start(1000)
+    console.log('[STT] recorder start (초기)')
 
     set({ _socket: socket, _audioStream: stream, _recorder: recorder, sttEnabled: true })
     return { ok: true }
@@ -331,11 +384,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
 
   stopStt: () => {
     const { _recorder, _audioStream, _socket, activeMeetingId } = get()
-    try {
-      _recorder?.stop()
-    } catch {
-      // recorder 가 이미 inactive 상태면 무시
-    }
+    stopRecorderSafely(_recorder)
     _audioStream?.getTracks().forEach((t) => t.stop())
 
     if (_socket?.connected && activeMeetingId) {
@@ -371,11 +420,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
 
   endSession: () => {
     const { _recorder, _audioStream, _socket } = get()
-    try {
-      _recorder?.stop()
-    } catch {
-      // ignore
-    }
+    stopRecorderSafely(_recorder)
     _audioStream?.getTracks().forEach((t) => t.stop())
     _socket?.disconnect()
     set({

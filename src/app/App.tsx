@@ -5,7 +5,8 @@ import { useSystemTheme } from '@/hooks/useSystemTheme'
 import { ToastContainer } from '@/components/common/ToastContainer'
 import { useAuthStore } from '@/stores/useAuthStore'
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+// 운영 빌드에서 VITE_API_URL 미설정 시 상대경로 '' 로 fallback — /api/auth/* 요청이 Nginx 경유.
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 export function App() {
   useSystemTheme()

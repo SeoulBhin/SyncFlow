@@ -41,7 +41,9 @@ function GitHubIcon() {
   )
 }
 
-const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
+// 운영 빌드에서 VITE_API_URL 미설정 시 상대경로 '' 로 fallback — /api/auth/oauth/* 링크가 Nginx 경유.
+// 'http://localhost:3000' 을 기본값으로 두면 운영 서버에서 OAuth 링크가 localhost 로 향한다.
+const API_BASE = import.meta.env.VITE_API_URL ?? ''
 
 const isSafeAppRedirect = (value: string | null): value is string =>
   !!value && (value === '/app' || value.startsWith('/app/'))
