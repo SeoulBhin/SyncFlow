@@ -23,21 +23,26 @@ export class KakaoStrategy extends PassportStrategy(Strategy, 'kakao') {
     profile: any,
     done: (err: any, user: any) => void,
   ) {
-    const kakaoAccount = profile._json?.kakao_account
-    const email = kakaoAccount?.email ?? null
-    const nickname =
-      kakaoAccount?.profile?.nickname ?? profile.displayName ?? 'Kakao User'
-    const avatarUrl = kakaoAccount?.profile?.profile_image_url ?? null
+    try {
+      const kakaoAccount = profile._json?.kakao_account
+      const email = kakaoAccount?.email ?? null
+      const nickname =
+        kakaoAccount?.profile?.nickname ?? profile.displayName ?? 'Kakao User'
+      const avatarUrl = kakaoAccount?.profile?.profile_image_url ?? null
 
-    const user = await this.authService.validateOAuthUser({
-      provider: 'kakao',
-      providerId: String(profile.id),
-      providerEmail: email,
-      name: nickname,
-      avatarUrl,
-      accessToken,
-    })
+      const user = await this.authService.validateOAuthUser({
+        provider: 'kakao',
+        providerId: String(profile.id),
+        providerEmail: email,
+        name: nickname,
+        avatarUrl,
+        accessToken,
+      })
 
-    done(null, user)
+      done(null, user)
+    } catch (err) {
+      console.error('[KakaoStrategy] validate 오류:', err)
+      done(err, null)
+    }
   }
 }

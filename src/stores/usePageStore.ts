@@ -7,6 +7,10 @@ export interface RealPage {
   name: string
   type: 'doc' | 'code'
   projectId: string
+  language?: string | null
+  createdAt?: string
+  updatedAt?: string
+  sortOrder?: number
 }
 
 interface ApiPage {
@@ -14,6 +18,10 @@ interface ApiPage {
   projectId: string
   title: string
   type: 'document' | 'code' | null
+  language?: string | null
+  createdAt?: string
+  updatedAt?: string
+  sortOrder?: number
 }
 
 function adapt(p: ApiPage): RealPage {
@@ -22,6 +30,10 @@ function adapt(p: ApiPage): RealPage {
     name: p.title,
     type: p.type === 'code' ? 'code' : 'doc',
     projectId: p.projectId,
+    language: p.language ?? null,
+    createdAt: p.createdAt,
+    updatedAt: p.updatedAt,
+    sortOrder: p.sortOrder,
   }
 }
 

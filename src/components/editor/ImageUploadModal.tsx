@@ -37,7 +37,7 @@ export function ImageUploadModal({ isOpen, onClose, onInsert }: ImageUploadModal
 
     // 1. 실제 GCS 업로드 시도
     try {
-      const token = localStorage.getItem('accessToken')
+      const token = sessionStorage.getItem('accessToken')
       const form = new FormData()
       form.append('file', file)
 

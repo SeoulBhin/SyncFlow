@@ -193,7 +193,7 @@ export function CodeEditorPage() {
   useEffect(() => {
     if (!pageId) return
     const ydoc = new Y.Doc()
-    const token = localStorage.getItem('accessToken') ?? ''
+    const token = sessionStorage.getItem('accessToken') ?? ''
     const wsUrl = (import.meta.env.VITE_HOCUSPOCUS_URL as string | undefined) ?? 'ws://localhost:3001'
     const p = new HocuspocusProvider({
       url: wsUrl,
@@ -216,8 +216,7 @@ export function CodeEditorPage() {
 
   // awareness에 내 유저 정보 등록 (remote cursor label 포함)
   useEffect(() => {
-    if (!presenceProvider) return
-    const awareness = presenceProvider.awareness
+    const awareness = presenceProvider?.awareness
     if (!awareness) return
     awareness.setLocalStateField('user', presenceUser)
   }, [presenceProvider, presenceUser])
@@ -226,12 +225,10 @@ export function CodeEditorPage() {
   useEffect(() => {
     const doc = presenceProvider?.document
     if (!monacoEditor || !doc || !presenceProvider) return
-    const awareness = presenceProvider.awareness
-    if (!awareness) return
     const ytext = doc.getText(language.id)
     const model = monacoEditor.getModel()
     if (!model) return
-    const binding = new MonacoBinding(ytext, model, new Set([monacoEditor]), awareness)
+    const binding = new MonacoBinding(ytext, model, new Set([monacoEditor]), presenceProvider.awareness)
     monacoBindingRef.current = binding
     return () => {
       binding.destroy()
@@ -253,9 +250,8 @@ export function CodeEditorPage() {
 
   // Monaco 커서/선택 → awareness 브로드캐스트
   useEffect(() => {
-    if (!monacoEditor || !presenceProvider) return
-    const awareness = presenceProvider.awareness
-    if (!awareness) return
+    const awareness = presenceProvider?.awareness
+    if (!monacoEditor || !awareness) return
     const d1 = monacoEditor.onDidChangeCursorPosition((e) => {
       awareness.setLocalStateField('cursor', {
         line: e.position.lineNumber,

@@ -22,6 +22,7 @@ interface Props {
   isOpen: boolean
   onClose: () => void
   projectId: string
+  /** 생성 성공 시 호출. 부모가 자체 상태에 페이지를 추가할 때 사용. */
   onCreated?: (page: { id: string; name: string; type: 'doc' | 'code'; projectId: string }) => void
 }
 
@@ -58,10 +59,9 @@ export function CreatePageModal({ isOpen, onClose, projectId, onCreated }: Props
         projectId: resolvedProjectId,
       })
 
-      const page = { id, name: title, type, projectId: resolvedProjectId }
-      addPage(page)
+      addPage({ id, name: title, type, projectId: resolvedProjectId })
+      onCreated?.({ id, name: title, type, projectId: resolvedProjectId })
       addToast('success', `페이지 "${title}"이(가) 생성되었습니다.`)
-      onCreated?.(page)
       handleClose()
       navigate(type === 'code' ? `/app/code/${id}` : `/app/editor/${id}`)
     } catch (error) {

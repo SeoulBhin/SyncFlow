@@ -221,7 +221,6 @@ export function DashboardPage() {
   const scheduledMeetings = meetings.filter((m) => m.status === 'scheduled')
   const recentMeetings = meetings.filter((m) => m.status === 'ended').slice(0, 3)
 
-
   const handleOpenMeetingModal = () => {
     setShowCreateMeeting(true)
   }
@@ -519,6 +518,7 @@ export function DashboardPage() {
         isOpen={showCreateMeeting}
         onClose={() => setShowCreateMeeting(false)}
         onCreated={(id) => navigate(`/app/meetings/${id}`)}
+        hideSchedule
       />
     </div>
   )

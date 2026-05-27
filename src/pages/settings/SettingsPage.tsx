@@ -2,14 +2,14 @@ import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import {
   Settings, Sun, Moon, Monitor, Bell,
-  Trash2, X, Crown, ArrowRight, Building2,
+  Trash2, X, Crown, ArrowRight,
+  Building2,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
 import { Card } from '@/components/common/Card'
 import { useThemeStore } from '@/stores/useThemeStore'
 import { useToastStore } from '@/stores/useToastStore'
-import { useAuthStore } from '@/stores/useAuthStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { api } from '@/utils/api'
 import type { Theme } from '@/types'
@@ -151,7 +151,7 @@ function NotificationSection({
   )
 }
 
-
+/* ─── 조직 위험 영역 — owner: 삭제 / 일반 멤버: 탈퇴 ─── */
 
 function OrganizationDangerZone() {
   const addToast = useToastStore((s) => s.addToast)
@@ -319,7 +319,7 @@ function OrganizationDangerZone() {
 /* ─── 설정 페이지 메인 ─── */
 
 export function SettingsPage() {
-  const accessToken = useAuthStore((s) => s.accessToken)
+  const accessToken = sessionStorage.getItem('accessToken')
   const [settingsData, setSettingsData] = useState<{
     notifications: { message: boolean; task: boolean; deadline: boolean; browser: boolean }
     social: { google: boolean; github: boolean; kakao: boolean }

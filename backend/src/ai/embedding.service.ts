@@ -27,10 +27,27 @@ export class EmbeddingService {
   // ── 임베딩 생성 ────────────────────────────────────────────────────────────
 
   async embed(text: string): Promise<number[]> {
+    const embeddingModel =
+      this.config.get<string>('GEMINI_EMBEDDING_MODEL') ?? 'gemini-embedding-001'
+    const apiKey = this.config.getOrThrow<string>('GEMINI_API_KEY')
     try {
-      const model = this.genAI.getGenerativeModel({ model: 'text-embedding-004' })
-      const result = await model.embedContent(text)
-      return result.embedding.values
+      const res = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/${embeddingModel}:embedContent?key=${apiKey}`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            model: `models/${embeddingModel}`,
+            content: { parts: [{ text }] },
+            outputDimensionality: 768,
+          }),
+        },
+      )
+      if (!res.ok) {
+        throw new Error(`Gemini API ${res.status}: ${await res.text()}`)
+      }
+      const data = (await res.json()) as { embedding: { values: number[] } }
+      return data.embedding.values
     } catch (err) {
       this.logger.error(`임베딩 생성 실패: ${(err as Error).message}`)
       throw new InternalServerErrorException('임베딩 생성에 실패했습니다')

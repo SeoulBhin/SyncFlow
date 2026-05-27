@@ -205,14 +205,14 @@ export function ProjectPage() {
         isOpen={showCreatePage}
         onClose={() => setShowCreatePage(false)}
         projectId={projectId ?? ''}
-        onCreated={(page) =>
+        onCreated={(p) =>
           setPages((prev) => [
             ...prev,
             {
-              id: page.id,
-              title: page.name,
-              type: page.type === 'code' ? 'code' : 'document',
-              language: page.type === 'code' ? 'javascript' : null,
+              id: p.id,
+              title: p.name,
+              type: p.type === 'doc' ? 'document' : 'code',
+              language: null,
               updatedAt: new Date().toISOString(),
             },
           ])

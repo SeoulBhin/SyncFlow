@@ -1,8 +1,9 @@
 import { useState, useRef, useEffect, useMemo } from 'react'
+import { useLocation } from 'react-router-dom'
 import {
   X, Send, Plus, Bot, User, History, Sparkles,
   FolderOpen, FileCode, FileText, RefreshCw, ChevronDown,
-  CheckCircle2, AtSign, Database, Lightbulb, Trash2, Loader2,
+  CheckCircle2, AtSign, Database, Lightbulb, Trash2, Loader2, Hash,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { useAIStore } from '@/stores/useAIStore'
@@ -397,6 +398,42 @@ export function AISidePanel() {
   } = useAIStore()
   const { closePanel } = useDetailPanelStore()
 
+  // 현재 URL pathname에서 채널/페이지 컨텍스트 추출
+  // 지원 구조:
+  //   /app/channel/:channelId
+  //   /app/editor/:pageId
+  //   /app/editor/:projectId/:pageId  (중간 세그먼트가 있어도 마지막 UUID 사용)
+  //   /app/code/:pageId
+  //   /app/code/:projectId/:pageId
+  const location = useLocation()
+  const pathSegments = location.pathname.split('/').filter(Boolean)
+  // pathSegments[0]='app', pathSegments[1]=routeType, pathSegments[2..n]=IDs
+  const routeType = pathSegments[1]
+
+  // UUID 형식 검증 (대소문자 모두 허용, 하이픈 포함 36자)
+  const isUuidLike = (s: string | undefined): s is string =>
+    typeof s === 'string' && /^[0-9a-fA-F-]{36}$/.test(s)
+
+  // 채널: pathSegments[2]가 UUID이면 channelId
+  const rawChannelId = routeType === 'channel' ? pathSegments[2] : undefined
+  const currentChannelId = isUuidLike(rawChannelId) ? rawChannelId : undefined
+
+  // 문서/코드: 마지막 세그먼트가 UUID이면 pageId (단일 또는 중첩 경로 모두 대응)
+  const lastSegment =
+    routeType === 'editor' || routeType === 'code'
+      ? pathSegments[pathSegments.length - 1]
+      : undefined
+  const currentPageId = isUuidLike(lastSegment) ? lastSegment : undefined
+
+  console.debug('[AI Context Debug]', {
+    pathname: location.pathname,
+    pathSegments,
+    routeType,
+    lastSegment,
+    currentChannelId,
+    currentPageId,
+  })
+
   const [input, setInput] = useState('')
   const [activeTab, setActiveTab] = useState<Tab>('chat')
   const [mentionQuery, setMentionQuery] = useState('')
@@ -428,10 +465,14 @@ export function AISidePanel() {
     if (!trimmed || isLoading) return
     if (isOverLimit) return
 
+    // 표시용 이름 (MessageBubble에 표시)
     const fileNames = selectedFiles.map((fId) => {
       const file = activeProject?.files.find((f) => f.id === fId)
       return file?.name ?? fId
     })
+
+    // UUID 배열 (백엔드 DB 조회용)
+    const fileIds = [...selectedFiles]
 
     // 입력 텍스트에서 @파일명 패턴도 추출
     const mentionMatches = trimmed.match(/@([\w가-힣.]+)/g)
@@ -439,10 +480,17 @@ export function AISidePanel() {
       mentionMatches.forEach((m) => {
         const name = m.slice(1)
         if (!fileNames.includes(name)) fileNames.push(name)
+        // @멘션은 이름 기반이라 UUID 매핑 불가 — fileIds에 포함하지 않음
       })
     }
 
-    sendMessage(trimmed, fileNames.length > 0 ? fileNames : undefined)
+    sendMessage(
+      trimmed,
+      fileNames.length > 0 ? fileNames : undefined,
+      currentChannelId,
+      currentPageId,
+      fileIds.length > 0 ? fileIds : undefined,
+    )
     setInput('')
     setShowMention(false)
   }
@@ -481,6 +529,16 @@ export function AISidePanel() {
   }
 
   const emptyPrompts = useMemo(() => {
+    if (currentPageId) return [
+      '이 문서를 요약해줘',
+      '이 문서의 핵심 포인트를 정리해줘',
+      '이 문서에 대해 질문해보세요',
+    ]
+    if (currentChannelId) return [
+      '이 채널을 요약해줘',
+      '이 채널에 누가 있어?',
+      '최근 논의 내용을 정리해줘',
+    ]
     if (!activeProject) return [
       '프로젝트에 대해 질문하세요',
       '코드 리뷰를 요청해보세요',
@@ -493,7 +551,7 @@ export function AISidePanel() {
       '프로젝트 전체 구조를 설명해줘',
       '버그가 있는 부분을 찾아줘',
     ]
-  }, [activeProject])
+  }, [activeProject, currentPageId, currentChannelId])
 
   return (
     <div className="flex h-full w-full flex-col bg-surface dark:bg-surface-dark">
@@ -568,6 +626,17 @@ export function AISidePanel() {
         </div>
       )}
 
+      {/* 컨텍스트 활성 배지 */}
+      {(currentChannelId || currentPageId) && activeTab === 'chat' && (
+        <div className="flex items-center gap-1.5 border-b border-violet-200 bg-violet-50 px-4 py-1 text-[11px] text-violet-600 dark:border-violet-800/50 dark:bg-violet-900/20 dark:text-violet-400">
+          <span className="h-1.5 w-1.5 rounded-full bg-violet-500" />
+          {currentPageId
+            ? <><FileText size={11} /><span>문서 컨텍스트 활성 중 — 열려 있는 문서 기반으로 답변합니다</span></>
+            : <><Hash size={11} /><span>채널 컨텍스트 활성 중 — 채널 메시지 기반으로 답변합니다</span></>
+          }
+        </div>
+      )}
+
       {/* 탭 콘텐츠 */}
       {activeTab === 'files' && <ProjectFilesView />}
 
@@ -638,7 +707,12 @@ export function AISidePanel() {
           {messages.length > 0 && (
             <div className="flex gap-1.5 overflow-x-auto px-4 pb-1">
               <Lightbulb size={12} className="mt-0.5 shrink-0 text-amber-400" />
-              {['이 문서 요약해줘', '마감 임박 작업 정리해줘', '코드 리뷰해줘'].map((suggestion) => (
+              {(currentPageId
+                ? ['이 문서 요약해줘', '이 문서 핵심 포인트 정리해줘', '코드 리뷰해줘']
+                : currentChannelId
+                ? ['이 채널 요약해줘', '이 채널에 누가 있어?', '마감 임박 작업 정리해줘']
+                : ['이 문서 요약해줘', '마감 임박 작업 정리해줘', '코드 리뷰해줘']
+              ).map((suggestion) => (
                 <button
                   key={suggestion}
                   onClick={() => {

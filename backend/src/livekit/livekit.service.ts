@@ -10,8 +10,14 @@ import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { AccessToken, RoomServiceClient, WebhookReceiver } from 'livekit-server-sdk';
 import { GroupMember } from '../groups/entities/group-member.entity';
+import { Channel } from '../channels/entities/channel.entity';
+import { ChannelMember } from '../channels/entities/channel-member.entity';
 import { Meeting } from '../meetings/entities/meeting.entity';
 import { MeetingParticipant } from '../meetings/entities/meeting-participant.entity';
+import { MeetingTranscript } from '../meetings/entities/meeting-transcript.entity';
+import { MeetingSummary } from '../meetings/entities/meeting-summary.entity';
+import { MeetingActionItem } from '../meetings/entities/meeting-action-item.entity';
+import { SummaryService } from '../meetings/summary.service';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -21,9 +27,15 @@ export class LiveKitService {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly summaryService: SummaryService,
     @InjectRepository(GroupMember) private readonly groupMemberRepo: Repository<GroupMember>,
+    @InjectRepository(Channel) private readonly channelRepo: Repository<Channel>,
+    @InjectRepository(ChannelMember) private readonly channelMemberRepo: Repository<ChannelMember>,
     @InjectRepository(Meeting) private readonly meetingRepo: Repository<Meeting>,
     @InjectRepository(MeetingParticipant) private readonly participantRepo: Repository<MeetingParticipant>,
+    @InjectRepository(MeetingTranscript) private readonly transcriptRepo: Repository<MeetingTranscript>,
+    @InjectRepository(MeetingSummary) private readonly summaryRepo: Repository<MeetingSummary>,
+    @InjectRepository(MeetingActionItem) private readonly actionItemRepo: Repository<MeetingActionItem>,
   ) {}
 
   async generateToken(
@@ -38,17 +50,29 @@ export class LiveKitService {
       throw new BadRequestException('유효하지 않은 roomName 형식입니다. voice-{id} 형식이어야 합니다.')
     }
 
-    // meetingId 기반 검증 우선 — meetings 테이블 조회
+    // 1순위: meetingId 기반 검증 — meetings 테이블 조회
     const meeting = await this.meetingRepo.findOne({ where: { id: extractedId } })
     if (meeting) {
       await this.assertMeetingAccess(meeting, extractedId, userId)
     } else {
-      // legacy fallback: voice-{groupId} 구조 — GroupMember 검증
-      const member = await this.groupMemberRepo.findOne({
-        where: { groupId: extractedId, userId },
-      })
-      if (!member) {
-        throw new ForbiddenException('해당 그룹에 접근할 권한이 없습니다.')
+      // 2순위: channelId 기반 검증 — channels → channel_members 조회
+      // ChannelHeader 음성채팅은 voice-{channelId} 형태를 사용하므로 여기서 처리
+      const channel = await this.channelRepo.findOne({ where: { id: extractedId } })
+      if (channel) {
+        const channelMember = await this.channelMemberRepo.findOne({
+          where: { channelId: extractedId, userId },
+        })
+        if (!channelMember) {
+          throw new ForbiddenException('해당 채널에 접근할 권한이 없습니다.')
+        }
+      } else {
+        // 3순위 legacy fallback: voice-{groupId} 구조 — GroupMember 검증
+        const member = await this.groupMemberRepo.findOne({
+          where: { groupId: extractedId, userId },
+        })
+        if (!member) {
+          throw new ForbiddenException('해당 그룹에 접근할 권한이 없습니다.')
+        }
       }
     }
 
@@ -239,7 +263,8 @@ export class LiveKitService {
 
   /**
    * room_finished 이벤트 처리 — 마지막 참가자가 나간 뒤 LiveKit 룸이 소멸.
-   * 아직 종료되지 않은 회의를 자동으로 ended 처리.
+   * 아직 종료되지 않은 회의를 자동으로 ended 처리하고, transcript가 있으면 Gemini 요약 생성.
+   * 이미 ended인 회의는 중복 처리하지 않는다 (idempotent).
    */
   private async handleRoomFinished(roomName: string): Promise<void> {
     if (!roomName.startsWith('voice-')) return
@@ -253,6 +278,89 @@ export class LiveKitService {
     meeting.endedAt = new Date()
     await this.meetingRepo.save(meeting)
     this.logger.log(`[Webhook] room_finished → 회의 자동 종료: meetingId=${meetingId}`)
+
+    // transcript가 있으면 Gemini 요약 생성 (실패해도 종료 처리에 영향 없음)
+    void this.generateAndSaveSummary(meetingId).catch((err) => {
+      this.logger.warn(
+        `[Webhook] 요약 생성 실패 (meetingId=${meetingId}): ${(err as Error).message}`,
+      )
+    })
+  }
+
+  /**
+   * webhook room_finished 경로 전용 요약 생성.
+   * MeetingsModule을 순환 참조 없이 재사용하기 위해 SummaryService + 필요 repo를 직접 주입.
+   * - 이미 summary가 존재하면 스킵 (API 경로와의 race condition 대비)
+   * - transcript가 없으면 스킵
+   * - Gemini 실패 시 placeholder 저장
+   */
+  private async generateAndSaveSummary(meetingId: string): Promise<void> {
+    // 이미 요약이 존재하면 중복 생성 방지
+    const existingSummary = await this.summaryRepo.findOne({ where: { meetingId } })
+    if (existingSummary) {
+      this.logger.log(`[Webhook] 요약 이미 존재 — 스킵: meetingId=${meetingId}`)
+      return
+    }
+
+    const transcripts = await this.transcriptRepo.find({
+      where: { meetingId },
+      order: { startTime: 'ASC' },
+    })
+    const fullText = transcripts
+      .map((t) => (t.speaker ? `[${t.speaker}] ${t.text}` : t.text))
+      .join('\n')
+
+    if (!fullText.trim()) {
+      this.logger.log(`[Webhook] transcript 없음 — 요약 생성 스킵: meetingId=${meetingId}`)
+      return
+    }
+
+    this.logger.log(
+      `[Webhook] Gemini 요약 생성 시작: meetingId=${meetingId} transcript ${fullText.trim().length}자`,
+    )
+
+    let aiResult: {
+      summary: string
+      keywords: string[]
+      actionItems: Array<{ title: string; assignee: string | null; dueDate: string | null }>
+    }
+    try {
+      aiResult = await this.summaryService.generateSummary(fullText)
+    } catch (err) {
+      this.logger.error(
+        `[Webhook] Gemini 요약 실패 — placeholder 저장: ${(err as Error).message}`,
+      )
+      aiResult = {
+        summary: '요약 생성 대기 중 (AI 처리 실패) — 잠시 후 다시 시도해주세요',
+        keywords: [],
+        actionItems: [],
+      }
+    }
+
+    await this.summaryRepo.save(
+      this.summaryRepo.create({
+        meetingId,
+        summary: aiResult.summary,
+        keywords: JSON.stringify(aiResult.keywords),
+      }),
+    )
+
+    if (aiResult.actionItems.length > 0) {
+      await this.actionItemRepo.save(
+        aiResult.actionItems.map((item) =>
+          this.actionItemRepo.create({
+            meetingId,
+            title: item.title,
+            assignee: item.assignee,
+            dueDate: item.dueDate,
+          }),
+        ),
+      )
+    }
+
+    this.logger.log(
+      `[Webhook] 요약 생성 완료: meetingId=${meetingId} actionItems=${aiResult.actionItems.length}개`,
+    )
   }
 
   // ── 게스트 토큰 ───────────────────────────────────────────────────────────────

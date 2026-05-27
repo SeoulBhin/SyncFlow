@@ -54,7 +54,7 @@ export function NewDMModal({ isOpen, onClose }: Props) {
     if (!isOpen || !activeOrgId) return
     setLoading(true)
     // JWT에서 직접 파싱한 userId를 우선 사용. 멀티탭 로그인으로 토큰이 바뀌어도 실제 요청자 ID와 일치.
-    const jwtUserId = parseJwtUserId(localStorage.getItem('accessToken'))
+    const jwtUserId = parseJwtUserId(sessionStorage.getItem('accessToken'))
     const selfId = jwtUserId ?? currentUserId
     api
       .get<OrgMember[]>(`/groups/${activeOrgId}/members`)
@@ -99,7 +99,7 @@ export function NewDMModal({ isOpen, onClose }: Props) {
     }
 
     // 멀티탭 오염 방지: 실제 JWT에서 파싱한 userId가 상대방과 같으면 요청 자체를 차단
-    const jwtUserId = parseJwtUserId(localStorage.getItem('accessToken'))
+    const jwtUserId = parseJwtUserId(sessionStorage.getItem('accessToken'))
     if (jwtUserId && jwtUserId === member.userId) {
       addToast('error', '자신과는 DM을 시작할 수 없습니다.')
       return

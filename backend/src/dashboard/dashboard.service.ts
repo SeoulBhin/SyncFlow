@@ -7,6 +7,9 @@ import { Meeting } from '../meetings/entities/meeting.entity';
 import { Message } from '../messages/entities/message.entity';
 import { Page } from '../pages/entities/page.entity';
 import { Project } from '../projects/entities/project.entity';
+import { Task } from '../tasks/entities/task.entity';
+import { User } from '../auth/entities/user.entity';
+import { GroupMember } from '../groups/entities/group-member.entity';
 
 @Injectable()
 export class DashboardService {
@@ -18,6 +21,9 @@ export class DashboardService {
     @InjectRepository(Message) private messageRepo: Repository<Message>,
     @InjectRepository(Page) private pageRepo: Repository<Page>,
     @InjectRepository(Project) private projectRepo: Repository<Project>,
+    @InjectRepository(Task) private taskRepo: Repository<Task>,
+    @InjectRepository(User) private userRepo: Repository<User>,
+    @InjectRepository(GroupMember) private groupMemberRepo: Repository<GroupMember>,
   ) {}
 
   async getDashboard(userId: string, orgId?: string) {
@@ -167,37 +173,87 @@ export class DashboardService {
     userId: string,
     q: string,
   ): Promise<Array<{ id: string; type: string; title: string; subtitle?: string; path?: string }>> {
-    if (!q.trim()) return []
-    const pattern = `%${q.trim()}%`
+    // q 가 비어있어도 사용자 관련 최근 항목을 반환해 검색 모달의 카테고리 탭이 의미있게 동작하게 한다.
+    const trimmed = q.trim()
+    const hasQuery = trimmed.length > 0
+    const pattern = hasQuery ? `%${trimmed}%` : null
 
-    const [channelRows, pageRows, projectRows] = await Promise.all([
-      // 채널: 사용자가 멤버인 채널(DM 제외)
-      this.memberRepo
-        .createQueryBuilder('cm')
-        .innerJoin('cm.channel', 'c')
-        .select(['c.id AS id', 'c.name AS name', 'c.description AS description'])
-        .where('cm.userId = :userId', { userId })
-        .andWhere("c.type != 'dm'")
-        .andWhere('LOWER(c.name) LIKE LOWER(:pattern)', { pattern })
-        .limit(10)
-        .getRawMany<{ id: string; name: string; description: string | null }>(),
+    const channelQb = this.memberRepo
+      .createQueryBuilder('cm')
+      .innerJoin('cm.channel', 'c')
+      .select(['c.id AS id', 'c.name AS name', 'c.description AS description'])
+      .where('cm.userId = :userId', { userId })
+      .andWhere("c.type != 'dm'")
+      .orderBy('c.createdAt', 'DESC')
+      .limit(10)
+    if (pattern) channelQb.andWhere('LOWER(c.name) LIKE LOWER(:pattern)', { pattern })
 
-      // 페이지: 사용자가 만든 페이지
-      this.pageRepo
-        .createQueryBuilder('p')
-        .select(['p.id AS id', 'p.title AS title', 'p.type AS type'])
-        .where('p.createdBy = :userId', { userId })
-        .andWhere('LOWER(p.title) LIKE LOWER(:pattern)', { pattern })
-        .limit(10)
-        .getRawMany<{ id: string; title: string; type: string }>(),
+    const pageQb = this.pageRepo
+      .createQueryBuilder('p')
+      .select(['p.id AS id', 'p.title AS title', 'p.type AS type'])
+      .where('p.createdBy = :userId', { userId })
+      .orderBy('p.updatedAt', 'DESC')
+      .limit(10)
+    if (pattern) pageQb.andWhere('LOWER(p.title) LIKE LOWER(:pattern)', { pattern })
 
-      // 프로젝트: 그룹 내 프로젝트
-      this.projectRepo
-        .createQueryBuilder('pr')
-        .select(['pr.id AS id', 'pr.name AS name', 'pr.description AS description'])
-        .where('LOWER(pr.name) LIKE LOWER(:pattern)', { pattern })
-        .limit(10)
-        .getRawMany<{ id: string; name: string; description: string | null }>(),
+    const projectQb = this.projectRepo
+      .createQueryBuilder('pr')
+      .select(['pr.id AS id', 'pr.name AS name', 'pr.description AS description'])
+      .orderBy('pr.createdAt', 'DESC')
+      .limit(10)
+    if (pattern) projectQb.andWhere('LOWER(pr.name) LIKE LOWER(:pattern)', { pattern })
+
+    // 작업: 사용자가 assignee 또는 creator
+    const taskQb = this.taskRepo
+      .createQueryBuilder('t')
+      .select(['t.id AS id', 't.title AS title', 't.status AS status', 't.dueDate AS "dueDate"'])
+      .where('(t.assigneeId = :userId OR t.createdBy = :userId)', { userId })
+      .orderBy('t.createdAt', 'DESC')
+      .limit(10)
+    if (pattern) taskQb.andWhere('LOWER(t.title) LIKE LOWER(:pattern)', { pattern })
+
+    // 회의: 사용자가 호스트 또는 참여한 회의 (간단히 host 기준 + 참여자 join)
+    const meetingQb = this.meetingRepo
+      .createQueryBuilder('m')
+      .select(['m.id AS id', 'm.title AS title', 'm.startedAt AS "startedAt"'])
+      .where('m.hostId = :userId', { userId })
+      .orderBy('m.createdAt', 'DESC')
+      .limit(10)
+    if (pattern) meetingQb.andWhere('LOWER(m.title) LIKE LOWER(:pattern)', { pattern })
+
+    // 멤버: 사용자가 속한 그룹의 다른 멤버
+    const memberQb = this.userRepo
+      .createQueryBuilder('u')
+      .select(['u.id AS id', 'u.name AS name', 'u.email AS email'])
+      .innerJoin(
+        'group_members',
+        'gm',
+        'gm.user_id = u.id AND gm.group_id IN (SELECT group_id FROM group_members WHERE user_id = :userId)',
+        { userId },
+      )
+      .where('u.id <> :userId', { userId })
+      .limit(15)
+    if (pattern) memberQb.andWhere('(LOWER(u.name) LIKE LOWER(:pattern) OR LOWER(u.email) LIKE LOWER(:pattern))', { pattern })
+
+    // 메시지: 사용자가 멤버인 채널의 메시지. 빈 쿼리에선 너무 많아 검색어 있을 때만 동작.
+    const messageQb = pattern
+      ? this.messageRepo
+          .createQueryBuilder('msg')
+          .select(['msg.id AS id', 'msg.content AS content', 'msg.channelId AS "channelId"', 'msg.authorName AS "authorName"'])
+          .innerJoin('channel_members', 'cm', 'cm.channel_id = msg.channel_id AND cm.user_id = :userId', { userId })
+          .where('LOWER(msg.content) LIKE LOWER(:pattern)', { pattern })
+          .orderBy('msg.createdAt', 'DESC')
+          .limit(10)
+      : null
+
+    const [channelRows, pageRows, projectRows, taskRows, meetingRows, memberRows, messageRows] = await Promise.all([
+      channelQb.getRawMany<{ id: string; name: string; description: string | null }>(),
+      pageQb.getRawMany<{ id: string; title: string; type: string }>(),
+      projectQb.getRawMany<{ id: string; name: string; description: string | null }>(),
+      taskQb.getRawMany<{ id: string; title: string; status: string; dueDate: string | null }>(),
+      meetingQb.getRawMany<{ id: string; title: string; startedAt: string | null }>(),
+      memberQb.getRawMany<{ id: string; name: string; email: string }>(),
+      messageQb ? messageQb.getRawMany<{ id: string; content: string; channelId: string; authorName: string }>() : Promise.resolve([]),
     ])
 
     const results: Array<{ id: string; type: string; title: string; subtitle?: string; path?: string }> = []
@@ -227,6 +283,48 @@ export class DashboardService {
         type: 'project',
         title: pr.name,
         subtitle: pr.description ?? undefined,
+      })
+    }
+
+    for (const t of taskRows) {
+      const subtitleParts: string[] = []
+      if (t.status) subtitleParts.push(t.status)
+      if (t.dueDate) subtitleParts.push(`마감 ${t.dueDate}`)
+      results.push({
+        id: t.id,
+        type: 'task',
+        title: t.title,
+        subtitle: subtitleParts.join(' · ') || undefined,
+        path: '/app/tasks',
+      })
+    }
+
+    for (const m of meetingRows) {
+      results.push({
+        id: m.id,
+        type: 'meeting',
+        title: m.title,
+        subtitle: m.startedAt ? new Date(m.startedAt).toLocaleDateString('ko-KR') : undefined,
+        path: `/app/meetings/${m.id}/summary`,
+      })
+    }
+
+    for (const u of memberRows) {
+      results.push({
+        id: u.id,
+        type: 'member',
+        title: u.name,
+        subtitle: u.email,
+      })
+    }
+
+    for (const msg of messageRows) {
+      results.push({
+        id: msg.id,
+        type: 'message',
+        title: msg.content.length > 60 ? msg.content.slice(0, 60) + '…' : msg.content,
+        subtitle: msg.authorName ? `${msg.authorName} · 메시지` : '메시지',
+        path: `/app/channel/${msg.channelId}`,
       })
     }
 

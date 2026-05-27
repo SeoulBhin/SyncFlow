@@ -78,14 +78,14 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
   const { openPanel } = useDetailPanelStore()
   const { openPanel: openAI, sendMessage } = useAIStore()
 
-  // debounced API 검색
+  // debounced API 검색 — 모달이 열려있을 때만 동작. 빈 query 여도 fetch 해서 카테고리 탭이
+  // 의미있게 동작하도록 한다 (백엔드가 최근 항목 반환).
   useEffect(() => {
+    if (!isOpen) return
     if (debounceRef.current) clearTimeout(debounceRef.current)
     const q = query.trim()
-    if (!q) {
-      setApiResults([])
-      return
-    }
+    // 빈 query 는 즉시 fetch, 입력 중에는 300ms debounce
+    const delay = q.length === 0 ? 0 : 300
     debounceRef.current = setTimeout(() => {
       apiFetch(`/api/dashboard/search?q=${encodeURIComponent(q)}`)
         .then((res) => (res.ok ? res.json() : []))
@@ -101,11 +101,11 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
           )
         })
         .catch(() => setApiResults([]))
-    }, 300)
+    }, delay)
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current)
     }
-  }, [query])
+  }, [query, isOpen])
 
   // AI 쿼리 감지: ?로 끝나거나 한국어 질문 패턴
   const isAIQuery = useMemo(() => {
@@ -275,7 +275,11 @@ export function SearchModal({ isOpen, onClose }: SearchModalProps) {
             <div className="flex flex-col items-center gap-2 py-12 text-neutral-400">
               <Search size={32} />
               <p className="text-sm">
-                {query ? `"${query}"에 대한 결과가 없습니다` : '검색어를 입력하세요'}
+                {query
+                  ? `"${query}"에 대한 결과가 없습니다`
+                  : category === 'all'
+                    ? '검색어를 입력하거나 카테고리를 선택하세요'
+                    : `이 카테고리에 표시할 ${CATEGORY_TABS.find((t) => t.key === category)?.label ?? '항목'}이 없습니다`}
               </p>
             </div>
           ) : (

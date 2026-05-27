@@ -168,4 +168,34 @@ export class MessagesController {
     });
     return reactions;
   }
+
+  /** GET /api/messages/bookmarks — 내 저장 메시지 목록 */
+  @Get('messages/bookmarks')
+  getBookmarks(@CurrentUser() user: CurrentUserPayload) {
+    return this.messagesService.getBookmarks(user.userId);
+  }
+
+  /** POST /api/messages/:messageId/bookmark — 메시지 저장 */
+  @Post('messages/:messageId/bookmark')
+  async bookmarkMessage(
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const channelId = await this.messagesService.getChannelIdByMessage(messageId);
+    await this.channelsService.ensureMember(channelId, user.userId);
+    await this.messagesService.bookmarkMessage(user.userId, messageId);
+    return { success: true };
+  }
+
+  /** DELETE /api/messages/:messageId/bookmark — 메시지 저장 해제 */
+  @Delete('messages/:messageId/bookmark')
+  async unbookmarkMessage(
+    @Param('messageId') messageId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    const channelId = await this.messagesService.getChannelIdByMessage(messageId);
+    await this.channelsService.ensureMember(channelId, user.userId);
+    await this.messagesService.unbookmarkMessage(user.userId, messageId);
+    return { success: true };
+  }
 }

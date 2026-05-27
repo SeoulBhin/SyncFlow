@@ -8,6 +8,7 @@ import type {
   ApiMeetingTranscript,
   EndMeetingResponse,
   LeaveMeetingResponse,
+  RegenerateSummaryResponse,
   UploadAudioResponse,
 } from '@/types'
 
@@ -106,6 +107,8 @@ interface MeetingState {
   ) => Promise<LeaveMeetingResponse>
   setCurrentMeeting: (meeting: ApiMeeting) => void
   refreshCurrentMeeting: (meetingId: string) => Promise<void>
+  setAiNotes: (notes: string[]) => void
+  regenerateSummary: (meetingId: string) => Promise<RegenerateSummaryResponse>
 }
 
 // ── 헬퍼 ──────────────────────────────────────────────────────────────────────
@@ -210,6 +213,11 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
   addRealtimeTranscript: (entry) =>
     set((s) => {
+      // 같은 transcript id 중복 추가 방지 — 동일 broadcast 가 두 번 도착해도 한 번만 반영.
+      // (socket 이 여러 개여서 같은 room 으로 broadcast 두 번 수신되는 경우 등에 대비)
+      if (s.currentTranscripts.some((t) => t.id === entry.id)) {
+        return s
+      }
       const next = [...s.currentTranscripts, entry]
       return {
         currentTranscripts: next,
@@ -227,10 +235,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   // ── API 액션 ───────────────────────────────────────────────────────────────
 
   createMeeting: async (title, opts) => {
-    // localStorage.accessToken의 JWT sub와 authStore.user.id가 다르면 fetchMe로 동기화.
+    // sessionStorage.accessToken의 JWT sub와 authStore.user.id가 다르면 fetchMe로 동기화.
     // 다중 탭 환경에서 다른 계정의 token refresh가 localStorage를 오염시켰을 때 hostId 역전을 방지.
     const authUser = useAuthStore.getState().user
-    const rawToken = localStorage.getItem('accessToken')
+    const rawToken = sessionStorage.getItem('accessToken')
     if (authUser && rawToken) {
       try {
         const payload = JSON.parse(atob(rawToken.split('.')[1])) as { sub?: string }
@@ -294,7 +302,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       const xhr = new XMLHttpRequest()
       xhr.open('POST', `/api/meetings/${meetingId}/audio`)
 
-      const token = localStorage.getItem('accessToken')
+      const token = sessionStorage.getItem('accessToken')
       if (token) xhr.setRequestHeader('Authorization', `Bearer ${token}`)
 
       xhr.upload.addEventListener('progress', (e) => {
@@ -481,6 +489,22 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       console.warn('[Meeting] refreshCurrentMeeting 실패', err)
       // 네트워크 실패 시 무시 — 다음 ParticipantDisconnected에서 재시도
     }
+  },
+
+  setAiNotes: (notes) => set({ aiNotes: notes }),
+
+  regenerateSummary: async (meetingId) => {
+    const data = await apiJson<RegenerateSummaryResponse>(
+      `/api/meetings/${meetingId}/summary/regenerate`,
+      { method: 'POST', body: JSON.stringify({}) },
+    )
+    set((s) => ({
+      currentSummary: data.summary,
+      currentActionItems: data.actionItems,
+      meetings: s.meetings.map((m) => (m.id === data.meeting.id ? data.meeting : m)),
+      actionItems: toActionItems(data.actionItems),
+    }))
+    return data
   },
 
   confirmActionItems: async (meetingId, actionItemIds) => {

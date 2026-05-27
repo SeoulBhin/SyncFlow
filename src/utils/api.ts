@@ -15,7 +15,7 @@ async function tryRefreshToken(): Promise<string | null> {
       const data = (await res.json()) as { accessToken?: string }
       const token = data.accessToken
       if (token) {
-        localStorage.setItem('accessToken', token)
+        sessionStorage.setItem('accessToken', token)
         return token
       }
       return null
@@ -33,7 +33,7 @@ export async function apiRequest<T>(
   options: RequestInit = {},
   _retried = false,
 ): Promise<T> {
-  const token = localStorage.getItem('accessToken')
+  const token = sessionStorage.getItem('accessToken')
 
   const res = await fetch(`${BASE_URL}${path}`, {
     ...options,
@@ -50,7 +50,7 @@ export async function apiRequest<T>(
     if (newToken) {
       return apiRequest<T>(path, options, true)
     }
-    localStorage.removeItem('accessToken')
+    sessionStorage.removeItem('accessToken')
     // 순환 의존성(api ↔ useAuthStore) 없이 스토어에 세션 만료를 전파한다.
     window.dispatchEvent(new CustomEvent('auth:session-expired'))
     throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.')

@@ -59,7 +59,7 @@ export function RegisterPage() {
         email: v.email,
         password: v.password,
       })
-      localStorage.setItem('accessToken', accessToken)
+      sessionStorage.setItem('accessToken', accessToken)
       const user = await api.get<{ id: string; name: string; email: string; avatarUrl?: string }>('/auth/me')
       login({ id: user.id, name: user.name, email: user.email, avatar: user.avatarUrl ?? undefined }, accessToken)
       addToast('success', '회원가입이 완료되었습니다!')

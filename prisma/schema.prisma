@@ -40,6 +40,7 @@ model User {
   payments        Payment[]
   notifications   Notification[]
   fileUploads     FileUpload[]
+  savedMessages   SavedMessage[]
 
   @@index([email])
   @@map("users")
@@ -86,11 +87,11 @@ model Group {
   visibility      String   @default("public") @db.VarChar(10)
   isExternal      Boolean  @default(false) @map("is_external")
   connectedOrgIds String[] @default([]) @map("connected_org_ids") @db.Uuid
-  createdBy       String   @map("created_by") @db.Uuid
+  createdBy       String?  @map("created_by") @db.Uuid
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt       DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  creator      User          @relation("CreatedGroups", fields: [createdBy], references: [id])
+  creator      User?         @relation("CreatedGroups", fields: [createdBy], references: [id], onDelete: SetNull)
   members      GroupMember[]
   inviteCodes  InviteCode[]
   projects     Project[]
@@ -182,15 +183,16 @@ model Page {
   content     Json?
   language    String?  @db.VarChar(20)
   sortOrder   Int      @default(0) @map("sort_order")
-  createdBy   String   @map("created_by") @db.Uuid
+  createdBy   String?  @map("created_by") @db.Uuid
   createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   project     Project       @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  creator     User          @relation(fields: [createdBy], references: [id])
+  creator     User?         @relation(fields: [createdBy], references: [id], onDelete: SetNull)
   versions    PageVersion[]
   embeddings  Embedding[]
   fileUploads FileUpload[]
+  attachments Attachment[]
 
   @@index([projectId])
   @@map("pages")
@@ -201,11 +203,11 @@ model PageVersion {
   id        Int      @id @default(autoincrement())
   pageId    String   @map("page_id") @db.Uuid
   content   Json
-  createdBy String   @map("created_by") @db.Uuid
+  createdBy String?  @map("created_by") @db.Uuid
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  page    Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
-  creator User @relation(fields: [createdBy], references: [id])
+  page    Page  @relation(fields: [pageId], references: [id], onDelete: Cascade)
+  creator User? @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([pageId])
   @@map("page_versions")
@@ -215,13 +217,18 @@ model PageVersion {
 model Task {
   id                 String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   projectId          String?   @map("project_id") @db.Uuid
+  groupId            String?   @map("group_id") @db.Uuid
+  parentTaskId       String?   @map("parent_task_id") @db.Uuid
   title              String    @db.VarChar(300)
   description        String?
   status             String    @default("todo") @db.VarChar(20)
   priority           String    @default("medium") @db.VarChar(10)
   assigneeId         String?   @map("assignee_id") @db.Uuid
   assignee           String?   @db.VarChar(100)
+  startDate          DateTime? @map("start_date") @db.Date
   dueDate            DateTime? @map("due_date") @db.Date
+  tags               Json?
+  completedAt        DateTime? @map("completed_at") @db.Timestamptz
   sortOrder          Int       @default(0) @map("sort_order")
   sourceMeetingId    String?   @map("source_meeting_id") @db.Uuid
   sourceActionItemId String?   @map("source_action_item_id") @db.Uuid
@@ -229,32 +236,97 @@ model Task {
   createdAt          DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt          DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project   Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  assigneeUser User? @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
-  creator   User?    @relation("CreatedTasks", fields: [createdBy], references: [id])
+  project           Project?              @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  assigneeUser      User?                 @relation("AssignedTasks", fields: [assigneeId], references: [id], onDelete: SetNull)
+  creator           User?                 @relation("CreatedTasks", fields: [createdBy], references: [id], onDelete: SetNull)
+  assignees         TaskAssignee[]
+  customFieldValues CustomFieldValue[]
+  parentTask        Task?                 @relation("TaskSubtasks", fields: [parentTaskId], references: [id], onDelete: Cascade)
+  subtasks          Task[]                @relation("TaskSubtasks")
 
   @@index([projectId])
   @@index([assigneeId])
   @@index([sourceMeetingId])
+  @@index([groupId])
+  @@index([parentTaskId])
   @@map("tasks")
+}
+
+// 11-2. Custom Field Definitions (프로젝트별 커스텀 필드 정의)
+model CustomFieldDefinition {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId String   @map("project_id") @db.Uuid
+  name      String   @db.VarChar(100)
+  type      String   @db.VarChar(20)
+  options   Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  values CustomFieldValue[]
+
+  @@index([projectId])
+  @@map("custom_field_definitions")
+}
+
+// 11-3. Custom Field Values (task ↔ field 값 매핑)
+model CustomFieldValue {
+  id        Int      @id @default(autoincrement())
+  taskId    String   @map("task_id") @db.Uuid
+  fieldId   String   @map("field_id") @db.Uuid
+  value     Json?
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  task  Task                  @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  field CustomFieldDefinition @relation(fields: [fieldId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, fieldId])
+  @@index([taskId])
+  @@index([fieldId])
+  @@map("custom_field_values")
+}
+
+// 11-1. Task Assignees (다중 담당자 매핑 — TypeORM TaskAssignee 와 1:1 매핑)
+model TaskAssignee {
+  id         Int      @id @default(autoincrement())
+  taskId     String   @map("task_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  assignedAt DateTime @default(now()) @map("assigned_at") @db.Timestamptz
+
+  task Task @relation(fields: [taskId], references: [id], onDelete: Cascade)
+
+  @@unique([taskId, userId])
+  @@index([taskId])
+  @@index([userId])
+  @@map("task_assignees")
 }
 
 // 12. Schedules
 model Schedule {
-  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  projectId   String   @map("project_id") @db.Uuid
-  title       String   @db.VarChar(300)
-  startDate   DateTime @map("start_date") @db.Timestamptz
-  endDate     DateTime @map("end_date") @db.Timestamptz
-  allDay      Boolean  @default(false) @map("all_day")
-  createdBy   String   @map("created_by") @db.Uuid
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+  id          String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  projectId   String?   @map("project_id") @db.Uuid
+  groupId     String?   @map("group_id") @db.Uuid
+  taskId      String?   @map("task_id") @db.Uuid
+  meetingId   String?   @map("meeting_id") @db.Uuid
+  title       String    @db.VarChar(300)
+  description String?
+  startAt     DateTime? @map("start_at") @db.Timestamptz
+  endAt       DateTime? @map("end_at") @db.Timestamptz
+  allDay      Boolean   @default(false) @map("all_day")
+  repeat      String    @default("none") @db.VarChar(20)
+  color       String?   @db.VarChar(20)
+  location    String?   @db.VarChar(300)
+  attendees   Json?
+  createdBy   String?   @map("created_by") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  project Project @relation(fields: [projectId], references: [id], onDelete: Cascade)
-  creator User    @relation(fields: [createdBy], references: [id])
+  project Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  creator User?    @relation(fields: [createdBy], references: [id], onDelete: SetNull)
 
   @@index([projectId])
+  @@index([groupId])
+  @@index([createdBy])
   @@map("schedules")
 }
 
@@ -298,7 +370,7 @@ model ChannelMember {
 model Message {
   id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   channelId  String   @map("channel_id") @db.Uuid
-  userId     String   @map("user_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
   authorName String   @default("") @map("author_name") @db.VarChar(100)
   content    String   @db.Text
   type       String   @default("text") @db.VarChar(10)
@@ -311,11 +383,12 @@ model Message {
   updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   channel     Channel           @relation(fields: [channelId], references: [id], onDelete: Cascade)
-  user        User              @relation(fields: [userId], references: [id])
+  user        User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
   parent      Message?          @relation("Replies", fields: [parentId], references: [id], onDelete: SetNull)
   replies     Message[]         @relation("Replies")
   reactions   MessageReaction[]
   fileUploads FileUpload[]
+  savedBy     SavedMessage[]
 
   @@index([channelId, createdAt])
   @@map("messages")
@@ -355,6 +428,7 @@ model Meeting {
   summary      MeetingSummary?
   actionItems  MeetingActionItem[]
   participants MeetingParticipant[]
+  guestInvites MeetingGuestInvite[]
 
   @@map("meetings")
 }
@@ -493,7 +567,7 @@ model Subscription {
 // 26. Payments
 model Payment {
   id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId          String   @map("user_id") @db.Uuid
+  userId          String?  @map("user_id") @db.Uuid
   subscriptionId  String?  @map("subscription_id") @db.Uuid
   amount          Int
   currency        String   @default("KRW") @db.VarChar(3)
@@ -503,7 +577,7 @@ model Payment {
   pgTransactionId String?  @map("pg_transaction_id") @db.VarChar(100)
   createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  user         User          @relation(fields: [userId], references: [id])
+  user         User?         @relation(fields: [userId], references: [id], onDelete: SetNull)
   subscription Subscription? @relation(fields: [subscriptionId], references: [id])
 
   @@index([userId])
@@ -530,7 +604,7 @@ model Notification {
 // 28. File Uploads
 model FileUpload {
   id           String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  userId       String   @map("user_id") @db.Uuid
+  userId       String?  @map("user_id") @db.Uuid
   originalName String   @map("original_name") @db.VarChar(300)
   storedPath   String   @map("stored_path")
   mimeType     String?  @map("mime_type") @db.VarChar(100)
@@ -539,10 +613,101 @@ model FileUpload {
   messageId    String?  @map("message_id") @db.Uuid
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
-  user    User     @relation(fields: [userId], references: [id])
+  user    User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
   page    Page?    @relation(fields: [pageId], references: [id], onDelete: SetNull)
   message Message? @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
   @@index([pageId])
   @@map("file_uploads")
+}
+
+// 29. Meeting Guest Invites
+model MeetingGuestInvite {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  token     String   @unique @db.VarChar(64)
+  meetingId String   @map("meeting_id") @db.Uuid
+  createdBy String   @map("created_by") @db.Uuid
+  expiresAt DateTime @map("expires_at") @db.Timestamptz
+  maxUses   Int?     @map("max_uses")
+  useCount  Int      @default(0) @map("use_count")
+  isRevoked Boolean  @default(false) @map("is_revoked")
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  meeting Meeting @relation(fields: [meetingId], references: [id], onDelete: Cascade)
+
+  @@index([meetingId])
+  @@map("meeting_guest_invites")
+}
+
+// 30. Saved Messages (북마크)
+model SavedMessage {
+  id        String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  userId    String   @map("user_id") @db.Uuid
+  messageId String   @map("message_id") @db.Uuid
+  savedAt   DateTime @default(now()) @map("saved_at") @db.Timestamptz
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, messageId])
+  @@index([userId])
+  @@index([messageId])
+  @@map("saved_messages")
+}
+
+// 32. AI Chat History (TypeORM AiChatHistory 와 1:1 — CreateDateColumn 기본 timestamp)
+model AiChatHistory {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  sessionId  String   @map("session_id") @db.Uuid
+  userId     String   @map("user_id") @db.Uuid
+  groupId    String?  @map("group_id") @db.Uuid
+  channelId  String?  @map("channel_id") @db.Uuid
+  role       String   @db.VarChar(10)
+  content    String
+  sourceIds  Json?    @map("source_ids")
+  tokenCount Int?     @map("token_count")
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+
+  @@index([sessionId])
+  @@index([userId])
+  @@index([groupId])
+  @@map("ai_chat_history")
+}
+
+// 33. AI Knowledge (RAG 임베딩 청크)
+model AiKnowledge {
+  id         String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  groupId    String?  @map("group_id") @db.Uuid
+  sourceType String   @map("source_type") @db.VarChar(20)
+  sourceId   String?  @map("source_id") @db.Uuid
+  title      String?  @db.VarChar(500)
+  content    String
+  embedding  String?
+  chunkIndex Int      @default(0) @map("chunk_index")
+  metadata   Json?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamp(6)
+  updatedAt  DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamp(6)
+
+  @@index([groupId])
+  @@map("ai_knowledge")
+}
+
+// 31. Attachments (문서 페이지 첨부파일)
+// TypeORM Entity(backend/src/document/entities/attachment.entity.ts)와 동작 호환을 위해
+// 컬럼명을 camelCase 그대로 사용 — 다른 모델의 snake_case 컨벤션과 다름.
+model Attachment {
+  id         String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  pageId     String    @db.Uuid
+  filename   String    @db.VarChar(255)
+  url        String    @db.Text
+  mimeType   String?   @db.VarChar(100)
+  size       BigInt
+  uploadedBy String?   @db.Uuid
+  createdAt  DateTime  @default(now()) @db.Timestamp(6)
+  deletedAt  DateTime? @db.Timestamp(6)
+
+  page Page @relation(fields: [pageId], references: [id], onDelete: Cascade)
+
+  @@index([pageId])
+  @@map("attachments")
 }

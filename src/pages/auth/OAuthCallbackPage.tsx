@@ -5,6 +5,9 @@ import { useToastStore } from '@/stores/useToastStore'
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
+const isSafeAppRedirect = (value: string | null): value is string =>
+  !!value && (value === '/app' || value.startsWith('/app/'))
+
 export function OAuthCallbackPage() {
   const navigate = useNavigate()
   const login = useAuthStore((s) => s.login)
@@ -36,7 +39,9 @@ export function OAuthCallbackPage() {
           accessToken,
         )
         addToast('success', `${user.name}님, 환영합니다!`)
-        navigate('/app')
+        const savedRedirect = sessionStorage.getItem('oauth_redirect')
+        sessionStorage.removeItem('oauth_redirect')
+        navigate(isSafeAppRedirect(savedRedirect) ? savedRedirect : '/app', { replace: true })
       })
       .catch(() => {
         setStatus('error')

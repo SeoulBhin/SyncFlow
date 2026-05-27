@@ -62,23 +62,22 @@ export const MOCK_GROUPS = MOCK_CHANNELS.filter((c) => c.orgId === 'org1').map((
 
 export interface MockProject {
   id: string
+  groupId: string
   name: string
-  description?: string
-  groupId?: string
+  description: string
   dueDate?: string
-  progress?: number
-  pageCount?: number
-  memberCount?: number
-}
-
-export interface MockPage {
-  id: string
-  name: string
-  projectId: string
-  type: 'doc' | 'code'
 }
 
 export const MOCK_PROJECTS: MockProject[] = []
+
+export interface MockPage {
+  id: string
+  projectId: string
+  name: string
+  type: 'doc' | 'code'
+  title?: string
+  updatedAt?: string
+}
 
 export const MOCK_PAGES: MockPage[] = []
 
@@ -89,7 +88,16 @@ export const MOCK_RECENT_PAGES: MockPage[] = []
 export type TaskPriority = 'urgent' | 'high' | 'normal' | 'low'
 export type TaskStatus = 'todo' | 'in-progress' | 'done'
 
-export const MOCK_MY_TASKS: MockTask[] = []
+export interface MockMyTask {
+  id: string
+  title: string
+  status: TaskStatus
+  priority: TaskPriority
+  dueDate?: string
+  assignee?: string
+}
+
+export const MOCK_MY_TASKS: MockMyTask[] = []
 
 /* ── 채팅 채널 목업 데이터 ── */
 
@@ -304,14 +312,7 @@ export const MOCK_MILESTONES: MockMilestone[] = []
 
 export const MOCK_PASSWORD = ''
 
-export interface MockUser {
-  id: string
-  name: string
-  email?: string
-  avatar?: string
-}
-
-export const MOCK_USERS: MockUser[] = []
+export const MOCK_USERS: MockOrgMember[] = []
 
 /* ── 회의 목업 데이터 ── */
 

@@ -13,6 +13,7 @@ import {
   Trash2,
   ArrowUpRight,
   Loader2,
+  RefreshCw,
 } from 'lucide-react'
 import { Card } from '@/components/common/Card'
 import { useToastStore } from '@/stores/useToastStore'
@@ -73,6 +74,7 @@ export function MeetingSummaryPage() {
   const loadMeeting = useMeetingStore((s) => s.loadMeeting)
   const confirmActionItems = useMeetingStore((s) => s.confirmActionItems)
   const updateActionItem = useMeetingStore((s) => s.updateActionItem)
+  const regenerateSummary = useMeetingStore((s) => s.regenerateSummary)
   const refreshTasks = useTasksStore((s) => s.refresh)
   const authUser = useAuthStore((s) => s.user)
 
@@ -80,6 +82,7 @@ export function MeetingSummaryPage() {
   const [reviewItems, setReviewItems] = useState<ReviewItem[]>([])
   const [registeredIds, setRegisteredIds] = useState<Set<string>>(new Set())
   const [isPolling, setIsPolling] = useState(false)
+  const [isRegenerating, setIsRegenerating] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   // 트랜스크립트 화자 이름 목록 + 현재 로그인 유저로 담당자 드롭다운 구성
@@ -114,7 +117,7 @@ export function MeetingSummaryPage() {
 
     setIsPolling(true)
     let attempts = 0
-    const MAX_ATTEMPTS = 10
+    const MAX_ATTEMPTS = 20
 
     pollRef.current = setInterval(() => {
       attempts++
@@ -219,6 +222,19 @@ export function MeetingSummaryPage() {
         'error',
         err instanceof Error ? err.message : '작업 등록 중 오류가 발생했습니다',
       )
+    }
+  }
+
+  const handleRegenerate = async () => {
+    if (!id || isRegenerating) return
+    setIsRegenerating(true)
+    try {
+      await regenerateSummary(id)
+      addToast('success', 'AI 회의 요약이 재생성되었습니다')
+    } catch (err) {
+      addToast('error', err instanceof Error ? err.message : '요약 재생성에 실패했습니다')
+    } finally {
+      setIsRegenerating(false)
     }
   }
 
@@ -344,11 +360,23 @@ export function MeetingSummaryPage() {
           {/* AI 요약 */}
           {summary ? (
             <Card>
-              <div className="mb-3 flex items-center gap-2">
-                <FileText size={16} className="text-primary-500" />
-                <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
-                  AI 회의 요약
-                </h2>
+              <div className="mb-3 flex items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <FileText size={16} className="text-primary-500" />
+                  <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-200">
+                    AI 회의 요약
+                  </h2>
+                </div>
+                {transcripts.length > 0 && (
+                  <button
+                    onClick={() => void handleRegenerate()}
+                    disabled={isRegenerating}
+                    className="flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-neutral-500 transition-colors hover:bg-neutral-100 hover:text-neutral-700 disabled:cursor-not-allowed disabled:opacity-50 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-200"
+                  >
+                    <RefreshCw size={12} className={isRegenerating ? 'animate-spin' : ''} />
+                    요약 다시 생성
+                  </button>
+                )}
               </div>
               <p className="text-sm leading-relaxed text-neutral-600 dark:text-neutral-300">
                 {summary.summary}
@@ -359,9 +387,14 @@ export function MeetingSummaryPage() {
             <Card>
               <div className="flex items-center gap-3 py-2">
                 <FileText size={18} className="shrink-0 text-neutral-400" />
-                <p className="text-sm text-neutral-500 dark:text-neutral-400">
-                  회의 내용이 없어 AI 회의록을 생성하지 않았습니다.
-                </p>
+                <div>
+                  <p className="text-sm text-neutral-500 dark:text-neutral-400">
+                    회의 중 기록된 발화가 없어 AI 회의록을 생성하지 않았습니다.
+                  </p>
+                  <p className="mt-1 text-xs text-neutral-400">
+                    STT를 켜고 발화가 인식된 경우에만 요약이 생성됩니다.
+                  </p>
+                </div>
               </div>
             </Card>
           ) : meeting?.status === 'ended' && isPolling ? (

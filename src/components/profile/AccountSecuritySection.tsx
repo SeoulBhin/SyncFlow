@@ -13,7 +13,7 @@ import { useAuthStore } from '@/stores/useAuthStore'
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
 function getAccessToken(): string | null {
-  return typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null
+  return typeof window !== 'undefined' ? sessionStorage.getItem('accessToken') : null
 }
 
 /* ─── 비밀번호 변경 ─── */

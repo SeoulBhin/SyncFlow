@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import { apiJson } from '@/lib/api'
 import type { ApiTask, ApiTaskStatus } from '@/types'
+import { useGroupContextStore } from './useGroupContextStore'
 
 interface TasksState {
   tasks: ApiTask[]
@@ -43,9 +44,18 @@ export const useTasksStore = create<TasksState>((set, get) => ({
   error: null,
 
   loadAll: async () => {
+    // 사이드바의 "조직" = 백엔드 group_id 와 매핑됨 (activeOrgId).
+    // activeGroupId 는 채널 ID 보관용이라 여기서 사용하지 않는다.
+    const activeOrgId = useGroupContextStore.getState().activeOrgId
+    if (!activeOrgId) {
+      set({ tasks: [], isLoading: false, error: null })
+      return
+    }
     set({ isLoading: true, error: null })
     try {
-      const tasks = await apiJson<ApiTask[]>('/api/tasks')
+      const tasks = await apiJson<ApiTask[]>(
+        `/api/tasks?groupId=${encodeURIComponent(activeOrgId)}`,
+      )
       set({ tasks, isLoading: false })
     } catch (err) {
       set({

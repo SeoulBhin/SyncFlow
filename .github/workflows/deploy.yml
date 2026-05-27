@@ -27,8 +27,8 @@ jobs:
       - name: Install root deps
         run: npm install --no-audit --no-fund
 
-      - name: Build frontend
-        run: npx vite build
+      - name: Build frontend (tsc -b + vite build)
+        run: npm run build
 
       # ────────── Backend ──────────
       - name: Install backend deps
@@ -99,9 +99,10 @@ jobs:
       - name: Smoke test
         run: |
           sleep 3
-          echo "▶ Backend API check"
-          curl -fsS http://$VM_HOST/api || (echo "Backend FAIL" && exit 1)
+          BASE=https://syncflow.ai.kr
+          echo "▶ Backend API check ($BASE/api/health)"
+          curl -fsS "$BASE/api/health" || (echo "Backend FAIL" && exit 1)
           echo
-          echo "▶ Frontend check"
-          curl -fsS -o /dev/null http://$VM_HOST/ && echo "Frontend OK" || (echo "Frontend FAIL" && exit 1)
+          echo "▶ Frontend check ($BASE/)"
+          curl -fsS -o /dev/null "$BASE/" && echo "Frontend OK" || (echo "Frontend FAIL" && exit 1)
           echo "✓ Deployment successful"

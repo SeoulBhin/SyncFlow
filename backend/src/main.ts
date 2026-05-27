@@ -1,7 +1,9 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { raw } from 'express';
 import * as path from 'path';
+import express from 'express';
 import { AppModule } from './app.module';
 import { AuthService } from './auth/auth.service';
 import cookieParser from 'cookie-parser';
@@ -9,6 +11,10 @@ import cookieParser from 'cookie-parser';
 async function bootstrap() {
   // rawBody: true — LiveKit Webhook 서명 검증 시 WebhookReceiver.receive에 raw body 전달 필요
   const app = await NestFactory.create<NestExpressApplication>(AppModule, { rawBody: true });
+
+  // LiveKit이 'application/webhook+json' content-type을 보내면 NestJS 기본 rawBody가 비어 들어옴
+  // → webhook 경로만 어떤 content-type이든 raw Buffer로 받도록 명시적으로 등록
+  app.use('/api/livekit/webhook', raw({ type: '*/*' }));
 
   // Static file serving for uploaded files (bypasses /api global prefix)
   app.useStaticAssets(path.join(process.cwd(), 'uploads'), {

@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { io, type Socket } from 'socket.io-client'
 import {
   Mic,
   MicOff,
@@ -19,7 +18,9 @@ import {
   Loader2,
   FolderOpen,
   Link2,
+  UserPlus,
   ChevronRight,
+  MoreHorizontal,
 } from 'lucide-react'
 import { RoomEvent } from 'livekit-client'
 import { room } from '@/lib/livekitRoom'
@@ -30,6 +31,7 @@ import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 import { useEndMeetingAction } from '@/hooks/useEndMeetingAction'
 import { MeetingParticipants } from '@/components/meeting/MeetingParticipants'
 import { MeetingTranscript } from '@/components/meeting/MeetingTranscript'
@@ -47,12 +49,6 @@ function formatTime(seconds: number) {
   if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
-
-function makeRoomName(groupId: string) {
-  return `voice-${groupId}`
-}
-
-
 
 export function MeetingRoomPage() {
   const { id: meetingId } = useParams<{ id: string }>()
@@ -164,15 +160,33 @@ export function MeetingRoomPage() {
   }, [mediaItemKey]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const moreMenuRef = useRef<HTMLDivElement>(null)
   const [isUploading, setIsUploading] = useState(false)
+  const [showMoreMenu, setShowMoreMenu] = useState(false)
+
+  useEffect(() => {
+    if (!showMoreMenu) return
+    function handleOutsideClick(e: MouseEvent) {
+      if (moreMenuRef.current && !moreMenuRef.current.contains(e.target as Node)) {
+        setShowMoreMenu(false)
+      }
+    }
+    document.addEventListener('mousedown', handleOutsideClick)
+    return () => document.removeEventListener('mousedown', handleOutsideClick)
+  }, [showMoreMenu])
   const uploadProgress = useMeetingStore((s) => s.uploadProgress)
-  const addRealtimeTranscript = useMeetingStore((s) => s.addRealtimeTranscript)
+  // addRealtimeTranscript / setAiNotes 는 useMeetingSessionStore 내부에서 호출됨
   const joinMeetingApiAction = useMeetingStore((s) => s.joinMeetingApi)
   const connectVoiceChat = useVoiceChatStore((s) => s.connect)
 
-  const sttSocketRef = useRef<Socket | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioStreamRef = useRef<MediaStream | null>(null)
+  // STT socket/audio/recorder 는 useMeetingSessionStore 가 컴포넌트 밖에서 관리한다.
+  // 페이지 unmount 와 무관하게 살아있어야 다른 페이지(문서/DM)로 이동해도 자막이 계속 쌓인다.
+  const startSttSession = useMeetingSessionStore((s) => s.startStt)
+  const stopSttSession = useMeetingSessionStore((s) => s.stopStt)
+  const pauseSttSession = useMeetingSessionStore((s) => s.pauseStt)
+  const resumeSttSession = useMeetingSessionStore((s) => s.resumeStt)
+  const enterMeetingSession = useMeetingSessionStore((s) => s.enterMeeting)
+  const endMeetingSession = useMeetingSessionStore((s) => s.endSession)
 
   const recordingRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
@@ -203,8 +217,12 @@ export function MeetingRoomPage() {
     }
 
     if (useMeetingStore.getState().status !== 'in-meeting') {
-      useMeetingStore.getState().startMeeting(id, `${groupName} 회의`, groupName)
+      const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
+      useMeetingStore.getState().startMeeting(id, meetingTitle, groupName)
     }
+    // 백그라운드 세션 등록 — 다른 페이지로 이동해도 STT/배너가 살아있도록.
+    const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
+    enterMeetingSession(id, meetingTitle)
     // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
     setElapsed(0)
   }, [joinMeetingApiAction, connectVoiceChat, groupName, setElapsed]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -254,8 +272,9 @@ export function MeetingRoomPage() {
 
     return () => {
       cancelled = true
-      void voiceChat.disconnect()
-      meeting.endMeeting()
+      // disconnect/endMeeting은 여기서 실행하지 않는다.
+      // 사이드바 이동 등 단순 페이지 이탈 시에도 cleanup이 실행되어 회의가 끊기기 때문.
+      // 실제 종료는 handleLeave / handleEndMeeting / MeetingBanner 버튼에서만 처리한다.
     }
   }, [meetingId]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -296,6 +315,7 @@ export function MeetingRoomPage() {
         if (msg.type === 'meeting:end') {
           void useVoiceChatStore.getState().disconnect()
           useMeetingStore.getState().endMeeting()
+          useMeetingSessionStore.getState().endSession()
           addToast('info', '호스트가 회의를 종료했습니다')
           navigate('/app/meetings')
         } else if (msg.type === 'meeting:host-transfer' && msg.meeting) {
@@ -409,39 +429,15 @@ export function MeetingRoomPage() {
     meeting.toggleRecording()
   }, [meeting, screenShare, voiceChat.participants, meetingId, addToast])
 
-  const stopRealtimeSTT = useCallback(() => {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
-    audioStreamRef.current = null
-    sttSocketRef.current?.disconnect()
-    sttSocketRef.current = null
-  }, [])
+  // STT OFF: store 가 audio/recorder 중단. socket 은 ai-notes 수신을 위해 유지.
+  const stopAudioOnly = stopSttSession
+
+  // 회의 나가기/종료: 세션 전체 해제 (socket·audio·recorder 모두)
+  const fullStopRealtimeSTT = endMeetingSession
 
   const startRealtimeSTT = useCallback(async (id: string) => {
-    stopRealtimeSTT()
-
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch {
-      addToast('error', '마이크 접근 권한이 필요합니다')
-      meeting.toggleSTT()
-      return
-    }
-    audioStreamRef.current = stream
-
-    const token = localStorage.getItem('accessToken')
-    const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
-    const socket: Socket = io(`${backendUrl}/meetings`, {
-      path: '/socket.io',
-      auth: token ? { token } : undefined,
-    })
-    sttSocketRef.current = socket
-
     const speakerMap: Record<string, string> = {}
     if (authUser?.name) speakerMap['1'] = authUser.name
-
     let nextTag = authUser?.name ? 2 : 1
     voiceChat.participants.forEach((p) => {
       if (!p.name) return
@@ -450,57 +446,64 @@ export function MeetingRoomPage() {
       nextTag++
     })
 
-    socket.on('connect', () => {
-      socket.emit('meeting:join', { meetingId: id, speakerMap })
-    })
-
-    socket.on('meeting:transcript', (data: { id: string; text: string; speaker: string | null; startTime: number | null; createdAt: string }) => {
-      addRealtimeTranscript({
-        id: data.id,
-        meetingId: id,
-        text: data.text,
-        speaker: data.speaker,
-        startTime: data.startTime,
-        endTime: null,
-        createdAt: data.createdAt,
-      })
-      meeting.setActiveTab('transcript')
-    })
-
-    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
-    mediaRecorderRef.current = recorder
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0 && socket.connected) {
-        void e.data.arrayBuffer().then((buf) => {
-          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
-          socket.emit('meeting:audio-chunk', { chunk: b64 })
-        })
-      }
+    // store 가 socket·audio·recorder lifecycle 전부 관리. 페이지 unmount 와 무관하게 유지.
+    const result = await startSttSession({ meetingId: id, speakerMap })
+    if (!result.ok) {
+      addToast('error', result.error ?? '실시간 자막을 시작할 수 없습니다')
+      meeting.toggleSTT()
     }
+  }, [authUser?.name, voiceChat.participants, startSttSession, addToast, meeting])
 
-    recorder.start(1000)
-  }, [addRealtimeTranscript, meeting, addToast, stopRealtimeSTT, voiceChat.participants])
+  // STT 토글 처리: 콜백 deps 가 매 렌더링마다 변하지 않도록 ref 로 안정화한다.
+  // 기존엔 startRealtimeSTT/stopAudioOnly 가 voiceChat.participants 등 deps 로 매번
+  // 재생성되어 useEffect 가 sttEnabled 변화와 무관하게 매 렌더링마다 트리거됐고,
+  // prevSttEnabledRef 비교가 의도대로 동작 안 해 첫 토글이 무시되던 버그가 있었다.
+  const startSttRef = useRef(startRealtimeSTT)
+  const stopSttRef = useRef(stopAudioOnly)
+  startSttRef.current = startRealtimeSTT
+  stopSttRef.current = stopAudioOnly
 
+  const prevSttEnabledRef = useRef(meeting.sttEnabled)
   useEffect(() => {
     if (!meetingId) return
-    if (meeting.sttEnabled) {
-      void startRealtimeSTT(meetingId)
-    } else {
-      stopRealtimeSTT()
+    const prev = prevSttEnabledRef.current
+    prevSttEnabledRef.current = meeting.sttEnabled
+    if (prev === meeting.sttEnabled) {
+      // 마운트 또는 변화 없음 — 진행 중인 세션이 있으면 그대로 둠
+      if (meeting.sttEnabled && !useMeetingSessionStore.getState().sttEnabled) {
+        void startSttRef.current(meetingId)
+      }
+      return
     }
-    return () => { if (!meeting.sttEnabled) stopRealtimeSTT() }
-  }, [meeting.sttEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+    if (meeting.sttEnabled) {
+      void startSttRef.current(meetingId)
+    } else {
+      stopSttRef.current()
+    }
+  }, [meeting.sttEnabled, meetingId])
 
+  // 음소거 ↔ STT 동기화: 마이크 음소거 시 recorder pause, 해제 시 resume.
+  // 이전엔 LiveKit 음소거와 별개 audioStream 으로 STT 가 진행되어 음소거 상태에서도
+  // 발화가 자막에 잡히던 문제. 음소거 토글에만 반응하고 STT 시작/종료에는 영향 없음.
+  useEffect(() => {
+    if (!useMeetingSessionStore.getState().sttEnabled) return
+    if (voiceChat.status === 'muted') {
+      pauseSttSession()
+    } else {
+      resumeSttSession()
+    }
+  }, [voiceChat.status, pauseSttSession, resumeSttSession])
+
+  // 녹화 정리는 unmount 시에도 필요 (화면공유 stream 이 사라지면 무의미한 데이터만 쌓임)
   useEffect(() => () => {
-    stopRealtimeSTT()
     if (recordingRecorderRef.current?.state !== 'inactive') {
       recordingRecorderRef.current?.stop()
     }
     recordingRecorderRef.current = null
     recordingMicStreamRef.current?.getTracks().forEach((t) => t.stop())
     recordingMicStreamRef.current = null
-  }, [stopRealtimeSTT])
+    // STT 세션은 여기서 종료하지 않는다 — 명시적 handleLeave/handleEndMeeting 에서만.
+  }, [])
 
   // 화면 공유 시작 시 오른쪽 패널 자동 접기 — 공유 화면 영역 확보
   useEffect(() => {
@@ -525,7 +528,8 @@ export function MeetingRoomPage() {
     const remainingParticipantIds = remainingParticipants.map((p) => p.id)
     const isLastPerson = remainingParticipantIds.length === 0
 
-    if (meeting.sttEnabled) stopRealtimeSTT()
+    // 백그라운드 세션 정리 (STT socket·audio·recorder 모두 해제)
+    endMeetingSession()
 
     let isEnded = false
     try {
@@ -560,14 +564,14 @@ export function MeetingRoomPage() {
     } else {
       navigate('/app/meetings')
     }
-  }, [meetingId, voiceChat, meeting, stopRealtimeSTT, addToast, navigate])
+  }, [meetingId, voiceChat, meeting, fullStopRealtimeSTT, addToast, navigate])
 
-  // 회의 종료 — 호스트 전용. STT 중지 후 공통 훅(endMeetingFull) 위임.
+  // 회의 종료 — 호스트 전용. 백그라운드 세션 정리 후 공통 훅(endMeetingFull) 위임.
   const handleEndMeeting = useCallback(async () => {
     if (!meetingId) return
-    if (meeting.sttEnabled) stopRealtimeSTT()
+    endMeetingSession()
     await endMeetingFull(meetingId)
-  }, [meetingId, meeting.sttEnabled, stopRealtimeSTT, endMeetingFull])
+  }, [meetingId, endMeetingSession, endMeetingFull])
 
   const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -635,6 +639,10 @@ export function MeetingRoomPage() {
   const isMuted = voiceChat.status === 'muted'
   const isScreenSharing = screenShare.isSharing
   const isConnected = voiceChat.status === 'connected' || voiceChat.status === 'muted'
+  const isAlone = voiceChat.participants.length <= 1
+  // 나가기: 호스트가 혼자일 때만 숨김 (비호스트 예외 보호 — 상태 지연 시 탈출구 유지)
+  const showLeaveButton = !isHost || !isAlone
+  const showEndButton = isHost
 
   // 예약 대기 화면 — scheduledAt 전 접근 시 (LiveKit 연결 없음)
   if (isWaiting && scheduledAtMs !== null) {
@@ -684,7 +692,7 @@ export function MeetingRoomPage() {
     return (
       <div className="flex h-full items-center justify-center">
         <p className="text-neutral-500 dark:text-neutral-400">
-          회의 입장 중... ({makeRoomName(groupId ?? '')})
+          회의 입장 중...
         </p>
       </div>
     )
@@ -710,87 +718,87 @@ export function MeetingRoomPage() {
     { key: 'notes' as const, label: 'AI 노트', icon: MessageSquare },
   ]
 
+  // 상단 제목: API에서 받은 실제 제목 → 스토어 타이틀 → 기본값
+  const displayTitle =
+    meeting.currentMeeting?.title ||
+    meeting.meetingTitle ||
+    '빠른 회의'
+
+  // 상태 문구: 혼자 있을 때와 여럿일 때 구분
+  const participantCount = voiceChat.participants.length
+  const statusText = isAlone || participantCount <= 1
+    ? `혼자 회의 중 · ${formatTime(elapsed)}`
+    : `진행 중 · ${formatTime(elapsed)} · ${participantCount}명 참여`
+
   return (
     <div className="flex h-full flex-col">
-      {/* 상단 바 — 화면 공유 중 compact 모드로 높이 절약 */}
+      {/* 상단 바 — 라이트: 흰색, 다크: 차콜/네이비 */}
       <div className={cn(
-        'flex shrink-0 items-center justify-between border-b border-neutral-200 bg-surface dark:border-neutral-700 dark:bg-surface-dark',
-        isScreenSharing ? 'px-4 py-1.5' : 'px-6 py-3',
+        'flex shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 dark:border-slate-800 dark:bg-[#101722]',
+        isScreenSharing ? 'h-10' : 'h-12',
       )}>
-        <div className="flex items-center gap-2">
-          <Video size={isScreenSharing ? 18 : 20} className="shrink-0 text-primary-500" />
-          <div>
-            <h1 className={cn('font-bold text-neutral-800 dark:text-neutral-100', isScreenSharing ? 'text-sm' : 'text-base')}>
-              {meeting.meetingTitle || `${groupName} 회의`}
-            </h1>
-            {!isScreenSharing && (
-              <p className="text-xs text-neutral-400">{groupName} · {makeRoomName(groupId ?? '')}</p>
-            )}
-          </div>
-        </div>
-        <div className={cn('flex items-center', isScreenSharing ? 'gap-1.5' : 'gap-3')}>
-          <div className={cn(
-            'flex items-center gap-1 rounded-lg bg-primary-50 dark:bg-primary-900/30',
-            isScreenSharing ? 'px-2 py-0.5' : 'px-3 py-1.5',
+        {/* 왼쪽: 회의 아이콘 + 제목 */}
+        <div className="flex min-w-0 items-center gap-2">
+          <Video size={14} className="shrink-0 text-slate-500 dark:text-slate-400" />
+          <h1 className={cn(
+            'truncate text-sm font-medium text-slate-900 dark:text-white',
+            isScreenSharing ? 'max-w-[140px]' : 'max-w-[280px]',
           )}>
-            <Clock size={isScreenSharing ? 13 : 15} className="text-primary-500" />
-            <span className={cn('font-medium tabular-nums text-primary-600 dark:text-primary-400', isScreenSharing ? 'text-xs' : 'text-sm')}>
-              {formatTime(elapsed)}
+            {displayTitle}
+          </h1>
+        </div>
+
+        {/* 오른쪽: 상태 pill + 관리 버튼 */}
+        <div className="flex items-center gap-2">
+          {/* 상태 pill */}
+          <div className="flex items-center gap-1.5 rounded-full border border-emerald-200 bg-emerald-50 px-3 py-1 dark:border-emerald-500/30 dark:bg-emerald-500/15">
+            <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-emerald-500 dark:bg-emerald-400" />
+            <span className="whitespace-nowrap text-xs font-medium tabular-nums text-emerald-700 dark:text-emerald-300">
+              {statusText}
             </span>
           </div>
-          <span className="text-xs text-neutral-400">{voiceChat.participants.length}명 참석</span>
 
-          {/* 내부 사용자 초대 링크 복사 */}
+          {/* 링크 복사 */}
           <button
             onClick={() => void handleCopyInviteLink()}
             title="내부 사용자 초대 링크 복사"
-            className={cn(
-              'flex items-center gap-1 rounded-lg bg-neutral-200 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
-              isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
-            )}
+            className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
           >
-            <Link2 size={isScreenSharing ? 13 : 15} />
-            링크 복사
+            <Link2 size={13} />
+            {!isScreenSharing && <span>링크 복사</span>}
           </button>
 
-          {/* 게스트 초대 링크 생성 — 호스트 전용 */}
+          {/* 게스트 초대 — 호스트 전용 */}
           {isHost && (
             <button
               onClick={() => void handleCopyGuestLink()}
               title="외부 게스트 초대 링크 생성 및 복사"
-              className={cn(
-                'flex items-center gap-1 rounded-lg bg-amber-100 font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400 dark:hover:bg-amber-900/50',
-                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
-              )}
+              className="flex items-center gap-1.5 rounded-lg bg-amber-100 px-2.5 py-1.5 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200 dark:bg-amber-500/20 dark:text-amber-300 dark:ring-1 dark:ring-inset dark:ring-amber-500/30 dark:hover:bg-amber-500/30"
             >
-              <Link2 size={isScreenSharing ? 13 : 15} />
-              게스트 초대
+              <UserPlus size={13} />
+              {!isScreenSharing && <span>게스트 초대</span>}
             </button>
           )}
 
-          {/* 나가기 버튼 — 모든 참가자 */}
-          <button
-            onClick={() => void handleLeave()}
-            className={cn(
-              'flex items-center gap-1 rounded-lg bg-neutral-200 font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
-              isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
-            )}
-          >
-            <LogOut size={isScreenSharing ? 13 : 15} />
-            {isHost ? '나가기 (호스트 이전)' : '나가기'}
-          </button>
+          {/* 나가기 — 호스트가 혼자일 때만 숨김 */}
+          {showLeaveButton && (
+            <button
+              onClick={() => void handleLeave()}
+              className="flex items-center gap-1.5 rounded-lg bg-slate-100 px-2.5 py-1.5 text-xs font-medium text-slate-700 transition-colors hover:bg-slate-200 dark:bg-slate-700 dark:text-slate-300 dark:hover:bg-slate-600"
+            >
+              <LogOut size={13} />
+              {!isScreenSharing && <span>나가기</span>}
+            </button>
+          )}
 
-          {/* 회의 종료 버튼 — 호스트 전용 */}
-          {isHost && (
+          {/* 회의 종료 — 호스트 전용 */}
+          {showEndButton && (
             <button
               onClick={() => setShowEndConfirm(true)}
-              className={cn(
-                'flex items-center gap-1 rounded-lg bg-red-500 font-medium text-white transition-colors hover:bg-red-600',
-                isScreenSharing ? 'px-2 py-1 text-xs' : 'px-3 py-2 text-sm',
-              )}
+              className="flex items-center gap-1.5 rounded-lg bg-red-500 px-2.5 py-1.5 text-xs font-medium text-white transition-colors hover:bg-red-600"
             >
-              <PhoneOff size={isScreenSharing ? 13 : 15} />
-              회의 종료
+              <PhoneOff size={13} />
+              {!isScreenSharing && <span>회의 종료</span>}
             </button>
           )}
         </div>
@@ -826,12 +834,13 @@ export function MeetingRoomPage() {
           )}
 
           {/* 하단 컨트롤 — LiveKit 연결 전(isConnected=false)에는 모두 비활성화 */}
-          <div className="flex flex-wrap items-center justify-center gap-3 border-t border-neutral-200 bg-neutral-50 px-6 py-4 dark:border-neutral-700 dark:bg-neutral-900">
+          <div className="flex items-center justify-center gap-2 border-t border-neutral-200 bg-neutral-50 px-6 py-3 dark:border-neutral-700 dark:bg-neutral-900">
+            {/* 음소거 */}
             <button
               onClick={handleToggleMute}
               disabled={!isConnected}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
                 !isConnected
                   ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
                   : isMuted
@@ -839,59 +848,16 @@ export function MeetingRoomPage() {
                     : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {isMuted ? <MicOff size={24} /> : <Mic size={24} />}
+              {isMuted ? <MicOff size={18} /> : <Mic size={18} />}
               {isMuted ? '음소거 해제' : '음소거'}
             </button>
-            <button
-              onClick={handleToggleScreenShare}
-              disabled={!isConnected}
-              className={cn(
-                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                !isConnected
-                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
-                  : isScreenSharing
-                    ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
-                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
-              )}
-            >
-              {isScreenSharing ? <MonitorOff size={24} /> : <Monitor size={24} />}
-              화면 공유
-            </button>
-            <button
-              onClick={() => meeting.toggleSTT()}
-              disabled={!isConnected}
-              className={cn(
-                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                !isConnected
-                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
-                  : meeting.sttEnabled
-                    ? 'bg-green-100 text-green-600 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400'
-                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
-              )}
-            >
-              <FileText size={24} />
-              STT {meeting.sttEnabled ? 'ON' : 'OFF'}
-            </button>
-            <button
-              onClick={() => void handleToggleRecording()}
-              disabled={!isConnected}
-              className={cn(
-                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                !isConnected
-                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
-                  : meeting.isRecording
-                    ? 'bg-red-100 text-red-600 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400'
-                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
-              )}
-            >
-              <CircleDot size={24} />
-              {meeting.isRecording ? '녹화 중지' : '녹화 시작'}
-            </button>
+
+            {/* 카메라 */}
             <button
               onClick={handleToggleCamera}
               disabled={!isConnected}
               className={cn(
-                'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
+                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
                 !isConnected
                   ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
                   : voiceChat.isCameraEnabled
@@ -899,57 +865,139 @@ export function MeetingRoomPage() {
                     : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
               )}
             >
-              {voiceChat.isCameraEnabled ? <CameraOff size={24} /> : <Camera size={24} />}
-              {voiceChat.isCameraEnabled ? '웹캠 끄기' : '웹캠 켜기'}
+              {voiceChat.isCameraEnabled ? <CameraOff size={18} /> : <Camera size={18} />}
+              {voiceChat.isCameraEnabled ? '카메라 끄기' : '카메라 켜기'}
             </button>
 
-            {/* 협업 자료 열기 */}
+            {/* 화면 공유 */}
             <button
-              onClick={() => setShowCollabModal(true)}
-              className="flex items-center gap-2 rounded-xl bg-neutral-200 px-6 py-3.5 text-base font-medium text-neutral-700 transition-colors hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600"
+              onClick={handleToggleScreenShare}
+              disabled={!isConnected}
+              className={cn(
+                'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
+                !isConnected
+                  ? 'cursor-not-allowed opacity-40 bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
+                  : isScreenSharing
+                    ? 'bg-primary-100 text-primary-600 hover:bg-primary-200 dark:bg-primary-900/30 dark:text-primary-400'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200',
+              )}
             >
-              <FolderOpen size={24} />
-              협업 자료
+              {isScreenSharing ? <MonitorOff size={18} /> : <Monitor size={18} />}
+              화면 공유
             </button>
 
-            {/* 임시 오디오 업로드 (E2E 테스트용) — Phase 7 실시간 STT로 대체 예정 */}
-            <div className="ml-3 border-l border-neutral-300 pl-3 dark:border-neutral-600">
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept="audio/*"
-                className="hidden"
-                onChange={(e) => void handleAudioFileSelected(e)}
-              />
-              <div className="flex flex-col gap-1">
-                <button
-                  onClick={() => fileInputRef.current?.click()}
-                  disabled={!isConnected || isUploading}
-                  className={cn(
-                    'flex items-center gap-2 rounded-xl px-6 py-3.5 text-base font-medium transition-colors',
-                    !isConnected || isUploading
-                      ? 'cursor-not-allowed bg-neutral-200 text-neutral-400 dark:bg-neutral-700 dark:text-neutral-500'
-                      : 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400',
-                  )}
-                  title="회의 오디오 파일 업로드 (테스트용)"
-                >
-                  {isUploading ? <Loader2 size={24} className="animate-spin" /> : <Upload size={24} />}
-                  {isUploading
-                    ? uploadProgress > 0
-                      ? `업로드 중 ${uploadProgress}%`
-                      : 'STT 처리 중...'
-                    : '오디오 업로드'}
-                </button>
-                {isUploading && uploadProgress > 0 && (
-                  <div className="h-1 w-full overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
-                    <div
-                      className="h-full rounded-full bg-amber-500 transition-all duration-200"
-                      style={{ width: `${uploadProgress}%` }}
-                    />
-                  </div>
+            {/* 더보기 드롭다운 */}
+            <div className="relative" ref={moreMenuRef}>
+              <button
+                onClick={() => setShowMoreMenu((v) => !v)}
+                className={cn(
+                  'flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-medium transition-colors',
+                  showMoreMenu
+                    ? 'bg-neutral-300 text-neutral-800 dark:bg-neutral-600 dark:text-neutral-100'
+                    : 'bg-neutral-200 text-neutral-700 hover:bg-neutral-300 dark:bg-neutral-700 dark:text-neutral-200 dark:hover:bg-neutral-600',
                 )}
-              </div>
+              >
+                <MoreHorizontal size={18} />
+                더보기
+              </button>
+              {showMoreMenu && (
+                <div className="absolute bottom-full left-1/2 mb-2 w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
+                  {/* STT */}
+                  <button
+                    onClick={() => { meeting.toggleSTT(); setShowMoreMenu(false) }}
+                    disabled={!isConnected}
+                    className={cn(
+                      'flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                      !isConnected
+                        ? 'cursor-not-allowed text-neutral-400 dark:text-neutral-500'
+                        : meeting.sttEnabled
+                          ? 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/30'
+                          : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700',
+                    )}
+                  >
+                    <FileText size={16} />
+                    STT {meeting.sttEnabled ? 'ON' : 'OFF'}
+                  </button>
+                  {/* 녹화 */}
+                  <button
+                    onClick={() => { void handleToggleRecording(); setShowMoreMenu(false) }}
+                    disabled={!isConnected}
+                    className={cn(
+                      'flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                      !isConnected
+                        ? 'cursor-not-allowed text-neutral-400 dark:text-neutral-500'
+                        : meeting.isRecording
+                          ? 'bg-red-50 text-red-700 hover:bg-red-100 dark:bg-red-900/20 dark:text-red-400 dark:hover:bg-red-900/30'
+                          : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700',
+                    )}
+                  >
+                    <CircleDot size={16} />
+                    {meeting.isRecording ? '녹화 중지' : '녹화 시작'}
+                  </button>
+                  {/* 협업 자료 */}
+                  <button
+                    onClick={() => { setShowCollabModal(true); setShowMoreMenu(false) }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                  >
+                    <FolderOpen size={16} />
+                    협업 자료
+                  </button>
+                  {/* 오디오 업로드 (E2E 테스트용) */}
+                  <button
+                    onClick={() => { fileInputRef.current?.click(); setShowMoreMenu(false) }}
+                    disabled={!isConnected || isUploading}
+                    className={cn(
+                      'flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors',
+                      !isConnected || isUploading
+                        ? 'cursor-not-allowed text-neutral-400 dark:text-neutral-500'
+                        : 'text-amber-700 hover:bg-amber-50 dark:text-amber-400 dark:hover:bg-amber-900/20',
+                    )}
+                    title="회의 오디오 파일 업로드 (테스트용)"
+                  >
+                    {isUploading ? <Loader2 size={16} className="animate-spin" /> : <Upload size={16} />}
+                    {isUploading
+                      ? uploadProgress > 0
+                        ? `업로드 중 ${uploadProgress}%`
+                        : 'STT 처리 중...'
+                      : '오디오 업로드'}
+                  </button>
+                  {isUploading && uploadProgress > 0 && (
+                    <div className="mx-4 mb-2 h-1 overflow-hidden rounded-full bg-neutral-200 dark:bg-neutral-700">
+                      <div
+                        className="h-full rounded-full bg-amber-500 transition-all duration-200"
+                        style={{ width: `${uploadProgress}%` }}
+                      />
+                    </div>
+                  )}
+                  <div className="my-1 border-t border-neutral-100 dark:border-neutral-700" />
+                  {/* AI 노트 */}
+                  <button
+                    onClick={() => { meeting.setActiveTab('notes'); setRightPanelOpen(true); setShowMoreMenu(false) }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                  >
+                    <MessageSquare size={16} />
+                    AI 노트
+                  </button>
+                  {/* 실시간 자막 */}
+                  <button
+                    onClick={() => { meeting.setActiveTab('transcript'); setRightPanelOpen(true); setShowMoreMenu(false) }}
+                    className="flex w-full items-center gap-3 px-4 py-2.5 text-sm text-neutral-700 transition-colors hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700"
+                  >
+                    <FileText size={16} />
+                    실시간 자막
+                  </button>
+                </div>
+              )}
             </div>
+
+            {/* 숨겨진 파일 입력 */}
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="audio/*"
+              className="hidden"
+              onChange={(e) => void handleAudioFileSelected(e)}
+            />
           </div>
         </div>
 

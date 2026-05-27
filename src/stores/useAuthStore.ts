@@ -3,23 +3,24 @@ import type { User } from '@/types'
 import { api } from '@/utils/api'
 import { usePageStore } from '@/stores/usePageStore'
 import { useSidebarStore } from '@/stores/useSidebarStore'
+import { useAIStore } from '@/stores/useAIStore'
+import { useTasksStore } from '@/stores/useTasksStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 
 interface AuthState {
   isAuthenticated: boolean
   user: User | null
-  accessToken: string | null
   login: (user: User, accessToken: string) => void
   logout: () => Promise<void>
   fetchMe: () => Promise<void>
 }
 
 export const useAuthStore = create<AuthState>()((set) => ({
-  isAuthenticated: !!localStorage.getItem('accessToken'),
+  isAuthenticated: !!sessionStorage.getItem('accessToken'),
   user: null,
-  accessToken: localStorage.getItem('accessToken') ?? null,
   login: (user, accessToken) => {
-    localStorage.setItem('accessToken', accessToken)
-    set({ isAuthenticated: true, user, accessToken })
+    sessionStorage.setItem('accessToken', accessToken)
+    set({ isAuthenticated: true, user })
   },
   logout: async () => {
     // 서버에 로그아웃을 알려 httpOnly refresh cookie를 삭제한다.
@@ -28,24 +29,30 @@ export const useAuthStore = create<AuthState>()((set) => ({
       await fetch('/api/auth/logout', {
         method: 'POST',
         credentials: 'include',
-        headers: { Authorization: `Bearer ${localStorage.getItem('accessToken') ?? ''}` },
+        headers: { Authorization: `Bearer ${sessionStorage.getItem('accessToken') ?? ''}` },
       })
     } catch { /* ignore */ }
-    localStorage.removeItem('accessToken')
+    sessionStorage.removeItem('accessToken')
     // 다음 계정으로 로그인할 때 이전 계정의 페이지 캐시가 남아 있지 않도록 비운다.
     usePageStore.getState().clear()
     // Zustand persist로 유지되던 sidebar 선택 상태(activeGroupId/activeProjectId)를 초기화.
     // 이 호출이 localStorage['syncflow-sidebar'] 도 함께 갱신한다.
     useSidebarStore.getState().clearSelection()
-    set({ isAuthenticated: false, user: null, accessToken: null })
+    // AI 사이드패널 대화·메시지가 다음 사용자에게 노출되지 않도록 초기화.
+    useAIStore.getState().reset()
+    // 작업 목록도 잔류하지 않도록 비운다.
+    useTasksStore.setState({ tasks: [], isLoading: false, error: null })
+    // 백그라운드 회의 세션(STT socket·audio) 정리 — 로그아웃 후 다음 사용자 컨텍스트로 누설 방지
+    useMeetingSessionStore.getState().endSession()
+    set({ isAuthenticated: false, user: null })
   },
   fetchMe: async () => {
     try {
       const user = await api.get<User>('/auth/me')
-      set({ isAuthenticated: true, user, accessToken: localStorage.getItem('accessToken') ?? null })
+      set({ isAuthenticated: true, user })
     } catch {
-      localStorage.removeItem('accessToken')
-      set({ isAuthenticated: false, user: null, accessToken: null })
+      sessionStorage.removeItem('accessToken')
+      set({ isAuthenticated: false, user: null })
     }
   },
 }))
@@ -55,5 +62,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
 window.addEventListener('auth:session-expired', () => {
   usePageStore.getState().clear()
   useSidebarStore.getState().clearSelection()
-  useAuthStore.setState({ isAuthenticated: false, user: null, accessToken: null })
+  useAIStore.getState().reset()
+  useTasksStore.setState({ tasks: [], isLoading: false, error: null })
+  useMeetingSessionStore.getState().endSession()
+  useAuthStore.setState({ isAuthenticated: false, user: null })
 })

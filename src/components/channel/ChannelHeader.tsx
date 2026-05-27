@@ -5,21 +5,20 @@ import {
   Video,
   Mic,
   MicOff,
-  Monitor,
-  MonitorOff,
   Sparkles,
   PhoneOff,
   Globe,
   Building2,
   UserPlus,
   Settings,
+  Pin,
+  FileText,
 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { cn } from '@/utils/cn'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
-import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useChannelsStore } from '@/stores/useChannelsStore'
@@ -33,7 +32,6 @@ export function ChannelHeader() {
   const { activeGroupId, activeGroupName, activeOrgId } = useGroupContextStore()
   const { togglePanel, activePanel } = useDetailPanelStore()
   const voiceChat = useVoiceChatStore()
-  const screenShare = useScreenShareStore()
   const meeting = useMeetingStore()
   const addToast = useToastStore((s) => s.addToast)
   const channels = useChannelsStore((s) => s.channels)
@@ -71,18 +69,6 @@ export function ChannelHeader() {
     }
   }
 
-  const handleScreenShareClick = () => {
-    if (!screenShare.sharingUser) {
-      if (activeGroupId && activeGroupName) {
-        screenShare.startSharing(activeGroupId, activeGroupName)
-      }
-    } else if (screenShare.isSharing) {
-      screenShare.stopSharing()
-    } else {
-      togglePanel('screen-share')
-    }
-  }
-
   const handleStartMeeting = async () => {
     const channelName = activeGroupName ?? '채널'
     const title = `${channelName} 통화`
@@ -115,13 +101,13 @@ export function ChannelHeader() {
 
   return (
     <div className="flex h-14 shrink-0 items-center justify-between border-b border-neutral-200 px-4 dark:border-neutral-700">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-1 items-center gap-2 overflow-hidden">
         {isExternal ? (
-          <Globe size={16} className="text-orange-500" />
+          <Globe size={16} className="shrink-0 text-orange-500" />
         ) : (
-          <Hash size={16} className="text-neutral-400" />
+          <Hash size={16} className="shrink-0 text-neutral-400" />
         )}
-        <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
+        <span className="min-w-0 truncate text-sm font-semibold text-neutral-800 dark:text-neutral-100">
           {displayChannelName}
         </span>
         {isExternal && connectedOrgs.length > 0 && (
@@ -138,12 +124,12 @@ export function ChannelHeader() {
           </div>
         )}
         {description && !isExternal && (
-          <span className="hidden text-xs text-neutral-400 sm:inline">
+          <span className="hidden min-w-0 truncate text-xs text-neutral-400 sm:inline">
             {description}
           </span>
         )}
       </div>
-      <div className="flex items-center gap-1">
+      <div className="flex shrink-0 items-center gap-1">
         {/* 음성 채팅 */}
         {isVoiceConnected ? (
           <>
@@ -191,20 +177,6 @@ export function ChannelHeader() {
           </button>
         )}
 
-        {/* 화면 공유 */}
-        <button
-          onClick={handleScreenShareClick}
-          className={cn(
-            'rounded-lg p-1.5 transition-colors',
-            screenShare.sharingUser
-              ? 'text-primary-500 hover:bg-primary-50 dark:hover:bg-primary-900/20'
-              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700',
-          )}
-          title="화면 공유"
-        >
-          {screenShare.sharingUser ? <MonitorOff size={16} /> : <Monitor size={16} />}
-        </button>
-
         {/* 회의 시작 */}
         <button
           onClick={handleStartMeeting}
@@ -215,6 +187,23 @@ export function ChannelHeader() {
         </button>
 
         <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
+        {/* 핀 메시지 — 준비 중 */}
+        <button
+          onClick={() => addToast('info', '핀 메시지 기능은 준비 중입니다.')}
+          className="hidden rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 sm:block"
+          title="핀 메시지"
+        >
+          <Pin size={15} />
+        </button>
+
+        {/* 파일 목록 — 준비 중 */}
+        <button
+          onClick={() => addToast('info', '파일 목록 기능은 준비 중입니다.')}
+          className="hidden rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 sm:block"
+          title="파일 목록"
+        >
+          <FileText size={15} />
+        </button>
 
         {/* 멤버 */}
         <button

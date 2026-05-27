@@ -16,10 +16,12 @@ import {
   MessageSquare,
   X,
   Hash,
-  Reply,
-  CheckSquare,
   Sparkles,
   Loader2,
+  Bookmark,
+  Copy,
+  Trash2,
+  Pencil,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { apiFetch } from '@/lib/api'
@@ -31,8 +33,10 @@ import { useDetailPanelStore } from '@/stores/useDetailPanelStore'
 import { useSidebarStore } from '@/stores/useSidebarStore'
 import { useProjectsStore } from '@/stores/useProjectsStore'
 import { useAIStore } from '@/stores/useAIStore'
+import { useToastStore } from '@/stores/useToastStore'
 import { ChannelHeader } from '@/components/channel/ChannelHeader'
 import { ExternalChannelBanner } from '@/components/channel/ExternalChannelBanner'
+import { useBookmarkStore } from '@/stores/useBookmarkStore'
 import {
   EMOJI_LIST,
   MOCK_CHANNELS,
@@ -119,6 +123,11 @@ export function ChannelView() {
   const { openThread } = useThreadStore()
   const { openPanel } = useDetailPanelStore()
   const { openPanel: openAIPanel, sendMessage: sendAIMessage } = useAIStore()
+  const addToast = useToastStore((s) => s.addToast)
+  const bookmarkedIds = useBookmarkStore((s) => s.bookmarkedIds)
+  const loadBookmarks = useBookmarkStore((s) => s.load)
+  const saveBookmark = useBookmarkStore((s) => s.save)
+  const unsaveBookmark = useBookmarkStore((s) => s.unsave)
 
   const [inputText, setInputText] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -176,6 +185,10 @@ export function ChannelView() {
     initSocket()
     return () => cleanupSocket()
   }, [initSocket, cleanupSocket])
+
+  useEffect(() => {
+    void loadBookmarks()
+  }, [loadBookmarks])
 
   // ── Channel load when group changes ───────────────────────────────────────
 
@@ -605,12 +618,19 @@ export function ChannelView() {
               <Loader2 size={20} className="animate-spin" />
             </div>
           ) : activeMessages.length === 0 ? (
-            <div className="flex h-full items-center justify-center text-neutral-400">
-              <div className="text-center">
-                <p className="text-lg font-medium">
-                  #{activeChannel?.name ?? '채널'}
-                </p>
-                <p className="mt-1 text-sm">이 채널의 시작입니다. 첫 메시지를 보내보세요!</p>
+            <div className="flex h-full items-center justify-center">
+              <div className="flex flex-col items-center gap-3 text-center">
+                <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-primary-50 text-primary-400 dark:bg-primary-900/20 dark:text-primary-500">
+                  <Hash size={32} strokeWidth={1.5} />
+                </div>
+                <div>
+                  <p className="text-base font-semibold text-neutral-700 dark:text-neutral-200">
+                    #{activeChannel?.name ?? '채널'}에 오신 것을 환영해요!
+                  </p>
+                  <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500">
+                    이 채널의 시작입니다. 첫 메시지를 보내보세요!
+                  </p>
+                </div>
               </div>
             </div>
           ) : (
@@ -644,42 +664,89 @@ export function ChannelView() {
                     {hoveredMsgId === msg.id && editingMsgId !== msg.id && (
                       <div
                         className={cn(
-                          'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-sm dark:border-neutral-700 dark:bg-neutral-800',
+                          'absolute -top-3 z-10 flex items-center gap-0.5 rounded-lg border border-neutral-200 bg-white px-1 py-0.5 shadow-md dark:border-neutral-700 dark:bg-neutral-800',
                           msg.isOwn ? 'right-0' : 'left-0',
                         )}
                       >
+                        <button
+                          onClick={() => handleReaction(msg.id, '👍')}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-amber-500 dark:hover:bg-neutral-700"
+                          title="반응 추가"
+                        >
+                          <Smile size={14} />
+                        </button>
                         <button
                           onClick={() => handleOpenThread(msg)}
                           className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-primary-500 dark:hover:bg-neutral-700"
                           title="답글 달기"
                         >
-                          <Reply size={14} />
+                          <MessageCircle size={14} />
                         </button>
-                        <button
-                          onClick={() => handleReaction(msg.id, '👍')}
-                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-amber-500 dark:hover:bg-neutral-700"
-                          title="👍"
-                        >
-                          <Smile size={14} />
-                        </button>
+                        {(() => {
+                          const isSaved = bookmarkedIds.has(msg.id)
+                          return (
+                            <button
+                              onClick={async () => {
+                                try {
+                                  if (isSaved) {
+                                    await unsaveBookmark(msg.id)
+                                    addToast('success', '저장을 해제했습니다.')
+                                  } else {
+                                    await saveBookmark(msg.id)
+                                    addToast('success', '메시지를 저장했습니다.')
+                                  }
+                                } catch (e) {
+                                  addToast(
+                                    'error',
+                                    e instanceof Error ? e.message : '오류가 발생했습니다.',
+                                  )
+                                }
+                              }}
+                              className={cn(
+                                'rounded p-1 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                                isSaved
+                                  ? 'text-yellow-500'
+                                  : 'text-neutral-400 hover:text-yellow-500',
+                              )}
+                              title={isSaved ? '저장 해제' : '저장'}
+                            >
+                              <Bookmark
+                                size={14}
+                                fill={isSaved ? 'currentColor' : 'none'}
+                              />
+                            </button>
+                          )
+                        })()}
                         {msg.isOwn && (
                           <>
+                            <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />
                             <button
                               onClick={() => handleStartEdit(msg)}
                               className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-blue-500 dark:hover:bg-neutral-700"
                               title="수정"
                             >
-                              <CheckSquare size={14} />
+                              <Pencil size={14} />
                             </button>
                             <button
                               onClick={() => handleDelete(msg)}
                               className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-red-500 dark:hover:bg-neutral-700"
                               title="삭제"
                             >
-                              <X size={14} />
+                              <Trash2 size={14} />
                             </button>
                           </>
                         )}
+                        <div className="mx-0.5 h-3 w-px bg-neutral-200 dark:bg-neutral-600" />
+                        <button
+                          onClick={() => {
+                            void navigator.clipboard.writeText(msg.content)
+                            addToast('success', '메시지가 복사되었습니다.')
+                          }}
+                          className="rounded p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-600 dark:hover:bg-neutral-700"
+                          title="복사"
+                        >
+                          <Copy size={14} />
+                        </button>
                       </div>
                     )}
 

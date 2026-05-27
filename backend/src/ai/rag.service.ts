@@ -209,6 +209,53 @@ export class RagService {
     }
   }
 
+  // ── 그룹 전체 페이지 임베딩 검색 (채널 @AI, 사이드패널 채널 컨텍스트용) ──
+
+  async searchGroupEmbeddings(
+    query: string,
+    groupId: string,
+    limit: number = 5,
+  ): Promise<ProjectSearchResult[]> {
+    const queryEmbedding = await this.embeddingService.embed(query)
+    const vectorStr = `[${queryEmbedding.join(',')}]`
+
+    try {
+      const rows = await this.dataSource.query<
+        Array<{
+          id: number
+          page_id: string
+          chunk_index: number
+          content: string
+          similarity: number
+          metadata: Record<string, unknown> | null
+        }>
+      >(
+        `SELECT e.id, e.page_id, e.chunk_index, e.content, e.metadata,
+                1 - (e.vector::vector <=> $1::vector) AS similarity
+         FROM embeddings e
+         JOIN pages p ON p.id = e.page_id
+         JOIN projects pr ON pr.id = p.project_id
+         WHERE pr.group_id = $2
+           AND e.vector IS NOT NULL
+         ORDER BY e.vector::vector <=> $1::vector
+         LIMIT $3`,
+        [vectorStr, groupId, limit],
+      )
+
+      return rows.map((r) => ({
+        embeddingId: r.id,
+        pageId: r.page_id,
+        chunkIndex: r.chunk_index,
+        content: r.content,
+        similarity: Number(r.similarity),
+        metadata: r.metadata,
+      }))
+    } catch (err) {
+      this.logger.warn(`그룹 임베딩 검색 실패: ${(err as Error).message}`)
+      return []
+    }
+  }
+
   private async searchProjectFallback(
     queryEmbedding: number[],
     projectId: string,

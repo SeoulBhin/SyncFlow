@@ -6,7 +6,6 @@ import { Button } from '@/components/common/Button'
 import { CreateMeetingModal } from '@/components/meeting/CreateMeetingModal'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
-import { useToastStore } from '@/stores/useToastStore'
 import type { ApiMeeting } from '@/types'
 
 function formatDateTime(iso: string | null): string {
@@ -32,15 +31,13 @@ function formatDuration(start: string | null, end: string | null): string {
 
 export function MeetingHistoryPage() {
   const navigate = useNavigate()
-  const { activeGroupName, activeOrgId } = useGroupContextStore()
+  const { activeOrgId } = useGroupContextStore()
   const meetings = useMeetingStore((s) => s.meetings)
   const isLoading = useMeetingStore((s) => s.isLoading)
   const error = useMeetingStore((s) => s.error)
-  const createMeeting = useMeetingStore((s) => s.createMeeting)
-  const startMeeting = useMeetingStore((s) => s.startMeeting)
   const loadMyMeetings = useMeetingStore((s) => s.loadMyMeetings)
-  const addToast = useToastStore((s) => s.addToast)
   const [showCreateModal, setShowCreateModal] = useState(false)
+  const [showQuickMeetingModal, setShowQuickMeetingModal] = useState(false)
 
   // 초기 로드
   useEffect(() => {
@@ -71,24 +68,6 @@ export function MeetingHistoryPage() {
   )
   const ended: ApiMeeting[] = meetings.filter((m) => m.status === 'ended')
 
-  const handleQuickMeeting = async () => {
-    const channelName = activeGroupName ?? '채널'
-    const title = `${channelName} 빠른 회의`
-    try {
-      const created = await createMeeting(title, {
-        groupId: activeOrgId ?? undefined,
-        visibility: 'public',
-      })
-      startMeeting(created.id, title, channelName)
-      navigate(`/app/meetings/${created.id}`)
-    } catch (err) {
-      addToast(
-        'error',
-        err instanceof Error ? err.message : '회의를 시작할 수 없습니다',
-      )
-    }
-  }
-
   const handleJoinMeeting = (meetingId: string) => {
     navigate(`/app/meetings/${meetingId}`)
   }
@@ -106,7 +85,7 @@ export function MeetingHistoryPage() {
             <CalendarPlus size={16} />
             예약 회의
           </Button>
-          <Button onClick={() => void handleQuickMeeting()}>
+          <Button onClick={() => setShowQuickMeetingModal(true)}>
             <Plus size={16} />
             빠른 회의 시작
           </Button>
@@ -218,6 +197,12 @@ export function MeetingHistoryPage() {
       isOpen={showCreateModal}
       onClose={() => setShowCreateModal(false)}
       onCreated={() => void loadMyMeetings(activeOrgId ?? undefined)}
+    />
+    <CreateMeetingModal
+      hideSchedule
+      isOpen={showQuickMeetingModal}
+      onClose={() => setShowQuickMeetingModal(false)}
+      onCreated={(id) => navigate(`/app/meetings/${id}`)}
     />
     </>
   )

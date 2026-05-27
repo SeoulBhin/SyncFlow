@@ -9,10 +9,10 @@ interface Props {
   groupName: string
   inviteCode: string
   groupId?: string
-  onDeleted?: () => void
+  onDeleted?: () => void | Promise<void>
 }
 
-export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode, onDeleted }: Props) {
+export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const [name, setName] = useState(groupName)
   const [code, setCode] = useState(inviteCode)
@@ -44,7 +44,6 @@ export function GroupSettingsModal({ isOpen, onClose, groupName, inviteCode, onD
     addToast('success', '채널이 삭제되었습니다. (목업)')
     setShowDeleteConfirm(false)
     onClose()
-    onDeleted?.()
   }
 
   return (

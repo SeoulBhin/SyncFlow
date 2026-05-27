@@ -7,10 +7,34 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { api } from '@/utils/api'
 
+function getNext10MinBoundary(): string {
+  const d = new Date()
+  const rem = d.getMinutes() % 10
+  if (rem !== 0) d.setMinutes(d.getMinutes() + (10 - rem))
+  d.setSeconds(0)
+  d.setMilliseconds(0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
+function roundUpTo10Min(value: string): string {
+  if (!value) return value
+  const d = new Date(value)
+  if (isNaN(d.getTime())) return value
+  const rem = d.getMinutes() % 10
+  if (rem === 0) return value
+  d.setMinutes(d.getMinutes() + (10 - rem))
+  d.setSeconds(0)
+  d.setMilliseconds(0)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 interface Props {
   isOpen: boolean
   onClose: () => void
   onCreated?: (meetingId: string) => void
+  hideSchedule?: boolean
 }
 
 interface OrgMember {
@@ -21,19 +45,27 @@ interface OrgMember {
   user: { id: string; name: string; email?: string }
 }
 
-export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
+export function CreateMeetingModal({ isOpen, onClose, onCreated, hideSchedule = false }: Props) {
   const addToast = useToastStore((s) => s.addToast)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
   const currentUserId = useAuthStore((s) => s.user?.id)
   const createMeeting = useMeetingStore((s) => s.createMeeting)
 
+  const defaultVisibility: 'public' | 'private' = hideSchedule ? 'public' : 'private'
   const [title, setTitle] = useState('')
-  const [visibility, setVisibility] = useState<'public' | 'private'>('private')
+  const [visibility, setVisibility] = useState<'public' | 'private'>(defaultVisibility)
   const [scheduledAt, setScheduledAt] = useState('')
   const [orgMembers, setOrgMembers] = useState<OrgMember[]>([])
   const [selectedUserIds, setSelectedUserIds] = useState<Set<string>>(new Set())
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [submitting, setSubmitting] = useState(false)
+
+  // 모달이 열릴 때 예약 시간 기본값을 다음 10분 단위로 초기화
+  useEffect(() => {
+    if (isOpen && !hideSchedule) {
+      setScheduledAt(getNext10MinBoundary())
+    }
+  }, [isOpen, hideSchedule])
 
   useEffect(() => {
     if (!isOpen || !activeOrgId) return
@@ -70,7 +102,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
 
   const handleClose = () => {
     setTitle('')
-    setVisibility('private')
+    setVisibility(defaultVisibility)
     setScheduledAt('')
     setSelectedUserIds(new Set())
     onClose()
@@ -85,6 +117,13 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
       addToast('error', '조직이 선택되지 않았습니다.')
       return
     }
+    if (!hideSchedule && scheduledAt) {
+      const minutes = new Date(scheduledAt).getMinutes()
+      if (minutes % 10 !== 0) {
+        addToast('error', '예약 시간은 10분 단위로 선택해주세요.')
+        return
+      }
+    }
     setSubmitting(true)
     try {
       const participants = orgMembers
@@ -95,7 +134,7 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
         groupId: activeOrgId,
         visibility,
         participants,
-        scheduledAt: scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
+        scheduledAt: !hideSchedule && scheduledAt ? new Date(scheduledAt).toISOString() : undefined,
       })
       addToast(
         'success',
@@ -149,18 +188,22 @@ export function CreateMeetingModal({ isOpen, onClose, onCreated }: Props) {
             />
           </div>
 
-          <div>
-            <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
-              예약 시간{' '}
-              <span className="font-normal text-neutral-400">(선택 — 비워두면 즉시 입장 가능)</span>
-            </label>
-            <input
-              type="datetime-local"
-              value={scheduledAt}
-              onChange={(e) => setScheduledAt(e.target.value)}
-              className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
-            />
-          </div>
+          {!hideSchedule && (
+            <div>
+              <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">
+                예약 시간{' '}
+                <span className="font-normal text-neutral-400">(선택 — 비워두면 즉시 입장 가능)</span>
+              </label>
+              <input
+                type="datetime-local"
+                value={scheduledAt}
+                onChange={(e) => setScheduledAt(e.target.value)}
+                onBlur={(e) => setScheduledAt(roundUpTo10Min(e.target.value))}
+                step={600}
+                className="w-full rounded-lg border border-neutral-200 bg-surface px-3 py-2 text-sm outline-none transition focus:border-primary-400 focus:ring-2 focus:ring-primary-100 dark:border-neutral-700 dark:bg-surface-dark dark:focus:ring-primary-900"
+              />
+            </div>
+          )}
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-neutral-700 dark:text-neutral-300">

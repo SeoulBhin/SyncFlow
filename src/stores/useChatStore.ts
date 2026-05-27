@@ -63,12 +63,12 @@ interface ChatState {
 let _effectiveUserId: string | null = null
 
 /**
- * localStorage accessToken에서 JWT sub(userId)를 파싱.
+ * sessionStorage accessToken에서 JWT sub(userId)를 파싱.
  * /auth/me 응답이 빈 객체여서 user.id가 undefined일 때 사용하는 fallback.
  */
 function getUserIdFromToken(): string | null {
   try {
-    const token = localStorage.getItem('accessToken')
+    const token = sessionStorage.getItem('accessToken')
     if (!token) return null
     const b64 = token.split('.')[1]
     if (!b64) return null
@@ -302,7 +302,7 @@ export const useChatStore = create<ChatState>((set, get) => ({
       // 실효 userId 우선순위: store user.id > JWT sub > anon-{socketId}
       // user.id가 없는 경우(/auth/me 응답 문제)에도 JWT에서 직접 추출해 정확한 isOwn 계산
       const user = useAuthStore.getState().user
-      const effectiveId = user?.id || getUserIdFromToken() || `anon-${sock.id?.slice(0, 6) ?? 'xxxxxx'}`
+      const effectiveId = user?.id || getUserIdFromToken() || `anon-${(sock.id ?? 'unknown').slice(0, 6)}`
       _effectiveUserId = effectiveId
 
       set((s) => {

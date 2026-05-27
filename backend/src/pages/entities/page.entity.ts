@@ -35,8 +35,8 @@ export class Page {
   @Column({ name: 'sort_order', type: 'int', default: 0 })
   sortOrder: number
 
-  @Column({ name: 'created_by', type: 'uuid' })
-  createdBy: string
+  @Column({ name: 'created_by', type: 'uuid', nullable: true })
+  createdBy: string | null
 
   @CreateDateColumn({ name: 'created_at', type: 'timestamptz' })
   createdAt: Date

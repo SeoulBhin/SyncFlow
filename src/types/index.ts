@@ -81,7 +81,8 @@ export interface ChatChannel {
   description: string | null
   unreadCount: number
   createdAt: string
-  otherUser?: { userName?: string }
+  /** DM 채널에서 백엔드가 채워주는 상대방 정보 (DM이 아닌 경우 undefined) */
+  otherUser?: { userId: string; userName: string }
 }
 
 export interface PaginatedMessages {
@@ -158,15 +159,37 @@ export interface LeaveMeetingResponse {
   actionItems?: ApiMeetingActionItem[]
 }
 
+export interface RegenerateSummaryResponse {
+  meeting: ApiMeeting
+  summary: ApiMeetingSummary
+  actionItems: ApiMeetingActionItem[]
+}
+
 // ── Task (백엔드 tasks 테이블과 1:1) ──────────────────────────────────────────
 export type ApiTaskStatus = 'todo' | 'in-progress' | 'done'
+export type ApiTaskPriority = 'low' | 'medium' | 'high' | 'urgent'
+
+export interface ApiTaskAssigneeRef {
+  userId: string
+  userName?: string | null
+  userEmail?: string | null
+}
 
 export interface ApiTask {
   id: string
   title: string
+  description?: string | null
   assignee: string | null
+  assigneeId?: string | null
+  assignees?: ApiTaskAssigneeRef[]
+  startDate?: string | null
   dueDate: string | null
   status: ApiTaskStatus
+  priority?: ApiTaskPriority
+  groupId?: string | null
+  projectId?: string | null
+  parentTaskId?: string | null
+  tags?: string[] | null
   sourceMeetingId: string | null
   sourceActionItemId: string | null
   createdAt: string

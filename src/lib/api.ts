@@ -19,7 +19,7 @@ async function tryRefreshToken(): Promise<string | null> {
       const data = (await res.json()) as { accessToken?: string }
       const token = data.accessToken
       if (token) {
-        localStorage.setItem('accessToken', token)
+        sessionStorage.setItem('accessToken', token)
         // 새 accessToken의 sub와 authStore.user.id가 다를 수 있으므로 동기화.
         // 다중 탭에서 다른 계정의 token refresh가 localStorage를 오염시키는 경우 방지.
         await useAuthStore.getState().fetchMe()
@@ -40,7 +40,7 @@ export async function apiFetch(
   init?: RequestInit,
 ): Promise<Response> {
   const user = useAuthStore.getState().user
-  const accessToken = localStorage.getItem('accessToken')
+  const accessToken = sessionStorage.getItem('accessToken')
   const headers = new Headers(init?.headers)
 
   if (!headers.has('Content-Type') && !(init?.body instanceof FormData)) {
@@ -69,7 +69,7 @@ export async function apiJson<T>(
     if (newToken) {
       return apiJson<T>(input, init, true)
     }
-    localStorage.removeItem('accessToken')
+    sessionStorage.removeItem('accessToken')
     useAuthStore.getState().logout()
     throw new Error('인증이 만료되었습니다. 다시 로그인해주세요.')
   }

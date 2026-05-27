@@ -36,7 +36,7 @@ export function VersionHistoryPanel({ isOpen, onClose, pageId, editor }: Version
     if (!editor || !pageId) return
     setRestoringId(version.id)
     try {
-      const token = localStorage.getItem('accessToken')
+      const token = sessionStorage.getItem('accessToken')
       const res = await fetch(`/api/document/${pageId}/content`, {
         method: 'PUT',
         headers: {

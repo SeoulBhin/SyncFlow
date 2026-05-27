@@ -70,7 +70,7 @@ interface AIState {
   togglePanel: () => void
   openPanel: () => void
   closePanel: () => void
-  sendMessage: (content: string, referencedFiles?: string[], channelId?: string) => Promise<void>
+  sendMessage: (content: string, referencedFiles?: string[], channelId?: string, pageId?: string, referencedFileIds?: string[]) => Promise<void>
   loadConversations: () => Promise<void>
   selectConversation: (id: string) => Promise<void>
   newConversation: () => void
@@ -83,6 +83,8 @@ interface AIState {
   setShowFileMention: (show: boolean) => void
   toggleFileSelection: (fileId: string) => void
   clearSelectedFiles: () => void
+  /** 로그아웃 시 이전 사용자 대화·메시지·프로젝트 컨텍스트가 다음 사용자에게 노출되지 않도록 전체 초기화 */
+  reset: () => void
 }
 
 let msgCounter = 0
@@ -110,7 +112,7 @@ export const useAIStore = create<AIState>((set, get) => ({
   openPanel: () => set({ isOpen: true }),
   closePanel: () => set({ isOpen: false }),
 
-  sendMessage: async (content: string, referencedFiles?: string[], channelId?: string) => {
+  sendMessage: async (content: string, referencedFiles?: string[], channelId?: string, pageId?: string, referencedFileIds?: string[]) => {
     const userMsg: AIMessage = {
       id: `m${++msgCounter}`,
       role: 'user',
@@ -149,7 +151,9 @@ export const useAIStore = create<AIState>((set, get) => ({
           content,
           conversationId: isUUID(activeConversationId) ? activeConversationId : undefined,
           referencedFiles: referencedFiles?.length ? referencedFiles : undefined,
-          channelId: channelId ?? undefined,
+          referencedFileIds: referencedFileIds?.length ? referencedFileIds : undefined,
+          channelId: channelId || undefined,
+          pageId: pageId || undefined,
         }),
       })
 
@@ -439,4 +443,25 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
 
   clearSelectedFiles: () => set({ selectedFiles: [] }),
+
+  reset: () =>
+    set({
+      isOpen: false,
+      messages: [],
+      conversations: [],
+      activeConversationId: '',
+      isLoading: false,
+      isLoadingConversations: false,
+      isLoadingUsage: false,
+      usage: {
+        daily: { used: 0, limit: 30 },
+        monthly: { used: 0, limit: 500 },
+        isUnlimited: false,
+      },
+      activeProject: null,
+      projects: [],
+      fileMentionQuery: '',
+      showFileMention: false,
+      selectedFiles: [],
+    }),
 }))
