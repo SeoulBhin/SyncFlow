@@ -149,10 +149,11 @@ export class AiService {
       >(
         `SELECT s.title, s.start_at, s.end_at
          FROM schedules s
-         LEFT JOIN schedule_attendees a ON a.schedule_id = s.id
-         WHERE (s.created_by = $1 OR a.user_id = $1)
-           AND (s.end_at IS NULL OR s.end_at >= NOW())
-         GROUP BY s.id
+         WHERE (
+           s.created_by = $1
+           OR (s.attendees IS NOT NULL AND s.attendees::text LIKE '%' || $1 || '%')
+         )
+         AND (s.end_at IS NULL OR s.end_at >= NOW())
          ORDER BY s.start_at ASC NULLS LAST
          LIMIT $2`,
         [userId, limit],
