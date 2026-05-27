@@ -1,6 +1,6 @@
 import { create } from 'zustand'
 
-export type DetailPanelType = 'thread' | 'ai' | 'voice' | 'screen-share' | 'members' | null
+export type DetailPanelType = 'thread' | 'ai' | 'voice' | 'screen-share' | 'members' | 'files' | null
 
 interface DetailPanelState {
   activePanel: DetailPanelType

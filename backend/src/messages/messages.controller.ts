@@ -198,4 +198,16 @@ export class MessagesController {
     await this.messagesService.unbookmarkMessage(user.userId, messageId);
     return { success: true };
   }
+
+  // ── Channel Files ───────────────────────────────────────────────────────────
+
+  /** GET /api/channels/:channelId/files — 채널 첨부파일 목록 (content 파싱) */
+  @Get('channels/:channelId/files')
+  async getChannelFiles(
+    @Param('channelId') channelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    await this.channelsService.ensureMember(channelId, user.userId);
+    return this.messagesService.getChannelFiles(channelId);
+  }
 }

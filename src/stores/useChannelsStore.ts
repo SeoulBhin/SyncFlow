@@ -14,6 +14,10 @@ export interface ChannelSummary {
   createdAt?: string
   /** DM 채널 한정: 현재 사용자 입장에서 상대방 정보 (백엔드가 user별로 다르게 반환) */
   otherUser?: { userId: string; userName: string } | null
+  /** 사용자별 즐겨찾기 고정 상태 */
+  isPinned?: boolean
+  pinnedAt?: string | null
+  pinOrder?: number
 }
 
 interface ChannelsState {
@@ -26,6 +30,8 @@ interface ChannelsState {
   removeChannel: (id: string) => void
   /** 채널 진입/읽음 처리 시 unread 즉시 0 — 사용자가 새로고침 안 해도 배지 사라짐 */
   markChannelRead: (channelId: string) => void
+  /** 채널 즐겨찾기 토글 — API 호출 후 로컬 상태 낙관적 업데이트 */
+  togglePin: (channelId: string) => Promise<void>
   reset: () => void
 }
 
@@ -61,6 +67,34 @@ export const useChannelsStore = create<ChannelsState>((set, get) => ({
         c.id === channelId ? { ...c, unreadCount: 0 } : c,
       ),
     })
+  },
+
+  togglePin: async (channelId) => {
+    const ch = get().channels.find((c) => c.id === channelId)
+    if (!ch) return
+    const wasPinned = ch.isPinned ?? false
+    // 낙관적 업데이트
+    set({
+      channels: get().channels.map((c) =>
+        c.id === channelId
+          ? { ...c, isPinned: !wasPinned, pinnedAt: wasPinned ? null : new Date().toISOString() }
+          : c,
+      ),
+    })
+    try {
+      if (wasPinned) {
+        await api.delete(`/channels/${channelId}/pin`)
+      } else {
+        await api.put(`/channels/${channelId}/pin`, {})
+      }
+    } catch {
+      // 실패 시 롤백
+      set({
+        channels: get().channels.map((c) =>
+          c.id === channelId ? { ...c, isPinned: wasPinned, pinnedAt: ch.pinnedAt } : c,
+        ),
+      })
+    }
   },
 
   reset: () => set({ loadedForOrgId: null, channels: [], loading: false }),

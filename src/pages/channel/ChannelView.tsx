@@ -129,6 +129,7 @@ export function ChannelView() {
   const saveBookmark = useBookmarkStore((s) => s.save)
   const unsaveBookmark = useBookmarkStore((s) => s.unsave)
 
+
   const [inputText, setInputText] = useState('')
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showMentionList, setShowMentionList] = useState(false)
@@ -423,6 +424,7 @@ export function ChannelView() {
     if (!window.confirm('메시지를 삭제하시겠습니까?')) return
     void deleteMessage(msg.id, msg.channelId)
   }
+
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return

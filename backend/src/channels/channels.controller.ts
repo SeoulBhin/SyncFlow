@@ -137,4 +137,26 @@ export class ChannelsController {
     await this.channelsService.removeMember(channelId, targetUserId, user.userId);
     return { ok: true };
   }
+
+  /** PUT /api/channels/:channelId/pin — 채널 즐겨찾기 고정 */
+  @Put('channels/:channelId/pin')
+  @HttpCode(200)
+  async pinChannel(
+    @Param('channelId') channelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    await this.channelsService.pinChannel(channelId, user.userId);
+    return { ok: true, isPinned: true };
+  }
+
+  /** DELETE /api/channels/:channelId/pin — 채널 즐겨찾기 해제 */
+  @Delete('channels/:channelId/pin')
+  @HttpCode(200)
+  async unpinChannel(
+    @Param('channelId') channelId: string,
+    @CurrentUser() user: CurrentUserPayload,
+  ) {
+    await this.channelsService.unpinChannel(channelId, user.userId);
+    return { ok: true, isPinned: false };
+  }
 }

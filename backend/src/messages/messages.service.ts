@@ -36,6 +36,14 @@ export interface BookmarkResponse {
   message: MessageResponse;
 }
 
+export interface ChannelFileEntry {
+  fileName: string;
+  fileUrl: string;
+  messageId: string;
+  authorName: string;
+  createdAt: string;
+}
+
 export interface PaginatedMessages {
   messages: MessageResponse[];
   nextCursor: string | null;
@@ -262,6 +270,34 @@ export class MessagesService {
       });
     }
     return results;
+  }
+
+  // ── Channel Files ──────────────────────────────────────────────────────────
+
+  private static readonly FILE_LINK_RE = /\[📎 ([^\]]+)\]\(([^)]+)\)/g;
+
+  /** 채널 메시지 content에서 첨부파일 파싱 */
+  async getChannelFiles(channelId: string): Promise<ChannelFileEntry[]> {
+    const messages = await this.messageRepo.find({
+      where: { channelId },
+      order: { createdAt: 'DESC' },
+      take: 500,
+    });
+    const result: ChannelFileEntry[] = [];
+    for (const msg of messages) {
+      const re = new RegExp(MessagesService.FILE_LINK_RE.source, 'g');
+      let match: RegExpExecArray | null;
+      while ((match = re.exec(msg.content)) !== null) {
+        result.push({
+          fileName: match[1],
+          fileUrl: match[2],
+          messageId: msg.id,
+          authorName: msg.authorName,
+          createdAt: msg.createdAt.toISOString(),
+        });
+      }
+    }
+    return result;
   }
 
   // ── Helpers ────────────────────────────────────────────────────────────────

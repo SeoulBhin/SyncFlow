@@ -30,6 +30,15 @@ export class ChannelMember {
   @CreateDateColumn({ name: 'joined_at', type: 'timestamptz' })
   joinedAt: Date;
 
+  @Column({ name: 'is_pinned', type: 'boolean', default: false })
+  isPinned: boolean;
+
+  @Column({ name: 'pinned_at', type: 'timestamptz', nullable: true })
+  pinnedAt: Date | null;
+
+  @Column({ name: 'pin_order', type: 'integer', default: 0 })
+  pinOrder: number;
+
   @ManyToOne(() => Channel, (c) => c.members, { onDelete: 'CASCADE' })
   @JoinColumn({ name: 'channel_id' })
   channel: Channel;

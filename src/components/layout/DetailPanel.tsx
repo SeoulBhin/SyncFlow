@@ -4,6 +4,7 @@ import { VoiceChatPanel } from '@/components/voice-chat/VoiceChatPanel'
 import { ScreenSharePanel } from '@/components/screen-share/ScreenSharePanel'
 import { ThreadPanel } from '@/components/thread/ThreadPanel'
 import { ChannelMembersPanel } from '@/components/channel/ChannelMembersPanel'
+import { ChannelFilesPanel } from '@/components/channel/ChannelFilesPanel'
 import { useMediaQuery } from '@/hooks/useMediaQuery'
 
 export function DetailPanel() {
@@ -24,6 +25,8 @@ export function DetailPanel() {
         return <ChannelMembersPanel />
       case 'thread':
         return <ThreadPanel />
+      case 'files':
+        return <ChannelFilesPanel />
       default:
         return null
     }

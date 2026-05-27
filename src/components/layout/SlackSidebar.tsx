@@ -45,8 +45,6 @@ import {
   MOCK_CHAT_CHANNELS,
 } from '@/constants'
 
-/* ── 즐겨찾기 — 백엔드 API 미구현 단계라 빈 배열 유지 (실제 연동 시 useFavoritesStore 등에서 가져옴) ── */
-const FAVORITES: { id: string; name: string; type: 'channel' | 'dm'; refId: string }[] = []
 
 /* ── 접을 수 있는 섹션 (헤더 우측 액션 슬롯 지원) ── */
 function CollapsibleSection({
@@ -526,23 +524,46 @@ export function SlackSidebar() {
           {/* 스크롤 가능 섹션 */}
           <div className="flex-1 overflow-y-auto px-2 py-2">
             {/* 즐겨찾기 */}
-            <CollapsibleSection title="즐겨찾기">
-              {FAVORITES.map((fav) => (
-                <button
-                  key={fav.id}
-                  onClick={() => {
-                    if (fav.type === 'channel') {
-                      const ch = MOCK_CHANNELS.find((c) => c.id === fav.refId)
-                      if (ch) handleChannelSelect(ch.id, ch.name)
-                    }
-                  }}
-                  className="flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm text-neutral-600 transition-colors hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800"
-                >
-                  <Star size={12} className="shrink-0 text-yellow-500" />
-                  <span className="flex-1 truncate text-left text-xs">{fav.name}</span>
-                </button>
-              ))}
-            </CollapsibleSection>
+            {(() => {
+              const pinnedChannels = [...realChannels]
+                .filter((c) => c.groupId === activeOrgId && c.isPinned)
+                .sort((a, b) => (a.pinOrder ?? 0) - (b.pinOrder ?? 0))
+              if (pinnedChannels.length === 0) return null
+              return (
+                <CollapsibleSection title="즐겨찾기">
+                  {pinnedChannels.map((ch) => {
+                    const isActive = activeGroupId === ch.id
+                    const displayName =
+                      ch.type === 'dm' && ch.otherUser?.userName
+                        ? ch.otherUser.userName
+                        : (ch.name ?? 'DM')
+                    return (
+                      <button
+                        key={ch.id}
+                        onClick={() => handleChannelSelect(ch.id, displayName)}
+                        className={cn(
+                          'relative flex w-full items-center gap-2 rounded-md px-3 py-1.5 text-sm transition-colors',
+                          isActive
+                            ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                            : 'text-neutral-600 hover:bg-neutral-200 dark:text-neutral-300 dark:hover:bg-neutral-800',
+                        )}
+                      >
+                        {isActive && (
+                          <span className="absolute inset-y-1 left-0 w-0.5 rounded-full bg-primary-500 dark:bg-primary-400" />
+                        )}
+                        <Star size={12} className="shrink-0 text-yellow-500" />
+                        <span className="flex-1 truncate text-left text-xs">{displayName}</span>
+                        {(ch.unreadCount ?? 0) > 0 && (
+                          <span className="flex h-4 min-w-4 items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+                            {ch.unreadCount}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </CollapsibleSection>
+              )
+            })()}
 
             {/* 채널 */}
             <CollapsibleSection

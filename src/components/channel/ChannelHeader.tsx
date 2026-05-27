@@ -35,6 +35,7 @@ export function ChannelHeader() {
   const meeting = useMeetingStore()
   const addToast = useToastStore((s) => s.addToast)
   const channels = useChannelsStore((s) => s.channels)
+  const togglePin = useChannelsStore((s) => s.togglePin)
 
   // 실제 채널 우선, 없으면 mock fallback (데모 모드)
   const realChannel = channels.find((c) => c.id === activeGroupId) ?? null
@@ -187,19 +188,31 @@ export function ChannelHeader() {
         </button>
 
         <div className="mx-1 h-4 w-px bg-neutral-200 dark:bg-neutral-700" />
-        {/* 핀 메시지 — 준비 중 */}
-        <button
-          onClick={() => addToast('info', '핀 메시지 기능은 준비 중입니다.')}
-          className="hidden rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 sm:block"
-          title="핀 메시지"
-        >
-          <Pin size={15} />
-        </button>
+        {/* 채널 즐겨찾기 고정 */}
+        {realChannel && (
+          <button
+            onClick={() => togglePin(realChannel.id)}
+            className={cn(
+              'hidden rounded-lg p-1.5 transition-colors sm:block',
+              realChannel.isPinned
+                ? 'bg-amber-50 text-amber-600 dark:bg-amber-900/30 dark:text-amber-400'
+                : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+            )}
+            title={realChannel.isPinned ? '즐겨찾기 해제' : '즐겨찾기 추가'}
+          >
+            <Pin size={15} />
+          </button>
+        )}
 
-        {/* 파일 목록 — 준비 중 */}
+        {/* 파일 목록 */}
         <button
-          onClick={() => addToast('info', '파일 목록 기능은 준비 중입니다.')}
-          className="hidden rounded-lg p-1.5 text-neutral-400 transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700 sm:block"
+          onClick={() => togglePanel('files')}
+          className={cn(
+            'hidden rounded-lg p-1.5 transition-colors sm:block',
+            activePanel === 'files'
+              ? 'bg-primary-50 text-primary-600 dark:bg-primary-900/30'
+              : 'text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-700',
+          )}
           title="파일 목록"
         >
           <FileText size={15} />

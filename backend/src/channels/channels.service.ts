@@ -23,6 +23,9 @@ export interface ChannelWithUnread extends Channel {
   unreadCount: number;
   /** DM 채널의 경우, 현재 사용자 입장에서 상대방 정보 (사이드바 표시용) */
   otherUser?: { userId: string; userName: string } | null;
+  isPinned?: boolean;
+  pinnedAt?: Date | null;
+  pinOrder?: number;
 }
 
 @Injectable()
@@ -114,7 +117,14 @@ export class ChannelsService {
           }
         }
 
-        return { ...ch, unreadCount, otherUser };
+        return {
+          ...ch,
+          unreadCount,
+          otherUser,
+          isPinned: member?.isPinned ?? false,
+          pinnedAt: member?.pinnedAt ?? null,
+          pinOrder: member?.pinOrder ?? 0,
+        };
       }),
     );
 
@@ -406,6 +416,34 @@ export class ChannelsService {
     if (toInsert.length > 0) {
       await this.memberRepo.save(toInsert);
     }
+  }
+
+  /** 채널 즐겨찾기 고정 — 이미 고정돼 있어도 幂등 처리 */
+  async pinChannel(channelId: string, userId: string): Promise<void> {
+    const member = await this.memberRepo.findOne({ where: { channelId, userId } });
+    if (!member) throw new ForbiddenException('채널 멤버가 아닙니다');
+    if (member.isPinned) return;
+
+    const maxOrder = await this.memberRepo
+      .createQueryBuilder('m')
+      .select('MAX(m.pinOrder)', 'max')
+      .where('m.userId = :userId AND m.isPinned = true', { userId })
+      .getRawOne<{ max: number | null }>();
+
+    member.isPinned = true;
+    member.pinnedAt = new Date();
+    member.pinOrder = (maxOrder?.max ?? -1) + 1;
+    await this.memberRepo.save(member);
+  }
+
+  /** 채널 즐겨찾기 해제 */
+  async unpinChannel(channelId: string, userId: string): Promise<void> {
+    const member = await this.memberRepo.findOne({ where: { channelId, userId } });
+    if (!member) throw new ForbiddenException('채널 멤버가 아닙니다');
+    member.isPinned = false;
+    member.pinnedAt = null;
+    member.pinOrder = 0;
+    await this.memberRepo.save(member);
   }
 
   async findOne(id: string): Promise<Channel> {

@@ -358,6 +358,9 @@ model ChannelMember {
   userName   String    @default("") @map("user_name") @db.VarChar(100)
   lastReadAt DateTime? @map("last_read_at") @db.Timestamptz
   joinedAt   DateTime  @default(now()) @map("joined_at") @db.Timestamptz
+  isPinned   Boolean   @default(false) @map("is_pinned")
+  pinnedAt   DateTime? @map("pinned_at") @db.Timestamptz
+  pinOrder   Int       @default(0) @map("pin_order")
 
   channel Channel @relation(fields: [channelId], references: [id], onDelete: Cascade)
   user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
