@@ -126,6 +126,9 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       socket = io(`${backendUrl}/meetings`, {
         path: '/socket.io',
         auth: token ? { token } : undefined,
+        // WebSocket 직행 — polling fallback 시 매 청크가 polling request 로 가서
+        // STT 측 "Audio Timeout Error" 가 자주 발생했음.
+        transports: ['websocket'],
       })
 
       socket.on('connect', () => {
@@ -238,8 +241,10 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
         })
       }
     }
-    // 250ms 청크 — 기존 1000ms 는 체감 1초 지연이 누적되어 자막이 느렸음.
-    recorder.start(250)
+    // 1000ms 청크 — WEBM cluster boundary 무결성을 위해 1초 단위로 emit.
+    // 250ms 로 줄였더니 Google STT 가 code=3 "encoding error" 를 반복했음.
+    // 체감 속도는 백엔드 interimResults=true 로 보완(발화 중에도 partial 자막).
+    recorder.start(1000)
 
     set({ _socket: socket, _audioStream: stream, _recorder: recorder, sttEnabled: true })
     return { ok: true }
