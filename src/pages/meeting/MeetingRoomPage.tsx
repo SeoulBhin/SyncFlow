@@ -89,6 +89,28 @@ export function MeetingRoomPage() {
     !!meeting.currentMeeting?.hostId &&
     meeting.currentMeeting?.hostId === authUser?.id
 
+  const broadcastSttState = useCallback(async (enabled: boolean) => {
+    if (!meetingId || room.state !== 'connected' || !room.localParticipant) return
+    try {
+      const payload = new TextEncoder().encode(
+        JSON.stringify({ type: 'meeting:stt-state', meetingId, enabled }),
+      )
+      await room.localParticipant.publishData(payload, { reliable: true })
+    } catch {
+      // Data channel failure should not block the local STT state change.
+    }
+  }, [meetingId])
+
+  const handleHostToggleStt = useCallback(() => {
+    if (!isHost) {
+      addToast('info', 'STT는 회의 호스트만 조작할 수 있습니다')
+      return
+    }
+    const nextEnabled = !useMeetingStore.getState().sttEnabled
+    useMeetingStore.getState().setSTT(nextEnabled)
+    void broadcastSttState(nextEnabled)
+  }, [isHost, addToast, broadcastSttState])
+
   // ── 미디어 아이템 목록 — 화면 공유(우선) + 웹캠 ──────────────────────────────
   const mediaItems = useMemo<MeetingMediaItem[]>(() => {
     const screenItems: MeetingMediaItem[] = Object.entries(screenShare.screenStreams).map(
@@ -223,6 +245,7 @@ export function MeetingRoomPage() {
     // 백그라운드 세션 등록 — 다른 페이지로 이동해도 STT/배너가 살아있도록.
     const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
     enterMeetingSession(id, meetingTitle)
+    useMeetingStore.getState().setSTT(true)
     // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
     setElapsed(0)
   }, [joinMeetingApiAction, connectVoiceChat, groupName, setElapsed]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -310,6 +333,7 @@ export function MeetingRoomPage() {
           type: string
           meetingId?: string
           meeting?: ApiMeeting
+          enabled?: boolean
         }
 
         if (msg.type === 'meeting:end') {
@@ -320,6 +344,12 @@ export function MeetingRoomPage() {
           navigate('/app/meetings')
         } else if (msg.type === 'meeting:host-transfer' && msg.meeting) {
           useMeetingStore.getState().setCurrentMeeting(msg.meeting)
+        } else if (
+          msg.type === 'meeting:stt-state' &&
+          msg.meetingId === meetingId &&
+          typeof msg.enabled === 'boolean'
+        ) {
+          useMeetingStore.getState().setSTT(msg.enabled)
         }
       } catch {
         // ignore invalid data
@@ -450,7 +480,7 @@ export function MeetingRoomPage() {
     const result = await startSttSession({ meetingId: id, speakerMap })
     if (!result.ok) {
       addToast('error', result.error ?? '실시간 자막을 시작할 수 없습니다')
-      meeting.toggleSTT()
+      useMeetingStore.getState().setSTT(false)
     }
   }, [authUser?.name, voiceChat.participants, startSttSession, addToast, meeting])
 
@@ -904,16 +934,17 @@ export function MeetingRoomPage() {
                 <div className="absolute bottom-full left-1/2 mb-2 w-52 -translate-x-1/2 overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-lg dark:border-neutral-700 dark:bg-neutral-800">
                   {/* STT */}
                   <button
-                    onClick={() => { meeting.toggleSTT(); setShowMoreMenu(false) }}
-                    disabled={!isConnected}
+                    onClick={() => { handleHostToggleStt(); setShowMoreMenu(false) }}
+                    disabled={!isConnected || !isHost}
                     className={cn(
                       'flex w-full items-center gap-3 px-4 py-2.5 text-sm transition-colors',
-                      !isConnected
+                      !isConnected || !isHost
                         ? 'cursor-not-allowed text-neutral-400 dark:text-neutral-500'
                         : meeting.sttEnabled
                           ? 'bg-green-50 text-green-700 hover:bg-green-100 dark:bg-green-900/20 dark:text-green-400 dark:hover:bg-green-900/30'
                           : 'text-neutral-700 hover:bg-neutral-100 dark:text-neutral-200 dark:hover:bg-neutral-700',
                     )}
+                    title={isHost ? 'STT on/off' : 'STT는 회의 호스트만 조작할 수 있습니다'}
                   >
                     <FileText size={16} />
                     STT {meeting.sttEnabled ? 'ON' : 'OFF'}

@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
+import { RoomEvent } from 'livekit-client'
 import {
   Mic,
   MicOff,
@@ -17,6 +18,7 @@ import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useEndMeetingAction } from '@/hooks/useEndMeetingAction'
 import { ConfirmModal } from '@/components/common/ConfirmModal'
+import { room } from '@/lib/livekitRoom'
 
 function formatTime(seconds: number) {
   const h = Math.floor(seconds / 3600)
@@ -49,6 +51,80 @@ export function MeetingBanner() {
   const isHost =
     !!meeting.currentMeeting?.hostId &&
     meeting.currentMeeting.hostId === authUser?.id
+
+  const broadcastSttState = useCallback(async (meetingId: string, enabled: boolean) => {
+    if (room.state !== 'connected' || !room.localParticipant) return
+    try {
+      const payload = new TextEncoder().encode(
+        JSON.stringify({ type: 'meeting:stt-state', meetingId, enabled }),
+      )
+      await room.localParticipant.publishData(payload, { reliable: true })
+    } catch {
+      // Keep the local state change even if the data channel is unavailable.
+    }
+  }, [])
+
+  const applySttState = useCallback(async (enabled: boolean, showError = true) => {
+    const session = useMeetingSessionStore.getState()
+    const meetingId = session.activeMeetingId ?? meeting.activeMeetingId
+    if (!meetingId) {
+      meeting.setSTT(enabled)
+      return
+    }
+
+    if (!enabled) {
+      session.stopStt()
+      meeting.setSTT(false)
+      return
+    }
+
+    const speakerMap: Record<string, string> = {}
+    if (authUser?.name) speakerMap['1'] = authUser.name
+    let nextTag = authUser?.name ? 2 : 1
+    voiceChat.participants.forEach((p) => {
+      if (!p.name) return
+      if (authUser?.name && p.name === authUser.name) return
+      speakerMap[String(nextTag)] = p.name
+      nextTag++
+    })
+
+    const result = await session.startStt({ meetingId, speakerMap })
+    if (result.ok) {
+      meeting.setSTT(true)
+    } else {
+      meeting.setSTT(false)
+      if (showError) addToast('error', result.error ?? '실시간 자막 시작 실패')
+    }
+  }, [addToast, authUser?.name, meeting, voiceChat.participants])
+
+  useEffect(() => {
+    const handleDataReceived = (data: Uint8Array) => {
+      try {
+        const msg = JSON.parse(new TextDecoder().decode(data)) as {
+          type: string
+          meetingId?: string
+          enabled?: boolean
+        }
+        const activeMeetingId =
+          useMeetingSessionStore.getState().activeMeetingId ??
+          useMeetingStore.getState().activeMeetingId
+        if (
+          msg.type === 'meeting:stt-state' &&
+          msg.meetingId === activeMeetingId &&
+          typeof msg.enabled === 'boolean'
+        ) {
+          void applySttState(msg.enabled, false)
+        }
+      } catch {
+        // ignore invalid data
+      }
+    }
+
+    room.on(RoomEvent.DataReceived, handleDataReceived)
+    return () => {
+      room.off(RoomEvent.DataReceived, handleDataReceived)
+    }
+  }, [applySttState])
 
   // voiceChat.participants가 실제 LiveKit 참가자 목록 (meeting.participants는 항상 [] )
   const participantCount = voiceChat.participants.length
@@ -110,16 +186,20 @@ export function MeetingBanner() {
   // 기존엔 meeting.toggleSTT 만 호출하면 MeetingRoomPage 의 useEffect 가 처리했는데,
   // 배너는 회의 페이지 밖에서 보이므로 그 useEffect 가 없어 토글이 무의미했다.
   const handleToggleStt = async () => {
+    if (!isHost) {
+      addToast('info', 'STT는 회의 호스트만 조작할 수 있습니다')
+      return
+    }
     const session = useMeetingSessionStore.getState()
     const meetingId = session.activeMeetingId ?? meeting.activeMeetingId
     if (!meetingId) {
-      meeting.toggleSTT()
       return
     }
     if (session.sttEnabled) {
       session.stopStt()
       // sttEnabled 동기화
-      if (meeting.sttEnabled) meeting.toggleSTT()
+      meeting.setSTT(false)
+      await broadcastSttState(meetingId, false)
     } else {
       const speakerMap: Record<string, string> = {}
       if (authUser?.name) speakerMap['1'] = authUser.name
@@ -132,8 +212,10 @@ export function MeetingBanner() {
       })
       const result = await session.startStt({ meetingId, speakerMap })
       if (result.ok) {
-        if (!meeting.sttEnabled) meeting.toggleSTT()
+        meeting.setSTT(true)
+        await broadcastSttState(meetingId, true)
       } else {
+        meeting.setSTT(false)
         addToast('error', result.error ?? '실시간 자막 시작 실패')
       }
     }
@@ -183,9 +265,14 @@ export function MeetingBanner() {
           </button>
           <button
             onClick={() => void handleToggleStt()}
+            disabled={!isHost}
             className={cn(
               'rounded-lg p-1.5 transition-colors',
-              meeting.sttEnabled ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10',
+              !isHost
+                ? 'cursor-not-allowed text-white/40'
+                : meeting.sttEnabled
+                  ? 'bg-white/20 text-white'
+                  : 'text-white/80 hover:bg-white/10',
             )}
             title={meeting.sttEnabled ? 'STT 끄기' : 'STT 켜기'}
           >
