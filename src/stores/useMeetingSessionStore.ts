@@ -96,7 +96,18 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
 
     let stream: MediaStream
     try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      // STT 인식률·속도 최적화 audio constraints.
+      // - 모노 48kHz: Google STT WEBM_OPUS 스트리밍 권장값과 일치
+      // - echoCancellation/noiseSuppression/autoGainControl: 회의 환경 노이즈 제거
+      stream = await navigator.mediaDevices.getUserMedia({
+        audio: {
+          channelCount: 1,
+          sampleRate: 48000,
+          echoCancellation: true,
+          noiseSuppression: true,
+          autoGainControl: true,
+        },
+      })
     } catch (err) {
       return {
         ok: false,
@@ -213,7 +224,8 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
         })
       }
     }
-    recorder.start(1000)
+    // 250ms 청크 — 기존 1000ms 는 체감 1초 지연이 누적되어 자막이 느렸음.
+    recorder.start(250)
 
     set({ _socket: socket, _audioStream: stream, _recorder: recorder, sttEnabled: true })
     return { ok: true }

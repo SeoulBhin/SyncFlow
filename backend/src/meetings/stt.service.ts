@@ -37,7 +37,10 @@ export class SttService {
   constructor(private readonly config: ConfigService) {
     this.client = this.createSpeechClient()
     this.languageCode = this.config.get<string>('STT_LANGUAGE', 'ko-KR')
-    this.model = this.config.get<string>('STT_MODEL', 'latest_long')
+    // 실시간 스트리밍 회의 STT 는 짧은 발화 빈도가 높아 latest_short 가 latest_long
+    // 대비 응답이 빠르고 짧은 문장 인식률이 더 좋다. 긴 녹음 파일 업로드 인식이
+    // 주력이면 STT_MODEL=latest_long 으로 env 오버라이드.
+    this.model = this.config.get<string>('STT_MODEL', 'latest_short')
     this.minSpeakerCount = Number(this.config.get<string>('STT_MIN_SPEAKERS', '2'))
     this.maxSpeakerCount = Number(this.config.get<string>('STT_MAX_SPEAKERS', '6'))
   }
