@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { RoomEvent } from 'livekit-client'
 import {
@@ -41,6 +41,9 @@ export function MeetingBanner() {
   // 회의 방 페이지(/app/meetings/:id)에서는 배너 숨김
   // MeetingRoomPage가 자체 헤더에서 제목·시간·참가자·컨트롤을 모두 제공하므로 중복 방지
   const isMeetingRoomPage = /^\/app\/meetings\/[^/]+$/.test(location.pathname)
+  // 항상 최신값을 갖도록 ref — DataReceived useEffect 클로저 stale 방지용
+  const isMeetingRoomPageRef = useRef(isMeetingRoomPage)
+  isMeetingRoomPageRef.current = isMeetingRoomPage
 
   useEffect(() => {
     if (meeting.status !== 'in-meeting') return
@@ -113,7 +116,15 @@ export function MeetingBanner() {
           msg.meetingId === activeMeetingId &&
           typeof msg.enabled === 'boolean'
         ) {
-          void applySttState(msg.enabled, false)
+          if (isMeetingRoomPageRef.current) {
+            // MeetingRoomPage 의 DataReceived 핸들러 + sttEnabled effect 가 세션을 관리한다.
+            // 여기서 applySttState 를 추가 호출하면 startStt 가 race 하면서
+            // applySttState 실패 시 meeting.setSTT(false) → stopStt() → meeting:stt-stop 이 전파됨.
+            // store 상태만 동기화하고 세션 관리는 MeetingRoomPage 에 일임한다.
+            useMeetingStore.getState().setSTT(msg.enabled)
+          } else {
+            void applySttState(msg.enabled, false)
+          }
         }
       } catch {
         // ignore invalid data

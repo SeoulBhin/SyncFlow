@@ -310,41 +310,47 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       const connectResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
         if (socket.connected) {
           socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+          console.log('[STT] meeting:join emit (already connected)')
           joined = true
           initialJoinPending = false
           resolve({ ok: true })
           return
         }
 
-        const onConnect = () => {
+        // settled 플래그: onConnect / onError / timeout 중 딱 하나만 resolve 하도록 보장.
+        // clearTimeout 이 어떤 이유로 실패하더라도 timeout 콜백이 settled=true 를 보고
+        // 즉시 return 하므로 "[STT] connect timeout" 로그가 성공 경로에서 절대 찍히지 않는다.
+        let settled = false
+        const settle = (result: { ok: boolean; error?: string }) => {
+          if (settled) return
+          settled = true
           window.clearTimeout(timeout)
+          socket.off('connect', onConnect)
           socket.off('connect_error', onError)
+          resolve(result)
+        }
+
+        const onConnect = () => {
           socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
           console.log('[STT] meeting:join emit (onConnect)')
           joined = true
           initialJoinPending = false
-          resolve({ ok: true })
+          settle({ ok: true })
         }
 
         const onError = (err: Error) => {
-          window.clearTimeout(timeout)
-          socket.off('connect', onConnect)
-          // timeout/error 시에도 initialJoinPending 해제 — 자동 reconnect 핸들러가 동작해야 함
           console.log('[STT] connect_error', { message: err.message })
           initialJoinPending = false
-          resolve({ ok: false, error: err.message })
+          settle({ ok: false, error: err.message })
         }
 
+        // timeout 은 settle() 보다 나중에 선언되므로 onConnect/onError 클로저 캡처 시점에
+        // 아직 초기화되지 않은 상태다. settle() 내부에서 clearTimeout(timeout) 이 실행될
+        // 때는 이미 setTimeout 이 완료된 이후이므로 timeout 변수에 올바른 ID 가 담겨 있다.
         const timeout = window.setTimeout(() => {
-          socket.off('connect', onConnect)
-          socket.off('connect_error', onError)
-          // [핵심 수정] timeout 시에도 initialJoinPending 을 반드시 false 로 해제.
-          // 해제하지 않으면 이후 socket.io 자동 reconnect 가 발생해도
-          // socket.on('connect') 핸들러가 'if (initialJoinPending) return' 으로 즉시 반환 →
-          // meeting:join 재발행 없음 → backend STT 세션 없음 → 자막 영구 멈춤.
           console.log('[STT] connect timeout — initialJoinPending 해제')
           initialJoinPending = false
-          resolve({ ok: false, error: 'STT socket connection timed out' })
+          settle({ ok: false, error: 'STT socket connection timed out' })
         }, 6000)
 
         socket.once('connect', onConnect)

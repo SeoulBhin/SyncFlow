@@ -331,6 +331,17 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     this.logger.log(`STT 세션 시작: socket=${client.id}, meeting=${meetingId}, user=${userName ?? '알수없음'}`)
   }
 
+  // namespace server 에서 socket 을 안전하게 조회.
+  // root server 의 경우 server.sockets.sockets.get() 이지만, namespace gateway 에서는
+  // server.sockets 가 직접 Map<string, Socket> 이어서 .sockets.sockets.get() 으로 접근하면
+  // undefined.get() TypeError 가 발생한다. emit 만 필요하면 server.to(socketId).emit() 사용 권장.
+  private getSocketById(socketId: string): Socket | undefined {
+    // namespace server 의 .sockets 는 Map<string, Socket> 이지만 타입 선언이 Namespace 로 되어있어
+    // unknown 경유 캐스팅이 필요하다. emit 만 필요하면 server.to(socketId).emit() 을 사용할 것.
+    const socketsMap = this.server?.sockets as unknown as Map<string, Socket> | undefined
+    return socketsMap?.get(socketId)
+  }
+
   // 세션에 새 STT 스트림을 부착. 스트림이 비정상 종료되면 자동 재생성.
   // closed=true (사용자 leave/disconnect) 인 경우 호출돼도 아무 일도 안 함.
   // isReplacement: 자동 재생성/5분 회피 등 기존 stream 을 교체하는 경우 true 로 호출.
@@ -344,9 +355,14 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!session || session.closed) return
 
     if (isReplacement) {
-      // server.to(socketId).emit 은 socket 객체를 직접 찾지 않아도 emit 가능 — 더 안전.
-      // (server.sockets.sockets.get 은 namespace 가 정확히 일치해야 하고, 일부 setup 에선
-      // undefined 반환 가능 — 그 경우 emit 누락이 됨)
+      if (!this.server) {
+        this.logger.warn(`[STT RECYCLE] server 초기화 안 됨 — emit 스킵, session 정리 [${socketId}]`)
+        this.endSession(socketId)
+        return
+      }
+      // server.to(socketId).emit 은 socket 객체 직접 조회 없이 emit 가능 — namespace 구조와 무관하게 안전.
+      // server.sockets.sockets.get() 방식은 namespace 서버에서 server.sockets.sockets 가 undefined 로
+      // "Cannot read properties of undefined (reading 'get')" TypeError 를 일으킬 수 있어 사용하지 않는다.
       this.server.to(socketId).emit('meeting:stt-recycle')
       this.logger.log(`[STT RECYCLE] 클라이언트 recorder 재시작 요청 emit [${socketId}]`)
     }
