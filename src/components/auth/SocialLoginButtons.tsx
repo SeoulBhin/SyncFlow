@@ -43,6 +43,18 @@ function GitHubIcon() {
 
 const API_BASE = import.meta.env.VITE_API_URL ?? 'http://localhost:3000'
 
+const isSafeAppRedirect = (value: string | null): value is string =>
+  !!value && (value === '/app' || value.startsWith('/app/'))
+
+const saveOAuthRedirect = () => {
+  const redirect = new URLSearchParams(window.location.search).get('redirect')
+  if (isSafeAppRedirect(redirect)) {
+    sessionStorage.setItem('oauth_redirect', redirect)
+  } else {
+    sessionStorage.removeItem('oauth_redirect')
+  }
+}
+
 export function SocialLoginButtons() {
   return (
     <div className="space-y-4">
@@ -56,6 +68,7 @@ export function SocialLoginButtons() {
       {/* Google 소셜 로그인 버튼 */}
       <a
         href={`${API_BASE}/api/auth/oauth/google`}
+        onClick={saveOAuthRedirect}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-neutral-200 bg-surface px-4 py-2.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-surface-dark dark:text-neutral-200 dark:hover:bg-neutral-800"
       >
         <GoogleIcon />
@@ -64,6 +77,7 @@ export function SocialLoginButtons() {
       {/* GitHub 소셜 로그인 버튼 */}
       <a
         href={`${API_BASE}/api/auth/oauth/github`}
+        onClick={saveOAuthRedirect}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg border border-neutral-200 bg-surface px-4 py-2.5 text-sm font-medium text-neutral-700 transition hover:bg-neutral-50 dark:border-neutral-700 dark:bg-surface-dark dark:text-neutral-200 dark:hover:bg-neutral-800"
       >
         <GitHubIcon />
@@ -72,6 +86,7 @@ export function SocialLoginButtons() {
       {/* 카카오 소셜 로그인 버튼 */}
       <a
         href={`${API_BASE}/api/auth/oauth/kakao`}
+        onClick={saveOAuthRedirect}
         className="flex w-full items-center justify-center gap-2.5 rounded-lg bg-[#FEE500] px-4 py-2.5 text-sm font-medium text-[#191919] transition hover:bg-[#F5DC00]"
       >
         <KakaoIcon />
