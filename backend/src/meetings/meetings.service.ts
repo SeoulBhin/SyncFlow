@@ -31,6 +31,45 @@ function assertUuid(v: string, label = 'id'): void {
   }
 }
 
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/**
+ * Gemini 응답을 DB 컬럼 제약에 맞게 정규화한다.
+ * Gemini 가 schema 와 다른 값을 반환했을 때 endMeeting 이 500 으로 터지는 것을 막는다.
+ * - actionItems 키 누락 → 빈 배열
+ * - title 길이 > 300 → 잘림
+ * - assignee 길이 > 100 또는 "null"/"" → null
+ * - dueDate 가 YYYY-MM-DD 형식 아니면 → null
+ */
+function normalizeAiResult(raw: unknown): {
+  summary: string
+  keywords: string[]
+  actionItems: Array<{ title: string; assignee: string | null; dueDate: string | null }>
+} {
+  const r = (raw ?? {}) as Record<string, unknown>
+  const summary = typeof r.summary === 'string' ? r.summary : ''
+  const keywords = Array.isArray(r.keywords)
+    ? (r.keywords as unknown[]).filter((k): k is string => typeof k === 'string')
+    : []
+  const itemsRaw = Array.isArray(r.actionItems) ? (r.actionItems as unknown[]) : []
+  const actionItems = itemsRaw
+    .map((it) => {
+      const i = (it ?? {}) as Record<string, unknown>
+      const title = typeof i.title === 'string' ? i.title.trim() : ''
+      if (!title) return null
+      const assigneeRaw = typeof i.assignee === 'string' ? i.assignee.trim() : ''
+      const assignee =
+        !assigneeRaw || assigneeRaw.toLowerCase() === 'null'
+          ? null
+          : assigneeRaw.slice(0, 100)
+      const dueDateRaw = typeof i.dueDate === 'string' ? i.dueDate.trim() : ''
+      const dueDate = ISO_DATE_RE.test(dueDateRaw) ? dueDateRaw : null
+      return { title: title.slice(0, 300), assignee, dueDate }
+    })
+    .filter((it): it is { title: string; assignee: string | null; dueDate: string | null } => it !== null)
+  return { summary, keywords, actionItems }
+}
+
 @Injectable()
 export class MeetingsService {
   private readonly logger = new Logger(MeetingsService.name)
@@ -344,7 +383,13 @@ export class MeetingsService {
       }>
     }
     try {
-      aiResult = await this.summaryService.generateSummary(fullText)
+      const raw = await this.summaryService.generateSummary(fullText)
+      // Gemini 응답 schema 가 어긋난 경우(키 누락, 잘못된 dueDate 등)에도 안전하게 저장하도록 정규화.
+      // 정규화하지 않으면 PostgreSQL date 컬럼 파싱 실패나 varchar 길이 초과로 500 이 발생할 수 있다.
+      aiResult = normalizeAiResult(raw)
+      if (!aiResult.summary) {
+        aiResult.summary = '요약 생성 결과가 비어 있습니다 — 잠시 후 다시 시도해주세요'
+      }
     } catch (err) {
       this.logger.error(
         `Gemini 요약 생성 실패 — placeholder 로 진행: ${(err as Error).message}`,
@@ -356,26 +401,40 @@ export class MeetingsService {
       }
     }
 
-    // 4. 회의록 저장 (placeholder 라도 저장 — 프런트에서 일관된 응답 보장)
-    const summary = await this.summaryRepo.save(
-      this.summaryRepo.create({
-        meetingId,
-        summary: aiResult.summary,
-        keywords: JSON.stringify(aiResult.keywords),
-      }),
-    )
-
-    // 5. 액션아이템 저장 (실패 케이스에서는 빈 배열)
-    const actionItems = await this.actionItemRepo.save(
-      aiResult.actionItems.map((item) =>
-        this.actionItemRepo.create({
+    // 4. 회의록 저장 — DB 저장 단계에서 에러가 나도 endMeeting 자체는 성공시킴.
+    //    회의 status='ended' 는 이미 완료됐고, 클라이언트는 summary/actionItems 가 비어도
+    //    summary 페이지로 이동해야 한다 (트랜스크립트는 살아있음).
+    let summary: MeetingSummary | null = null
+    try {
+      summary = await this.summaryRepo.save(
+        this.summaryRepo.create({
           meetingId,
-          title: item.title,
-          assignee: item.assignee,
-          dueDate: item.dueDate,
+          summary: aiResult.summary,
+          keywords: JSON.stringify(aiResult.keywords),
         }),
-      ),
-    )
+      )
+    } catch (err) {
+      this.logger.error(`회의 요약 저장 실패 — endMeeting 응답에서 summary=null: ${(err as Error).message}`)
+    }
+
+    // 5. 액션아이템 저장 — 빈 배열이면 save 호출 생략, 실패해도 endMeeting 성공시킴
+    let actionItems: MeetingActionItem[] = []
+    if (aiResult.actionItems.length > 0) {
+      try {
+        actionItems = await this.actionItemRepo.save(
+          aiResult.actionItems.map((item) =>
+            this.actionItemRepo.create({
+              meetingId,
+              title: item.title,
+              assignee: item.assignee,
+              dueDate: item.dueDate,
+            }),
+          ),
+        )
+      } catch (err) {
+        this.logger.error(`액션아이템 저장 실패 — 빈 배열로 응답: ${(err as Error).message}`)
+      }
+    }
 
     return { meeting, summary, actionItems }
   }
