@@ -189,7 +189,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           socket.off('connect', onConnect)
           socket.off('connect_error', onError)
           resolve({ ok: false, error: 'STT socket connection timed out' })
-        }, 8000)
+        }, 15000)
 
         socket.once('connect', onConnect)
         socket.once('connect_error', onError)

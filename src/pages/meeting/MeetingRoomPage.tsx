@@ -246,9 +246,19 @@ export function MeetingRoomPage() {
     const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
     enterMeetingSession(id, meetingTitle)
     useMeetingStore.getState().setSTT(true)
+    // 호스트면 자동 ON 사실을 명시 broadcast — 호스트가 명시적으로 토글한 경우만
+    // broadcast하던 기존 흐름에서는 자동 ON 호스트 상태가 다른 참가자에게 전파되지
+    // 않아 비호스트가 STT OFF인 채로 머무는 문제가 있었다. data channel 도달 보장을
+    // 위해 LiveKit room state 가 'connected' 가 된 다음 한 박자 늦춰 전송한다.
+    const currentMeeting = useMeetingStore.getState().currentMeeting
+    if (currentMeeting?.hostId && currentMeeting.hostId === useAuthStore.getState().user?.id) {
+      window.setTimeout(() => {
+        void broadcastSttState(true)
+      }, 500)
+    }
     // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
     setElapsed(0)
-  }, [joinMeetingApiAction, connectVoiceChat, groupName, setElapsed]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [joinMeetingApiAction, connectVoiceChat, groupName, setElapsed, broadcastSttState]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // 진입 시 회의 메타데이터 로드 → 예약 여부 확인 → LiveKit 연결
   useEffect(() => {
@@ -376,6 +386,30 @@ export function MeetingRoomPage() {
     }
   }, [meetingId]) // meetingId가 바뀔 때만 재등록
 
+  // ParticipantConnected → 호스트가 본인의 STT 현재 상태를 새 참가자에게 재 broadcast.
+  // 늦게 들어온 비호스트는 호스트의 토글 이벤트를 놓쳤기 때문에 STT 상태를 모름.
+  // 호스트가 새 참가자 합류를 인지하면 한 번 더 broadcast 해 동기화한다.
+  useEffect(() => {
+    if (!meetingId) return
+    const handleParticipantConnected = () => {
+      const currentMeeting = useMeetingStore.getState().currentMeeting
+      const authUserId = useAuthStore.getState().user?.id
+      const isHostNow =
+        !!currentMeeting?.hostId &&
+        currentMeeting.id === meetingId &&
+        currentMeeting.hostId === authUserId
+      if (!isHostNow) return
+      // 새 참가자의 data channel 리스너가 등록될 시간을 약간 확보
+      window.setTimeout(() => {
+        void broadcastSttState(useMeetingStore.getState().sttEnabled)
+      }, 800)
+    }
+    room.on(RoomEvent.ParticipantConnected, handleParticipantConnected)
+    return () => {
+      room.off(RoomEvent.ParticipantConnected, handleParticipantConnected)
+    }
+  }, [meetingId, broadcastSttState])
+
   const mappedParticipants = voiceChat.participants.map((p) => ({
     id: p.id,
     name: p.name,
@@ -477,7 +511,20 @@ export function MeetingRoomPage() {
     })
 
     // store 가 socket·audio·recorder lifecycle 전부 관리. 페이지 unmount 와 무관하게 유지.
-    const result = await startSttSession({ meetingId: id, speakerMap })
+    // 회의 입장 직후 자동 시작은 LiveKit 핸드셰이크와 자원 경쟁으로 1회 실패할 수 있어
+    // 2초 후 1회 자동 재시도. 두 번째도 실패하면 토스트로 알리고 OFF 로 떨어뜨림.
+    let result = await startSttSession({ meetingId: id, speakerMap })
+    if (!result.ok) {
+      await new Promise((r) => setTimeout(r, 2000))
+      // 그 사이 사용자가 STT 를 끄거나 회의를 떠났으면 재시도 중단
+      if (
+        !useMeetingStore.getState().sttEnabled ||
+        useMeetingSessionStore.getState().activeMeetingId !== id
+      ) {
+        return
+      }
+      result = await startSttSession({ meetingId: id, speakerMap })
+    }
     if (!result.ok) {
       addToast('error', result.error ?? '실시간 자막을 시작할 수 없습니다')
       useMeetingStore.getState().setSTT(false)
