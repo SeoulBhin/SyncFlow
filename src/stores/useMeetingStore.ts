@@ -69,6 +69,7 @@ interface MeetingState {
   toggleMute: () => void
   toggleScreenShare: () => void
   toggleSTT: () => void
+  setSTT: (enabled: boolean) => void
   toggleRecording: () => void
   setActiveTab: (tab: 'transcript' | 'notes' | 'chat') => void
   tick: () => void
@@ -207,6 +208,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
       actionItems: [],
       isMuted: false,
       isScreenSharing: false,
+      sttEnabled: false,
       isRecording: false,
       currentMeeting: null,
     }),
@@ -228,6 +230,7 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
   toggleMute: () => set((s) => ({ isMuted: !s.isMuted })),
   toggleScreenShare: () => set((s) => ({ isScreenSharing: !s.isScreenSharing })),
   toggleSTT: () => set((s) => ({ sttEnabled: !s.sttEnabled })),
+  setSTT: (enabled) => set({ sttEnabled: enabled }),
   toggleRecording: () => set((s) => ({ isRecording: !s.isRecording })),
   setActiveTab: (tab) => set({ activeTab: tab }),
   tick: () => set((s) => ({ elapsedSeconds: s.elapsedSeconds + 1 })),

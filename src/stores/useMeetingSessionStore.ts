@@ -105,6 +105,8 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
     }
 
     // socket 이 살아있으면 재사용, 없으면 1 회 생성. (중복 socket 생성 race condition 방지)
+    let joined = false
+    let initialJoinPending = true
     let socket = get()._socket
     if (!socket || !socket.connected) {
       if (socket) socket.disconnect()
@@ -116,6 +118,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       })
 
       socket.on('connect', () => {
+        if (initialJoinPending) return
         socket?.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
       })
 
@@ -154,6 +157,50 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
     } else {
       // 이미 살아있는 socket 이면 meeting:join 만 재발행 (speakerMap 갱신 가능)
       socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+      joined = true
+    }
+
+    if (!joined) {
+      const connectResult = await new Promise<{ ok: boolean; error?: string }>((resolve) => {
+        if (socket.connected) {
+          socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+          joined = true
+          initialJoinPending = false
+          resolve({ ok: true })
+          return
+        }
+
+        const onConnect = () => {
+          window.clearTimeout(timeout)
+          socket.off('connect_error', onError)
+          socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+          joined = true
+          initialJoinPending = false
+          resolve({ ok: true })
+        }
+
+        const onError = (err: Error) => {
+          window.clearTimeout(timeout)
+          socket.off('connect', onConnect)
+          resolve({ ok: false, error: err.message })
+        }
+
+        const timeout = window.setTimeout(() => {
+          socket.off('connect', onConnect)
+          socket.off('connect_error', onError)
+          resolve({ ok: false, error: 'STT socket connection timed out' })
+        }, 8000)
+
+        socket.once('connect', onConnect)
+        socket.once('connect_error', onError)
+      })
+
+      if (!connectResult.ok) {
+        stream.getTracks().forEach((t) => t.stop())
+        socket.disconnect()
+        set({ _socket: null, _audioStream: null, _recorder: null, sttEnabled: false })
+        return { ok: false, error: connectResult.error ?? 'STT socket connection failed' }
+      }
     }
 
     const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
