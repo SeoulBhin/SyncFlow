@@ -464,14 +464,6 @@ export function MeetingRoomPage() {
     }
     audioStreamRef.current = stream
 
-    const token = sessionStorage.getItem('accessToken')
-    const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
-    const socket: Socket = io(`${backendUrl}/meetings`, {
-      path: '/socket.io',
-      auth: token ? { token } : undefined,
-    })
-    sttSocketRef.current = socket
-
     const speakerMap: Record<string, string> = {}
     if (authUser?.name) speakerMap['1'] = authUser.name
     let nextTag = authUser?.name ? 2 : 1
@@ -482,17 +474,19 @@ export function MeetingRoomPage() {
       nextTag++
     })
 
-    // 소켓 재사용 — 이미 연결된 소켓이 있으면 meeting:join만 재발행 (리스너 중복 등록 방지)
+    // 소켓 재사용 정책:
+    // - 기존 소켓이 살아있으면 재사용해 meeting:join 만 재발행 (리스너 중복 등록 방지)
+    // - 없으면 단 한 번만 생성. 이전 코드는 무조건 io() 를 먼저 부르고 직후 connected 가
+    //   false 라 또 io() 를 호출해 socket 2 개가 만들어졌고, 둘 다 meeting room 에 join 되어
+    //   STT 결과 broadcast 를 두 번 받아 자막이 2 개씩 표시되던 버그.
     let activeSocket: Socket
     const existingSocket = sttSocketRef.current
-    if (existingSocket?.connected) {
+    if (existingSocket && existingSocket.connected) {
       activeSocket = existingSocket
       activeSocket.emit('meeting:join', { meetingId: id, speakerMap })
     } else {
-      // 소켓 없거나 끊긴 경우 — 새로 생성하고 리스너 등록
       if (existingSocket) existingSocket.disconnect()
       // accessToken 은 sessionStorage 에 저장된다 (useAuthStore.login).
-      // 이전에 localStorage 에서 읽어 항상 null 이 되었고 meetings namespace 인증이 실패해 STT 가 시작되지 않던 버그 수정.
       const token = sessionStorage.getItem('accessToken')
       const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
       const newSocket: Socket = io(`${backendUrl}/meetings`, {
