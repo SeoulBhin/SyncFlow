@@ -394,7 +394,10 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
     set({ isLoading: true, error: null })
     try {
       const qs = orgId && asUuid(orgId) ? `?orgId=${encodeURIComponent(orgId)}` : ''
+      console.debug('[Meetings] API 호출: /api/meetings/my' + (qs || ' (orgId 없음 — public 회의 미조회)'))
       const meetings = await apiJson<ApiMeeting[]>(`/api/meetings/my${qs}`)
+      const activeCnt = meetings.filter((m) => m.status !== 'ended').length
+      console.debug(`[Meetings] API 응답: total=${meetings.length} active=${activeCnt}`)
       set({ meetings, isLoading: false })
     } catch (err) {
       set({

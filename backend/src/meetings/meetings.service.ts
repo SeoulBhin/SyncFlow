@@ -165,23 +165,33 @@ export class MeetingsService {
       participating = await partQb.orderBy('m.createdAt', 'DESC').getMany()
     }
 
-    // 3) 공개 회의 (현재 활성 조직의)
+    // 3) 공개 회의 (현재 활성 조직의) — 멤버십 검증 포함
+    // groupId 없이 호출되면 public 회의 쿼리 자체를 생략 (보안: 임의 orgId로 타 조직 회의 노출 방지)
     let publicMeetings: Meeting[] = []
     if (groupId && UUID_RE.test(groupId)) {
-      publicMeetings = await this.meetingRepo
-        .createQueryBuilder('m')
-        .where('m.groupId = :groupId', { groupId })
-        .andWhere("m.visibility = 'public'")
-        .andWhere('m.hostId != :userId', { userId })
-        .andWhere('m.id NOT IN (:...ids)', {
-          ids: meetingIds.length > 0 ? meetingIds : ['00000000-0000-0000-0000-000000000000'],
-        })
-        .orderBy('m.createdAt', 'DESC')
-        .getMany()
+      // 요청자가 해당 그룹의 실제 멤버인지 확인 — public이라도 같은 그룹 멤버에게만 노출
+      const membership = await this.groupMemberRepo.findOne({
+        where: { groupId, userId },
+      })
+      if (membership) {
+        publicMeetings = await this.meetingRepo
+          .createQueryBuilder('m')
+          .where('m.groupId = :groupId', { groupId })
+          .andWhere("m.visibility = 'public'")
+          .andWhere('m.hostId != :userId', { userId })
+          .andWhere('m.id NOT IN (:...ids)', {
+            ids: meetingIds.length > 0 ? meetingIds : ['00000000-0000-0000-0000-000000000000'],
+          })
+          .orderBy('m.createdAt', 'DESC')
+          .getMany()
+      }
     }
 
     const all = [...hosted, ...participating, ...publicMeetings].sort(
       (a, b) => b.createdAt.getTime() - a.createdAt.getTime(),
+    )
+    this.logger.log(
+      `[getAccessibleMeetings] userId="${userId}" groupId="${groupId ?? 'none'}" hosted=${hosted.length} participating=${participating.length} public=${publicMeetings.length} total=${all.length}`,
     )
     // 조회 시점에 만료된 예약 회의를 일괄 정리 — 목록에 ended 상태로 반영됨
     await Promise.all(all.map((m) => this.expireNoShowMeeting(m)))

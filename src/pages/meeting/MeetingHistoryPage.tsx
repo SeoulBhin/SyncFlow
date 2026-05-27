@@ -31,7 +31,7 @@ function formatDuration(start: string | null, end: string | null): string {
 
 export function MeetingHistoryPage() {
   const navigate = useNavigate()
-  const { activeOrgId } = useGroupContextStore()
+  const { activeOrgId, hasLoadedGroups } = useGroupContextStore()
   const meetings = useMeetingStore((s) => s.meetings)
   const isLoading = useMeetingStore((s) => s.isLoading)
   const error = useMeetingStore((s) => s.error)
@@ -39,29 +39,37 @@ export function MeetingHistoryPage() {
   const [showCreateModal, setShowCreateModal] = useState(false)
   const [showQuickMeetingModal, setShowQuickMeetingModal] = useState(false)
 
-  // 초기 로드
+  // 초기 로드 + 5초 polling + 탭 재활성화 refetch
+  // groups 로딩 완료(hasLoadedGroups) 및 activeOrgId 확정 후에만 API 호출
+  // hasLoadedGroups가 false인 동안에는 undefined로 회의 목록 API를 호출하지 않음
   useEffect(() => {
-    void loadMyMeetings(activeOrgId ?? undefined)
-  }, [loadMyMeetings, activeOrgId])
+    if (!hasLoadedGroups) {
+      console.debug('[Meetings] skip load: groups not loaded yet')
+      return
+    }
+    if (!activeOrgId) {
+      console.debug('[Meetings] skip load: no active org')
+      return
+    }
 
-  // 5초 polling + 탭 재활성화 시 즉시 refetch
-  useEffect(() => {
-    if (!activeOrgId) return
+    console.debug('[Meetings] loadMyMeetings called:', { activeOrgId, hasLoadedGroups })
+    void loadMyMeetings(activeOrgId)
 
     const refetch = () => {
       if (document.visibilityState === 'visible') {
+        console.debug('[Meetings] polling refetch:', activeOrgId)
         void loadMyMeetings(activeOrgId)
       }
     }
 
-    document.addEventListener('visibilitychange', refetch)
     const interval = setInterval(refetch, 5000)
+    document.addEventListener('visibilitychange', refetch)
 
     return () => {
       clearInterval(interval)
       document.removeEventListener('visibilitychange', refetch)
     }
-  }, [activeOrgId, loadMyMeetings])
+  }, [hasLoadedGroups, activeOrgId, loadMyMeetings])
 
   const scheduled: ApiMeeting[] = meetings.filter(
     (m) => m.status === 'scheduled' || m.status === 'in-progress',
@@ -98,11 +106,11 @@ export function MeetingHistoryPage() {
         </Card>
       )}
 
-      {isLoading && meetings.length === 0 && (
+      {(!hasLoadedGroups || isLoading) && meetings.length === 0 && (
         <p className="py-8 text-center text-sm text-neutral-400">회의 목록을 불러오는 중...</p>
       )}
 
-      {!isLoading && meetings.length === 0 && !error && (
+      {hasLoadedGroups && !isLoading && meetings.length === 0 && !error && (
         <Card className="py-10 text-center">
           <p className="text-sm text-neutral-500 dark:text-neutral-400">
             아직 진행한 회의가 없습니다. 빠른 회의를 시작해보세요.
@@ -196,7 +204,7 @@ export function MeetingHistoryPage() {
     <CreateMeetingModal
       isOpen={showCreateModal}
       onClose={() => setShowCreateModal(false)}
-      onCreated={() => void loadMyMeetings(activeOrgId ?? undefined)}
+      onCreated={() => { if (activeOrgId) void loadMyMeetings(activeOrgId) }}
     />
     <CreateMeetingModal
       hideSchedule
