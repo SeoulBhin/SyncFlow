@@ -163,6 +163,7 @@ export class AuthService {
 
   /* ── OAuth 유저 조회/생성 ── */
   async validateOAuthUser(profile: OAuthProfile): Promise<User> {
+    // 1. 이미 연동된 OAuth 계정이 있으면 토큰만 갱신 후 반환
     let oauthAccount = await this.oauthRepository.findOne({
       where: { provider: profile.provider, providerId: profile.providerId },
       relations: ['user'],
@@ -173,17 +174,16 @@ export class AuthService {
       return oauthAccount.user;
     }
 
-    let user: User | null = null;
-    if (profile.providerEmail) {
-      user = await this.userRepository.findOne({
-        where: { email: profile.providerEmail },
-      });
-    }
+    // 2. 최종 이메일 결정 (실제 이메일 or 생성된 fallback 이메일)
+    const email =
+      profile.providerEmail ??
+      `${profile.provider}_${profile.providerId}@syncflow.local`;
 
+    // 3. 해당 이메일로 기존 유저 조회 (다른 소셜 로그인 or 이전 실패로 생성된 유저 포함)
+    let user = await this.userRepository.findOne({ where: { email } });
+
+    // 4. 없으면 신규 생성
     if (!user) {
-      const email =
-        profile.providerEmail ??
-        `${profile.provider}_${profile.providerId}@syncflow.local`;
       user = this.userRepository.create({
         email,
         passwordHash: null,
@@ -194,6 +194,7 @@ export class AuthService {
       user = await this.userRepository.save(user);
     }
 
+    // 5. OAuth 계정 연동
     oauthAccount = this.oauthRepository.create({
       userId: user.id,
       provider: profile.provider,
