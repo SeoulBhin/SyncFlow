@@ -80,13 +80,19 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
   },
 
   startStt: async (ctx) => {
-    const { activeMeetingId, _recorder, _audioStream } = get()
+    const { activeMeetingId, _recorder, _audioStream, _socket } = get()
     if (!activeMeetingId || activeMeetingId !== ctx.meetingId) {
       return { ok: false, error: '회의 세션이 활성화되지 않았습니다' }
     }
 
-    // 이미 STT 가 켜져있고 recorder/stream 도 살아있으면 그대로 둠 (중복 호출 안전)
-    if (get().sttEnabled && _recorder && _audioStream) {
+    // 이미 STT 가 켜져있고 recorder/stream/socket 모두 살아있으면 그대로 둠.
+    // 강화된 idempotent — socket 이 connected 가 아니라도 객체가 있으면 socket.io 의
+    // 자동 reconnect 가 처리하므로 새 io() 호출 안 함. 옛 코드처럼 disconnect 후
+    // 새 io() 만들면 backend 입장에서 매번 새 STT 세션 시작 → cluster boundary 깨짐.
+    if (get().sttEnabled && _recorder && _audioStream && _socket) {
+      console.log('[STT] 이미 활성 — 새 socket 생성 안 함', {
+        connected: _socket.connected,
+      })
       return { ok: true }
     }
 
@@ -116,11 +122,14 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
     }
 
     // socket 이 살아있으면 재사용, 없으면 1 회 생성. (중복 socket 생성 race condition 방지)
+    // 이전엔 connected 가 아니면 disconnect 후 새 io() 호출했는데, 그게 socket.io
+    // 자동 reconnect 메커니즘과 충돌해 매번 새 socket → 매번 새 backend STT 세션 →
+    // cluster boundary 깨짐. 이제 socket 객체가 있으면 disconnect 안 하고 자동 reconnect
+    // 에 맡김.
     let joined = false
     let initialJoinPending = true
     let socket = get()._socket
-    if (!socket || !socket.connected) {
-      if (socket) socket.disconnect()
+    if (!socket) {
       const token = sessionStorage.getItem('accessToken')
       const backendUrl = resolveBackendUrl()
       socket = io(`${backendUrl}/meetings`, {
@@ -133,12 +142,22 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
         transports: ['polling', 'websocket'],
       })
 
+      socket.on('disconnect', (reason) => {
+        // socket.io 가 자동으로 reconnect 시도 — 우리는 그냥 로그만 남김.
+        // 이전엔 startStt 가 connected 아닌 socket 을 disconnect 후 새 io() 만들었는데
+        // 그게 socket.io 자동 reconnect 와 충돌해 매번 새 socket → 매번 새 STT 세션.
+        // 지금은 자동 reconnect 에 맡기고, 우리 socket.on('connect') 핸들러가
+        // reconnect 시 meeting:join 재 emit + recorder 재시작.
+        console.log('[STT] socket disconnect, 자동 reconnect 대기', { reason })
+      })
+
       socket.on('connect', () => {
         if (initialJoinPending) return
         // socket.io 자동 reconnect 후 호출. backend STT 세션이 fresh 상태라
         // MediaRecorder 도 새로 시작해서 WEBM 헤더 포함 첫 청크가 새 backend stream
         // 으로 흐르도록 동기화. 안 그러면 옛 recorder 의 cluster only 청크가 도착해
         // code=3 encoding error 무한 반복.
+        console.log('[STT] socket reconnected — meeting:join 재 emit + recorder 재시작')
         socket?.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
         const cur = get()
         if (cur._audioStream && cur.sttEnabled) {
@@ -281,8 +300,10 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
 
       if (!connectResult.ok) {
         stream.getTracks().forEach((t) => t.stop())
-        socket.disconnect()
-        set({ _socket: null, _audioStream: null, _recorder: null, sttEnabled: false })
+        // socket 은 disconnect 하지 않고 자동 reconnect 에 맡김. _socket 도 null 로
+        // 안 함 — 같은 socket 객체가 결국 connected 됨. 다음 startStt 호출에서
+        // 새 socket 만들지 말고 이 socket 의 connect 이벤트 재대기.
+        set({ _audioStream: null, _recorder: null, sttEnabled: false })
         return { ok: false, error: connectResult.error ?? 'STT socket connection failed' }
       }
     }
