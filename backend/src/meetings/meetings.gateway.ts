@@ -264,7 +264,7 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
         `오디오 청크 도착 시 STT 스트림 비정상(stream=${!!session.stream}, ` +
         `destroyed=${session.stream?.destroyed}, writable=${session.stream?.writable}) → 재생성 [${client.id}]`,
       )
-      this.openStream(client.id)
+      this.openStream(client.id, true)
       // openStream 직후에도 stream 이 ready 상태라고 보장은 못 함 — 이번 청크는 폐기
       const refreshed = this.sessions.get(client.id)
       if (!refreshed?.stream || refreshed.stream.destroyed || !refreshed.stream.writable) {
@@ -280,7 +280,7 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
       this.logger.warn(
         `오디오 청크 write 실패 [${client.id}]: ${(err as Error).message} — 스트림 재생성`,
       )
-      this.openStream(client.id)
+      this.openStream(client.id, true)
     }
   }
 
@@ -317,17 +317,22 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
 
   // 세션에 새 STT 스트림을 부착. 스트림이 비정상 종료되면 자동 재생성.
   // closed=true (사용자 leave/disconnect) 인 경우 호출돼도 아무 일도 안 함.
-  private openStream(socketId: string): void {
+  // isReplacement: 자동 재생성/5분 회피 등 기존 stream 을 교체하는 경우 true 로 호출.
+  //                클라이언트한테 MediaRecorder 재시작 요청을 emit 한다.
+  //                안 그러면 새 stream 에 WEBM 헤더 없는 cluster 만 도착해서 Google STT 가
+  //                code=3 "encoding error" 를 무한 발생시키고 자막이 멈춘다.
+  //                isReplacement 판단을 session.stream !== null 로 하면 onTerminated 가
+  //                이미 stream=null 로 set 후 호출해서 항상 false 가 됨 — 명시 파라미터 사용.
+  private openStream(socketId: string, isReplacement: boolean = false): void {
     const session = this.sessions.get(socketId)
     if (!session || session.closed) return
 
-    // 첫 호출이 아니라 재생성이면 클라이언트의 MediaRecorder 도 재시작하도록 알림.
-    // 안 그러면 새 stream 에 WEBM 헤더 없는 cluster 만 도착해서 Google STT 가
-    // code=3 "encoding error" 를 무한 발생시키고 자막이 멈춘다.
-    const isReplacement = session.stream !== null
     if (isReplacement) {
       const client = this.server.sockets.sockets.get(socketId)
-      client?.emit('meeting:stt-recycle')
+      if (client) {
+        client.emit('meeting:stt-recycle')
+        this.logger.log(`[STT RECYCLE] 클라이언트 recorder 재시작 요청 emit [${socketId}]`)
+      }
     }
 
     // 기존 스트림이 살아있으면 정리 (recycle 또는 비정상 후 재진입 시)
@@ -408,7 +413,7 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
         return
       }
       this.logger.log(`STT 스트림 비정상 종료(${reason}) → 재생성 [${socketId}]`)
-      this.openStream(socketId)
+      this.openStream(socketId, true)
     }
 
     stream.on('error', (err: Error) => onTerminated(`error: ${err.message}`))
@@ -418,7 +423,7 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     // 4분마다 강제 재생성 — Google STT 5분 한도를 사전 회피
     session.recycleTimer = setTimeout(() => {
       this.logger.log(`STT 5분 한도 회피 — 강제 재생성 [${socketId}]`)
-      this.openStream(socketId)
+      this.openStream(socketId, true)
     }, RECYCLE_INTERVAL_MS)
   }
 

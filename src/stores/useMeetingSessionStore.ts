@@ -126,11 +126,11 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       socket = io(`${backendUrl}/meetings`, {
         path: '/socket.io',
         auth: token ? { token } : undefined,
-        // socket.io 기본 동작: polling 으로 빠르게 connect → 즉시 websocket 으로 upgrade.
-        // 이전엔 ['websocket'] 만 두었더니 첫 connect 가 15초 timeout 으로 hang 되는 케이스
-        // 가 관찰돼 (TLS 첫 핸드셰이크 race 등), polling fallback 을 다시 허용.
+        // socket.io 의 자연 동작 순서: polling 으로 빠르게 핸드셰이크 후 자동으로 websocket
+        // 으로 upgrade. ['websocket', 'polling'] 순서는 websocket 먼저 시도 후 fallback
+        // 이라 첫 connect 가 8초 timeout 으로 fail 하는 케이스가 관찰됨. 자연 순서로 되돌림.
         // upgrade 후엔 audio chunk 도 websocket 으로 흐르므로 latency 영향 미미.
-        transports: ['websocket', 'polling'],
+        transports: ['polling', 'websocket'],
       })
 
       socket.on('connect', () => {
@@ -247,7 +247,7 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           socket.off('connect', onConnect)
           socket.off('connect_error', onError)
           resolve({ ok: false, error: 'STT socket connection timed out' })
-        }, 8000)
+        }, 12000)
 
         socket.once('connect', onConnect)
         socket.once('connect_error', onError)
