@@ -491,7 +491,9 @@ export function MeetingRoomPage() {
     } else {
       // 소켓 없거나 끊긴 경우 — 새로 생성하고 리스너 등록
       if (existingSocket) existingSocket.disconnect()
-      const token = localStorage.getItem('accessToken')
+      // accessToken 은 sessionStorage 에 저장된다 (useAuthStore.login).
+      // 이전에 localStorage 에서 읽어 항상 null 이 되었고 meetings namespace 인증이 실패해 STT 가 시작되지 않던 버그 수정.
+      const token = sessionStorage.getItem('accessToken')
       const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
       const newSocket: Socket = io(`${backendUrl}/meetings`, {
         path: '/socket.io',
