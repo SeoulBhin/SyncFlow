@@ -141,18 +141,32 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           speaker: string | null
           startTime: number | null
           createdAt: string
+          isFinal?: boolean
         }) => {
           const meetingId = get().activeMeetingId
           if (!meetingId) return
-          useMeetingStore.getState().addRealtimeTranscript({
-            id: data.id,
-            meetingId,
-            text: data.text,
-            speaker: data.speaker,
-            startTime: data.startTime,
-            endTime: null,
-            createdAt: data.createdAt,
-          })
+          // interim 결과는 별도 처리 — 같은 id 로 덮어쓰기. isFinal=true 또는 누락(구버전 호환)이면 final.
+          if (data.isFinal === false) {
+            useMeetingStore.getState().upsertInterimTranscript({
+              id: data.id,
+              meetingId,
+              text: data.text,
+              speaker: data.speaker,
+              startTime: null,
+              endTime: null,
+              createdAt: data.createdAt,
+            })
+          } else {
+            useMeetingStore.getState().addRealtimeTranscript({
+              id: data.id,
+              meetingId,
+              text: data.text,
+              speaker: data.speaker,
+              startTime: data.startTime,
+              endTime: null,
+              createdAt: data.createdAt,
+            })
+          }
           // AI 노트 탭을 보는 중이면 강제 전환하지 않음
           if (useMeetingStore.getState().activeTab !== 'notes') {
             useMeetingStore.getState().setActiveTab('transcript')

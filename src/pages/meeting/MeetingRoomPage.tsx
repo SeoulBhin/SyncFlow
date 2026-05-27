@@ -511,24 +511,30 @@ export function MeetingRoomPage() {
     })
 
     // store 가 socket·audio·recorder lifecycle 전부 관리. 페이지 unmount 와 무관하게 유지.
-    // 회의 입장 직후 자동 시작은 LiveKit 핸드셰이크와 자원 경쟁으로 1회 실패할 수 있어
-    // 2초 후 1회 자동 재시도. 두 번째도 실패하면 토스트로 알리고 OFF 로 떨어뜨림.
-    let result = await startSttSession({ meetingId: id, speakerMap })
-    if (!result.ok) {
-      await new Promise((r) => setTimeout(r, 2000))
-      // 그 사이 사용자가 STT 를 끄거나 회의를 떠났으면 재시도 중단
+    // 회의 입장 직후 자동 시작은 LiveKit 핸드셰이크와 자원 경쟁으로 실패할 수 있어
+    // 점진적 backoff 로 3회까지 silent 재시도. 사용자 토스트는 마지막 실패 시에만.
+    console.log('[STT] startRealtimeSTT 시도', { meetingId: id, speakerMap })
+    const delays = [0, 2000, 4000]
+    let result: { ok: boolean; error?: string } = { ok: false }
+    for (let i = 0; i < delays.length; i++) {
+      if (delays[i] > 0) {
+        await new Promise((r) => setTimeout(r, delays[i]))
+      }
+      // 사용자가 그 사이 STT 를 끄거나 회의를 떠났으면 재시도 중단
       if (
         !useMeetingStore.getState().sttEnabled ||
         useMeetingSessionStore.getState().activeMeetingId !== id
       ) {
+        console.log('[STT] 재시도 중단 — sttEnabled=false 또는 회의 떠남')
         return
       }
       result = await startSttSession({ meetingId: id, speakerMap })
+      console.log(`[STT] 시도 #${i + 1} 결과`, result)
+      if (result.ok) return
     }
-    if (!result.ok) {
-      addToast('error', result.error ?? '실시간 자막을 시작할 수 없습니다')
-      useMeetingStore.getState().setSTT(false)
-    }
+    // 3회 모두 실패한 경우만 사용자에게 알림
+    addToast('error', result.error ?? '실시간 자막을 시작할 수 없습니다')
+    useMeetingStore.getState().setSTT(false)
   }, [authUser?.name, voiceChat.participants, startSttSession, addToast, meeting])
 
   // STT 토글 처리: 콜백 deps 가 매 렌더링마다 변하지 않도록 ref 로 안정화한다.

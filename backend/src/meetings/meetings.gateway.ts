@@ -340,9 +340,26 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
       try {
         // streaming STT 는 화자 분리를 안 해서 speaker 가 항상 null 로 옴.
         // 각 클라이언트가 본인 마이크 audio 만 보내므로 발화자는 이 소켓의 사용자임.
+        const speaker = result.speaker ?? sessionUserName
+        // interim 결과는 발화 중간의 partial 자막 — DB 에 저장하지 않고 broadcast 만 한다.
+        // 클라이언트는 isFinal=false 이면 마지막 줄을 덮어쓰고, isFinal=true 이면 새 줄로 확정.
+        if (!result.isFinal) {
+          this.server.to(`meeting-${meetingId}`).emit('meeting:transcript', {
+            meetingId,
+            id: `interim-${socketId}`,
+            text: result.text,
+            speaker,
+            startTime: null,
+            createdAt: new Date().toISOString(),
+            isFinal: false,
+          })
+          return
+        }
         const enrichedResult: TranscriptResult = {
-          ...result,
-          speaker: result.speaker ?? sessionUserName,
+          text: result.text,
+          speaker,
+          startTime: result.startTime,
+          endTime: result.endTime,
         }
         const saved = await this.meetingsService.saveTranscriptSegment(meetingId, enrichedResult)
         this.server.to(`meeting-${meetingId}`).emit('meeting:transcript', {
@@ -352,6 +369,7 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
           speaker: saved.speaker,
           startTime: saved.startTime,
           createdAt: saved.createdAt,
+          isFinal: true,
         })
         this.triggerAiNotesIfNeeded(meetingId, saved.text.length)
       } catch (err) {

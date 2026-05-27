@@ -205,7 +205,9 @@ export class SttService {
   // Google이 스트림을 끊는 경우 (5분 한도, 인증 오류, 오디오 무음 60초 등)에는
   // recognizeStream.on('error') / on('end') / on('close') 가 발생하므로
   // 호출자(Gateway)가 그 이벤트를 받아 재생성해야 함.
-  createStreamingSession(onResult: (result: TranscriptResult) => void): Duplex {
+  createStreamingSession(
+    onResult: (result: TranscriptResult & { isFinal: boolean }) => void,
+  ): Duplex {
     const recognizeStream: Duplex = this.client.streamingRecognize({
       config: {
         encoding: 'WEBM_OPUS' as any,
@@ -216,16 +218,23 @@ export class SttService {
         enableAutomaticPunctuation: true,
         model: this.model,
       },
-      interimResults: false,
+      // interim 활성화 — 발화 중에도 부분 자막을 전송해 체감 속도 향상.
+      // 호출자(Gateway)는 isFinal 만 DB 저장, interim 은 broadcast 만 한다.
+      interimResults: true,
     }) as unknown as Duplex
 
     recognizeStream.on('data', (data: any) => {
       const results: any[] = data.results ?? []
       for (const r of results) {
         const transcript: string = r.alternatives?.[0]?.transcript ?? ''
-        if (r.isFinal && transcript.trim()) {
-          onResult({ text: transcript.trim(), speaker: null, startTime: null, endTime: null })
-        }
+        if (!transcript.trim()) continue
+        onResult({
+          text: transcript.trim(),
+          speaker: null,
+          startTime: null,
+          endTime: null,
+          isFinal: !!r.isFinal,
+        })
       }
     })
 

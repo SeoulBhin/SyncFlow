@@ -77,6 +77,10 @@ interface MeetingState {
   // 실시간 STT 세그먼트를 store transcript에 즉시 반영 (Gateway 브로드캐스트 수신 시)
   addRealtimeTranscript: (entry: ApiMeetingTranscript) => void
 
+  // interim STT 결과(발화 중 부분 자막) — 같은 id 로 덮어쓰며, isFinal 도달 시
+  // addRealtimeTranscript 가 final id 로 다시 추가하면 자동으로 interim 은 제거된다.
+  upsertInterimTranscript: (entry: ApiMeetingTranscript) => void
+
   // ── API 액션 ───────────────────────────────────────────────────────────────
   createMeeting: (
     title: string,
@@ -215,12 +219,31 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
   addRealtimeTranscript: (entry) =>
     set((s) => {
+      // final 도착 시 같은 speaker 의 interim 자막은 제거 (덮어씌움).
+      // interim id 는 `interim-<socketId>` 형식이라 final id(`uuid`) 와 구분됨.
+      const withoutInterim = s.currentTranscripts.filter(
+        (t) => !(t.id.startsWith('interim-') && t.speaker === entry.speaker),
+      )
       // 같은 transcript id 중복 추가 방지 — 동일 broadcast 가 두 번 도착해도 한 번만 반영.
-      // (socket 이 여러 개여서 같은 room 으로 broadcast 두 번 수신되는 경우 등에 대비)
-      if (s.currentTranscripts.some((t) => t.id === entry.id)) {
-        return s
+      if (withoutInterim.some((t) => t.id === entry.id)) {
+        return s.currentTranscripts === withoutInterim
+          ? s
+          : { currentTranscripts: withoutInterim, transcript: toTranscriptEntries(withoutInterim) }
       }
-      const next = [...s.currentTranscripts, entry]
+      const next = [...withoutInterim, entry]
+      return {
+        currentTranscripts: next,
+        transcript: toTranscriptEntries(next),
+      }
+    }),
+
+  upsertInterimTranscript: (entry) =>
+    set((s) => {
+      const idx = s.currentTranscripts.findIndex((t) => t.id === entry.id)
+      const next =
+        idx >= 0
+          ? s.currentTranscripts.map((t, i) => (i === idx ? entry : t))
+          : [...s.currentTranscripts, entry]
       return {
         currentTranscripts: next,
         transcript: toTranscriptEntries(next),
