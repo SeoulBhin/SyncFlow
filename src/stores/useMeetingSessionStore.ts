@@ -135,7 +135,33 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
 
       socket.on('connect', () => {
         if (initialJoinPending) return
+        // socket.io 자동 reconnect 후 호출. backend STT 세션이 fresh 상태라
+        // MediaRecorder 도 새로 시작해서 WEBM 헤더 포함 첫 청크가 새 backend stream
+        // 으로 흐르도록 동기화. 안 그러면 옛 recorder 의 cluster only 청크가 도착해
+        // code=3 encoding error 무한 반복.
         socket?.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+        const cur = get()
+        if (cur._audioStream && cur.sttEnabled) {
+          try {
+            cur._recorder?.stop()
+          } catch {
+            // ignore
+          }
+          const newRecorder = new MediaRecorder(cur._audioStream, {
+            mimeType: 'audio/webm;codecs=opus',
+          })
+          newRecorder.ondataavailable = (e) => {
+            const s = get()._socket
+            if (e.data.size > 0 && s?.connected) {
+              void e.data.arrayBuffer().then((buf) => {
+                const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+                s.emit('meeting:audio-chunk', { chunk: b64 })
+              })
+            }
+          }
+          newRecorder.start(1000)
+          set({ _recorder: newRecorder })
+        }
       })
 
       socket.on(

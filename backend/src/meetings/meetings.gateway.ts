@@ -328,11 +328,11 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     if (!session || session.closed) return
 
     if (isReplacement) {
-      const client = this.server.sockets.sockets.get(socketId)
-      if (client) {
-        client.emit('meeting:stt-recycle')
-        this.logger.log(`[STT RECYCLE] 클라이언트 recorder 재시작 요청 emit [${socketId}]`)
-      }
+      // server.to(socketId).emit 은 socket 객체를 직접 찾지 않아도 emit 가능 — 더 안전.
+      // (server.sockets.sockets.get 은 namespace 가 정확히 일치해야 하고, 일부 setup 에선
+      // undefined 반환 가능 — 그 경우 emit 누락이 됨)
+      this.server.to(socketId).emit('meeting:stt-recycle')
+      this.logger.log(`[STT RECYCLE] 클라이언트 recorder 재시작 요청 emit [${socketId}]`)
     }
 
     // 기존 스트림이 살아있으면 정리 (recycle 또는 비정상 후 재진입 시)
