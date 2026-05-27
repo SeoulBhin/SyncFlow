@@ -321,6 +321,15 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     const session = this.sessions.get(socketId)
     if (!session || session.closed) return
 
+    // 첫 호출이 아니라 재생성이면 클라이언트의 MediaRecorder 도 재시작하도록 알림.
+    // 안 그러면 새 stream 에 WEBM 헤더 없는 cluster 만 도착해서 Google STT 가
+    // code=3 "encoding error" 를 무한 발생시키고 자막이 멈춘다.
+    const isReplacement = session.stream !== null
+    if (isReplacement) {
+      const client = this.server.sockets.sockets.get(socketId)
+      client?.emit('meeting:stt-recycle')
+    }
+
     // 기존 스트림이 살아있으면 정리 (recycle 또는 비정상 후 재진입 시)
     if (session.stream && !session.stream.destroyed) {
       try {

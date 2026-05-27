@@ -184,6 +184,34 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
           useMeetingStore.getState().setAiNotes(data.notes)
         }
       })
+
+      // backend 에서 STT stream 을 재생성할 때(5분 한도/Audio Timeout/code=3 등) 보내는 신호.
+      // MediaRecorder 를 즉시 stop+start 해서 새 WEBM 헤더 포함 청크가 새 stream 으로
+      // 흘러가게 한다. 이걸 안 하면 새 stream 엔 cluster only 청크만 도착해서
+      // Google STT 가 디코딩 못 함 → code=3 encoding error 무한 반복 → 자막 멈춤.
+      socket.on('meeting:stt-recycle', () => {
+        const cur = get()
+        if (!cur._audioStream || !cur.sttEnabled) return
+        try {
+          cur._recorder?.stop()
+        } catch {
+          // 이미 stop 된 경우 무시
+        }
+        const newRecorder = new MediaRecorder(cur._audioStream, {
+          mimeType: 'audio/webm;codecs=opus',
+        })
+        newRecorder.ondataavailable = (e) => {
+          const s = get()._socket
+          if (e.data.size > 0 && s?.connected) {
+            void e.data.arrayBuffer().then((buf) => {
+              const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
+              s.emit('meeting:audio-chunk', { chunk: b64 })
+            })
+          }
+        }
+        newRecorder.start(1000)
+        set({ _recorder: newRecorder })
+      })
     } else {
       // 이미 살아있는 socket 이면 meeting:join 만 재발행 (speakerMap 갱신 가능)
       socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
