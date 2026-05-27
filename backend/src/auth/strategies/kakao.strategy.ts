@@ -20,7 +20,6 @@ export class KakaoStrategy extends PassportStrategy(Strategy, 'kakao') {
   async validate(
     accessToken: string,
     _refreshToken: string,
-    _params: any,
     profile: any,
     done: (err: any, user: any) => void,
   ) {
