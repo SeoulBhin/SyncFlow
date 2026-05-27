@@ -12,6 +12,7 @@ import {
 import { cn } from '@/utils/cn'
 import { useMeetingStore } from '@/stores/useMeetingStore'
 import { useVoiceChatStore } from '@/stores/useVoiceChatStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 import { useAuthStore } from '@/stores/useAuthStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useEndMeetingAction } from '@/hooks/useEndMeetingAction'
@@ -99,8 +100,43 @@ export function MeetingBanner() {
     }
 
     await voiceChat.disconnect()
+    // 백그라운드 STT 세션도 정리 (배너에서 leave 한 경우)
+    useMeetingSessionStore.getState().endSession()
     meeting.endMeeting()
     navigate('/app/meetings')
+  }
+
+  // STT 토글: 다른 페이지에서도 동작하도록 세션 store 직접 호출.
+  // 기존엔 meeting.toggleSTT 만 호출하면 MeetingRoomPage 의 useEffect 가 처리했는데,
+  // 배너는 회의 페이지 밖에서 보이므로 그 useEffect 가 없어 토글이 무의미했다.
+  const handleToggleStt = async () => {
+    const session = useMeetingSessionStore.getState()
+    const meetingId = session.activeMeetingId ?? meeting.activeMeetingId
+    if (!meetingId) {
+      meeting.toggleSTT()
+      return
+    }
+    if (session.sttEnabled) {
+      session.stopStt()
+      // sttEnabled 동기화
+      if (meeting.sttEnabled) meeting.toggleSTT()
+    } else {
+      const speakerMap: Record<string, string> = {}
+      if (authUser?.name) speakerMap['1'] = authUser.name
+      let nextTag = authUser?.name ? 2 : 1
+      voiceChat.participants.forEach((p) => {
+        if (!p.name) return
+        if (authUser?.name && p.name === authUser.name) return
+        speakerMap[String(nextTag)] = p.name
+        nextTag++
+      })
+      const result = await session.startStt({ meetingId, speakerMap })
+      if (result.ok) {
+        if (!meeting.sttEnabled) meeting.toggleSTT()
+      } else {
+        addToast('error', result.error ?? '실시간 자막 시작 실패')
+      }
+    }
   }
 
   if (meeting.status !== 'in-meeting' || isMeetingRoomPage) {
@@ -146,7 +182,7 @@ export function MeetingBanner() {
             {isMuted ? <MicOff size={16} /> : <Mic size={16} />}
           </button>
           <button
-            onClick={() => meeting.toggleSTT()}
+            onClick={() => void handleToggleStt()}
             className={cn(
               'rounded-lg p-1.5 transition-colors',
               meeting.sttEnabled ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10',

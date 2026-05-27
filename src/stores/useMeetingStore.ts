@@ -213,6 +213,11 @@ export const useMeetingStore = create<MeetingState>((set, get) => ({
 
   addRealtimeTranscript: (entry) =>
     set((s) => {
+      // 같은 transcript id 중복 추가 방지 — 동일 broadcast 가 두 번 도착해도 한 번만 반영.
+      // (socket 이 여러 개여서 같은 room 으로 broadcast 두 번 수신되는 경우 등에 대비)
+      if (s.currentTranscripts.some((t) => t.id === entry.id)) {
+        return s
+      }
       const next = [...s.currentTranscripts, entry]
       return {
         currentTranscripts: next,

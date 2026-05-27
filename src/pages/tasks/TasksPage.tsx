@@ -9,11 +9,12 @@ import { KanbanBoard } from '@/components/tasks/KanbanBoard'
 import { CalendarView } from '@/components/tasks/CalendarView'
 import { GanttChart } from '@/components/tasks/GanttChart'
 import { ListView } from '@/components/tasks/ListView'
-import { MOCK_MILESTONES, MOCK_USERS, MOCK_MEETINGS } from '@/constants'
+import { MOCK_MILESTONES, MOCK_MEETINGS } from '@/constants'
 import type { MockTask, TaskStatus, TaskPriority } from '@/constants'
 import { useTasksStore } from '@/stores/useTasksStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
+import { useProjectsStore } from '@/stores/useProjectsStore'
 import type { ApiTask, ApiTaskStatus } from '@/types'
 import { api } from '@/utils/api'
 import { EmptyState } from '@/components/empty-states/EmptyState'
@@ -22,6 +23,13 @@ import { EmptyState } from '@/components/empty-states/EmptyState'
 const FRONT_TO_API_PRIORITY: Record<TaskPriority, 'low' | 'medium' | 'high' | 'urgent'> = {
   low: 'low',
   normal: 'medium',
+  high: 'high',
+  urgent: 'urgent',
+}
+
+const API_TO_FRONT_PRIORITY: Record<'low' | 'medium' | 'high' | 'urgent', TaskPriority> = {
+  low: 'low',
+  medium: 'normal',
   high: 'high',
   urgent: 'urgent',
 }
@@ -42,30 +50,39 @@ const VIEW_TABS: { value: ViewTab; label: string; icon: typeof Columns3 }[] = [
   { value: 'list', label: '리스트', icon: List },
 ]
 
-// 백엔드 ApiTask → 기존 UI 컴포넌트가 사용하는 MockTask 형태로 어댑팅.
-// description / priority / assigneeIds / projectName 등 UI 전용 메타는
-// 백엔드 스키마에 없으므로 합리적인 기본값으로 채움.
-// 회의에서 생성된 Task(sourceMeetingId)는 fromMeeting + groupName="회의 액션아이템"
-// 으로 표시되어 칸반 보드에서 한눈에 식별 가능.
-function adaptApiTask(t: ApiTask): MockTask {
-  const member = t.assignee
-    ? MOCK_USERS.find((u) => u.name === t.assignee)
-    : undefined
+interface TaskAdaptContext {
+  membersById: Map<string, TaskMember>
+  projectsById: Map<string, { id: string; name: string }>
+  currentGroupName: string
+}
+
+// 백엔드 ApiTask → 기존 UI 컴포넌트(MockTask 모델) 변환.
+// members/projects를 인덱스로 받아 assignee·project 이름을 실데이터로 표시한다.
+function adaptApiTask(t: ApiTask, ctx: TaskAdaptContext): MockTask {
   const meeting = t.sourceMeetingId
     ? MOCK_MEETINGS.find((m) => m.id === t.sourceMeetingId)
     : undefined
+
+  const assigneeMember = t.assigneeId ? ctx.membersById.get(t.assigneeId) : undefined
+  const assigneeName = assigneeMember?.name ?? t.assignee ?? '미지정'
+
+  const project = t.projectId ? ctx.projectsById.get(t.projectId) : undefined
+  const projectName = meeting
+    ? '회의 액션아이템'
+    : project?.name ?? '일반'
+
   return {
     id: t.id,
     title: t.title,
-    description: '',
+    description: t.description ?? '',
     status: (t.status as TaskStatus) ?? 'todo',
-    priority: 'normal',
-    assigneeId: member?.id ?? 'u1',
-    assigneeName: t.assignee ?? '미지정',
+    priority: t.priority ? API_TO_FRONT_PRIORITY[t.priority] : 'normal',
+    assigneeId: assigneeMember?.id ?? t.assigneeId ?? '',
+    assigneeName,
     dueDate: t.dueDate ?? t.createdAt.slice(0, 10),
-    startDate: t.createdAt.slice(0, 10),
-    projectName: meeting ? '회의 액션아이템' : '일반',
-    groupName: meeting ? '회의 액션아이템' : '일반',
+    startDate: t.startDate ?? t.createdAt.slice(0, 10),
+    projectName,
+    groupName: meeting ? '회의 액션아이템' : ctx.currentGroupName,
     fromMeeting: meeting?.title ?? (t.sourceMeetingId ?? undefined),
   }
 }
@@ -86,10 +103,21 @@ export function TasksPage() {
   const removeTask = useTasksStore((s) => s.removeTask)
   const addToast = useToastStore((s) => s.addToast)
   const activeOrgId = useGroupContextStore((s) => s.activeOrgId)
+  const activeOrgName = useGroupContextStore((s) => s.activeOrgName)
+  const projects = useProjectsStore((s) => s.projects)
+  const fetchProjectsForOrg = useProjectsStore((s) => s.fetchForOrg)
+  const projectsLoadedForOrg = useProjectsStore((s) => s.loadedForOrgId)
 
   useEffect(() => {
     void loadAll()
-  }, [loadAll])
+  }, [loadAll, activeOrgId])
+
+  // 활성 조직의 프로젝트 목록 — task 카드에 projectName 표시용
+  useEffect(() => {
+    if (!activeOrgId) return
+    if (projectsLoadedForOrg === activeOrgId) return
+    void fetchProjectsForOrg(activeOrgId)
+  }, [activeOrgId, projectsLoadedForOrg, fetchProjectsForOrg])
 
   // 활성 조직 멤버 fetch — TaskModal 담당자 콤보박스 채우는 용도
   useEffect(() => {
@@ -115,7 +143,22 @@ export function TasksPage() {
     }
   }, [activeOrgId])
 
-  const tasks = useMemo<MockTask[]>(() => apiTasks.map(adaptApiTask), [apiTasks])
+  const adaptContext = useMemo<TaskAdaptContext>(() => {
+    const membersById = new Map<string, TaskMember>()
+    for (const m of members) membersById.set(m.id, m)
+    const projectsById = new Map<string, { id: string; name: string }>()
+    for (const p of projects) projectsById.set(p.id, { id: p.id, name: p.name })
+    return {
+      membersById,
+      projectsById,
+      currentGroupName: activeOrgName ?? '일반',
+    }
+  }, [members, projects, activeOrgName])
+
+  const tasks = useMemo<MockTask[]>(
+    () => apiTasks.map((t) => adaptApiTask(t, adaptContext)),
+    [apiTasks, adaptContext],
+  )
 
   // 그룹 목록 추출 — 백엔드 데이터에서는 "회의 액션아이템" / "일반" 두 종류로 단순화
   const groupNames = useMemo(() => {

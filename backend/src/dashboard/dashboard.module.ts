@@ -8,10 +8,23 @@ import { Meeting } from '../meetings/entities/meeting.entity'
 import { Message } from '../messages/entities/message.entity'
 import { Page } from '../pages/entities/page.entity'
 import { Project } from '../projects/entities/project.entity'
+import { Task } from '../tasks/entities/task.entity'
+import { User } from '../auth/entities/user.entity'
+import { GroupMember } from '../groups/entities/group-member.entity'
 
 @Module({
   imports: [
-    TypeOrmModule.forFeature([Channel, ChannelMember, Meeting, Message, Page, Project]),
+    TypeOrmModule.forFeature([
+      Channel,
+      ChannelMember,
+      Meeting,
+      Message,
+      Page,
+      Project,
+      Task,
+      User,
+      GroupMember,
+    ]),
   ],
   controllers: [DashboardController],
   providers: [DashboardService],

@@ -3,6 +3,9 @@ import type { User } from '@/types'
 import { api } from '@/utils/api'
 import { usePageStore } from '@/stores/usePageStore'
 import { useSidebarStore } from '@/stores/useSidebarStore'
+import { useAIStore } from '@/stores/useAIStore'
+import { useTasksStore } from '@/stores/useTasksStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 
 interface AuthState {
   isAuthenticated: boolean
@@ -35,6 +38,12 @@ export const useAuthStore = create<AuthState>()((set) => ({
     // Zustand persist로 유지되던 sidebar 선택 상태(activeGroupId/activeProjectId)를 초기화.
     // 이 호출이 localStorage['syncflow-sidebar'] 도 함께 갱신한다.
     useSidebarStore.getState().clearSelection()
+    // AI 사이드패널 대화·메시지가 다음 사용자에게 노출되지 않도록 초기화.
+    useAIStore.getState().reset()
+    // 작업 목록도 잔류하지 않도록 비운다.
+    useTasksStore.setState({ tasks: [], isLoading: false, error: null })
+    // 백그라운드 회의 세션(STT socket·audio) 정리 — 로그아웃 후 다음 사용자 컨텍스트로 누설 방지
+    useMeetingSessionStore.getState().endSession()
     set({ isAuthenticated: false, user: null })
   },
   fetchMe: async () => {
@@ -53,5 +62,8 @@ export const useAuthStore = create<AuthState>()((set) => ({
 window.addEventListener('auth:session-expired', () => {
   usePageStore.getState().clear()
   useSidebarStore.getState().clearSelection()
+  useAIStore.getState().reset()
+  useTasksStore.setState({ tasks: [], isLoading: false, error: null })
+  useMeetingSessionStore.getState().endSession()
   useAuthStore.setState({ isAuthenticated: false, user: null })
 })

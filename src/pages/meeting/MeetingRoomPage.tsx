@@ -1,6 +1,5 @@
 import { useEffect, useMemo, useRef, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
-import { io, type Socket } from 'socket.io-client'
 import {
   Mic,
   MicOff,
@@ -32,6 +31,7 @@ import { useScreenShareStore } from '@/stores/useScreenShareStore'
 import { useGroupContextStore } from '@/stores/useGroupContextStore'
 import { useToastStore } from '@/stores/useToastStore'
 import { useAuthStore } from '@/stores/useAuthStore'
+import { useMeetingSessionStore } from '@/stores/useMeetingSessionStore'
 import { useEndMeetingAction } from '@/hooks/useEndMeetingAction'
 import { MeetingParticipants } from '@/components/meeting/MeetingParticipants'
 import { MeetingTranscript } from '@/components/meeting/MeetingTranscript'
@@ -175,16 +175,16 @@ export function MeetingRoomPage() {
     return () => document.removeEventListener('mousedown', handleOutsideClick)
   }, [showMoreMenu])
   const uploadProgress = useMeetingStore((s) => s.uploadProgress)
-  const addRealtimeTranscript = useMeetingStore((s) => s.addRealtimeTranscript)
-  const setAiNotes = useMeetingStore((s) => s.setAiNotes)
+  // addRealtimeTranscript / setAiNotes 는 useMeetingSessionStore 내부에서 호출됨
   const joinMeetingApiAction = useMeetingStore((s) => s.joinMeetingApi)
   const connectVoiceChat = useVoiceChatStore((s) => s.connect)
 
-  const sttSocketRef = useRef<Socket | null>(null)
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null)
-  const audioStreamRef = useRef<MediaStream | null>(null)
-  // STT가 활성화된 meetingId — stopAudioOnly에서 meeting:stt-stop emit 시 참조
-  const activeSttMeetingIdRef = useRef<string | null>(null)
+  // STT socket/audio/recorder 는 useMeetingSessionStore 가 컴포넌트 밖에서 관리한다.
+  // 페이지 unmount 와 무관하게 살아있어야 다른 페이지(문서/DM)로 이동해도 자막이 계속 쌓인다.
+  const startSttSession = useMeetingSessionStore((s) => s.startStt)
+  const stopSttSession = useMeetingSessionStore((s) => s.stopStt)
+  const enterMeetingSession = useMeetingSessionStore((s) => s.enterMeeting)
+  const endMeetingSession = useMeetingSessionStore((s) => s.endSession)
 
   const recordingRecorderRef = useRef<MediaRecorder | null>(null)
   const recordingChunksRef = useRef<Blob[]>([])
@@ -218,6 +218,9 @@ export function MeetingRoomPage() {
       const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
       useMeetingStore.getState().startMeeting(id, meetingTitle, groupName)
     }
+    // 백그라운드 세션 등록 — 다른 페이지로 이동해도 STT/배너가 살아있도록.
+    const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
+    enterMeetingSession(id, meetingTitle)
     // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
     setElapsed(0)
   }, [joinMeetingApiAction, connectVoiceChat, groupName, setElapsed]) // eslint-disable-line react-hooks/exhaustive-deps
@@ -310,6 +313,7 @@ export function MeetingRoomPage() {
         if (msg.type === 'meeting:end') {
           void useVoiceChatStore.getState().disconnect()
           useMeetingStore.getState().endMeeting()
+          useMeetingSessionStore.getState().endSession()
           addToast('info', '호스트가 회의를 종료했습니다')
           navigate('/app/meetings')
         } else if (msg.type === 'meeting:host-transfer' && msg.meeting) {
@@ -423,55 +427,13 @@ export function MeetingRoomPage() {
     meeting.toggleRecording()
   }, [meeting, screenShare, voiceChat.participants, meetingId, addToast])
 
-  // STT OFF 시 — 오디오/MediaRecorder만 중지. 소켓과 룸 멤버십은 유지.
-  // meeting:ai-notes 수신은 소켓이 살아 있는 한 계속된다.
-  const stopAudioOnly = useCallback(() => {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
-    audioStreamRef.current = null
-    const mId = activeSttMeetingIdRef.current
-    if (sttSocketRef.current?.connected && mId) {
-      sttSocketRef.current.emit('meeting:stt-stop', { meetingId: mId })
-    }
-  }, [])
+  // STT OFF: store 가 audio/recorder 중단. socket 은 ai-notes 수신을 위해 유지.
+  const stopAudioOnly = stopSttSession
 
-  // 회의 나가기/종료/언마운트 시 — 오디오 + 소켓 모두 해제
-  const fullStopRealtimeSTT = useCallback(() => {
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
-    audioStreamRef.current = null
-    sttSocketRef.current?.disconnect()
-    sttSocketRef.current = null
-    activeSttMeetingIdRef.current = null
-  }, [])
+  // 회의 나가기/종료: 세션 전체 해제 (socket·audio·recorder 모두)
+  const fullStopRealtimeSTT = endMeetingSession
 
   const startRealtimeSTT = useCallback(async (id: string) => {
-    // 기존 오디오/MediaRecorder만 중지 — 소켓은 유지 (meeting:ai-notes 수신 유지)
-    mediaRecorderRef.current?.stop()
-    mediaRecorderRef.current = null
-    audioStreamRef.current?.getTracks().forEach((t) => t.stop())
-    audioStreamRef.current = null
-
-    let stream: MediaStream
-    try {
-      stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-    } catch {
-      addToast('error', '마이크 접근 권한이 필요합니다')
-      meeting.toggleSTT()
-      return
-    }
-    audioStreamRef.current = stream
-
-    const token = sessionStorage.getItem('accessToken')
-    const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
-    const socket: Socket = io(`${backendUrl}/meetings`, {
-      path: '/socket.io',
-      auth: token ? { token } : undefined,
-    })
-    sttSocketRef.current = socket
-
     const speakerMap: Record<string, string> = {}
     if (authUser?.name) speakerMap['1'] = authUser.name
     let nextTag = authUser?.name ? 2 : 1
@@ -482,86 +444,47 @@ export function MeetingRoomPage() {
       nextTag++
     })
 
-    // 소켓 재사용 — 이미 연결된 소켓이 있으면 meeting:join만 재발행 (리스너 중복 등록 방지)
-    let activeSocket: Socket
-    const existingSocket = sttSocketRef.current
-    if (existingSocket?.connected) {
-      activeSocket = existingSocket
-      activeSocket.emit('meeting:join', { meetingId: id, speakerMap })
-    } else {
-      // 소켓 없거나 끊긴 경우 — 새로 생성하고 리스너 등록
-      if (existingSocket) existingSocket.disconnect()
-      const token = localStorage.getItem('accessToken')
-      const backendUrl = import.meta.env.VITE_API_URL ?? (import.meta.env.DEV ? 'http://localhost:3000' : '')
-      const newSocket: Socket = io(`${backendUrl}/meetings`, {
-        path: '/socket.io',
-        auth: token ? { token } : undefined,
-      })
-      sttSocketRef.current = newSocket
-      activeSocket = newSocket
-
-      newSocket.on('connect', () => {
-        newSocket.emit('meeting:join', { meetingId: id, speakerMap })
-      })
-
-      newSocket.on('meeting:transcript', (data: { id: string; text: string; speaker: string | null; startTime: number | null; createdAt: string }) => {
-        addRealtimeTranscript({
-          id: data.id,
-          meetingId: id,
-          text: data.text,
-          speaker: data.speaker,
-          startTime: data.startTime,
-          endTime: null,
-          createdAt: data.createdAt,
-        })
-        // AI 노트 탭을 보는 중이면 강제 전환하지 않음 — 실시간 AI 노트 확인 가능하도록
-        if (useMeetingStore.getState().activeTab !== 'notes') {
-          meeting.setActiveTab('transcript')
-        }
-      })
-
-      // meeting:ai-notes는 소켓이 살아 있는 한 STT ON/OFF와 무관하게 수신됨
-      newSocket.on('meeting:ai-notes', (data: { meetingId: string; notes: string[] }) => {
-        if (data.meetingId === id) setAiNotes(data.notes)
-      })
+    // store 가 socket·audio·recorder lifecycle 전부 관리. 페이지 unmount 와 무관하게 유지.
+    const result = await startSttSession({ meetingId: id, speakerMap })
+    if (!result.ok) {
+      addToast('error', result.error ?? '실시간 자막을 시작할 수 없습니다')
+      meeting.toggleSTT()
     }
+  }, [authUser?.name, voiceChat.participants, startSttSession, addToast, meeting])
 
-    activeSttMeetingIdRef.current = id
-
-    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm;codecs=opus' })
-    mediaRecorderRef.current = recorder
-
-    recorder.ondataavailable = (e) => {
-      if (e.data.size > 0 && activeSocket.connected) {
-        void e.data.arrayBuffer().then((buf) => {
-          const b64 = btoa(String.fromCharCode(...new Uint8Array(buf)))
-          activeSocket.emit('meeting:audio-chunk', { chunk: b64 })
-        })
-      }
-    }
-
-    recorder.start(1000)
-  }, [addRealtimeTranscript, meeting, addToast, voiceChat.participants])
-
+  // STT 토글 처리: 이전 값과 비교해 실제 변화 시에만 store 호출.
+  // useEffect cleanup 으로 stop 을 호출하면 페이지 unmount 시에도 cleanup 이 트리거되어
+  // 다른 페이지로 이동하면 STT 가 끊기는 문제가 있었다. 그래서 ref 로 prev 값 추적해
+  // unmount 시에는 아무것도 하지 않는다 (store 가 백그라운드 유지).
+  const prevSttEnabledRef = useRef(meeting.sttEnabled)
   useEffect(() => {
     if (!meetingId) return
+    const prev = prevSttEnabledRef.current
+    prevSttEnabledRef.current = meeting.sttEnabled
+    if (prev === meeting.sttEnabled) {
+      // 마운트 또는 변화 없음 — 진행 중인 세션이 있으면 그대로 둠
+      if (meeting.sttEnabled && !useMeetingSessionStore.getState().sttEnabled) {
+        void startRealtimeSTT(meetingId)
+      }
+      return
+    }
     if (meeting.sttEnabled) {
       void startRealtimeSTT(meetingId)
     } else {
       stopAudioOnly()
     }
-    return () => stopAudioOnly()
-  }, [meeting.sttEnabled]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [meeting.sttEnabled, meetingId, startRealtimeSTT, stopAudioOnly])
 
+  // 녹화 정리는 unmount 시에도 필요 (화면공유 stream 이 사라지면 무의미한 데이터만 쌓임)
   useEffect(() => () => {
-    fullStopRealtimeSTT()
     if (recordingRecorderRef.current?.state !== 'inactive') {
       recordingRecorderRef.current?.stop()
     }
     recordingRecorderRef.current = null
     recordingMicStreamRef.current?.getTracks().forEach((t) => t.stop())
     recordingMicStreamRef.current = null
-  }, [fullStopRealtimeSTT])
+    // STT 세션은 여기서 종료하지 않는다 — 명시적 handleLeave/handleEndMeeting 에서만.
+  }, [])
 
   // 화면 공유 시작 시 오른쪽 패널 자동 접기 — 공유 화면 영역 확보
   useEffect(() => {
@@ -586,7 +509,8 @@ export function MeetingRoomPage() {
     const remainingParticipantIds = remainingParticipants.map((p) => p.id)
     const isLastPerson = remainingParticipantIds.length === 0
 
-    if (meeting.sttEnabled) fullStopRealtimeSTT()
+    // 백그라운드 세션 정리 (STT socket·audio·recorder 모두 해제)
+    endMeetingSession()
 
     let isEnded = false
     try {
@@ -623,12 +547,12 @@ export function MeetingRoomPage() {
     }
   }, [meetingId, voiceChat, meeting, fullStopRealtimeSTT, addToast, navigate])
 
-  // 회의 종료 — 호스트 전용. STT 중지 후 공통 훅(endMeetingFull) 위임.
+  // 회의 종료 — 호스트 전용. 백그라운드 세션 정리 후 공통 훅(endMeetingFull) 위임.
   const handleEndMeeting = useCallback(async () => {
     if (!meetingId) return
-    if (meeting.sttEnabled) fullStopRealtimeSTT()
+    endMeetingSession()
     await endMeetingFull(meetingId)
-  }, [meetingId, meeting.sttEnabled, fullStopRealtimeSTT, endMeetingFull])
+  }, [meetingId, endMeetingSession, endMeetingFull])
 
   const handleAudioFileSelected = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]

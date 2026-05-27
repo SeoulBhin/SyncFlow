@@ -81,6 +81,136 @@ export class AiService {
     return rows.map((r) => ({ userId: r.user_id, userName: r.user_name || '(이름 없음)' }))
   }
 
+  // ── 일정/할일 질문 감지 + 사용자 컨텍스트 주입 ────────────────────────────
+
+  private isScheduleOrTaskQuery(content: string): boolean {
+    return /일정|스케줄|할\s*일|할일|작업|task|todo|마감|deadline|언제|이번\s*주|다음\s*주|오늘|내일|모레|남은|예정|발표|미팅|회의/i.test(
+      content,
+    )
+  }
+
+  private async fetchUserUpcomingTasks(
+    userId: string,
+    limit = 15,
+  ): Promise<
+    Array<{
+      title: string
+      status: string
+      priority: string
+      dueDate: string | null
+      startDate: string | null
+      projectTitle: string | null
+    }>
+  > {
+    try {
+      const rows = await this.dataSource.query<
+        Array<{
+          title: string
+          status: string
+          priority: string
+          due_date: string | null
+          start_date: string | null
+          project_title: string | null
+        }>
+      >(
+        `SELECT t.title, t.status, t.priority, t.due_date, t.start_date,
+                p.name AS project_title
+         FROM tasks t
+         LEFT JOIN projects p ON p.id = t.project_id
+         WHERE (t.assignee_id = $1 OR t.created_by = $1)
+           AND t.status <> 'done'
+         ORDER BY t.due_date ASC NULLS LAST, t.priority DESC
+         LIMIT $2`,
+        [userId, limit],
+      )
+      return rows.map((r) => ({
+        title: r.title,
+        status: r.status,
+        priority: r.priority,
+        dueDate: r.due_date,
+        startDate: r.start_date,
+        projectTitle: r.project_title,
+      }))
+    } catch (err) {
+      this.logger.warn(`사용자 작업 조회 실패: ${(err as Error).message}`)
+      return []
+    }
+  }
+
+  private async fetchUserUpcomingSchedules(
+    userId: string,
+    limit = 15,
+  ): Promise<
+    Array<{ title: string; startAt: string | null; endAt: string | null }>
+  > {
+    try {
+      const rows = await this.dataSource.query<
+        Array<{ title: string; start_at: string | null; end_at: string | null }>
+      >(
+        `SELECT s.title, s.start_at, s.end_at
+         FROM schedules s
+         WHERE (
+           s.created_by = $1
+           OR (s.attendees IS NOT NULL AND s.attendees::text LIKE '%' || $1 || '%')
+         )
+         AND (s.end_at IS NULL OR s.end_at >= NOW())
+         ORDER BY s.start_at ASC NULLS LAST
+         LIMIT $2`,
+        [userId, limit],
+      )
+      return rows.map((r) => ({
+        title: r.title,
+        startAt: r.start_at,
+        endAt: r.end_at,
+      }))
+    } catch (err) {
+      this.logger.warn(`사용자 일정 조회 실패: ${(err as Error).message}`)
+      return []
+    }
+  }
+
+  private async buildUserScheduleSection(userId: string): Promise<string> {
+    const [tasks, schedules] = await Promise.all([
+      this.fetchUserUpcomingTasks(userId),
+      this.fetchUserUpcomingSchedules(userId),
+    ])
+
+    if (tasks.length === 0 && schedules.length === 0) {
+      return '\n\n## 사용자 일정/할일\n현재 등록된 미완료 작업과 임박한 일정이 없습니다. 사용자에게 이 사실을 명확히 알리세요.'
+    }
+
+    const today = new Date().toISOString().slice(0, 10)
+    let section = `\n\n## 사용자 일정/할일 (오늘=${today})`
+
+    if (tasks.length > 0) {
+      const lines = tasks
+        .map((t) => {
+          const due = t.dueDate ? `마감 ${t.dueDate}` : '마감 미지정'
+          const start = t.startDate ? `시작 ${t.startDate}` : ''
+          const proj = t.projectTitle ? `[${t.projectTitle}]` : ''
+          return `- ${proj} ${t.title} — ${t.status}/${t.priority} (${[start, due].filter(Boolean).join(', ')})`
+        })
+        .join('\n')
+      section += `\n\n### 미완료 작업 (${tasks.length}개)\n${lines}`
+    }
+
+    if (schedules.length > 0) {
+      const lines = schedules
+        .map((s) => {
+          const when = s.startAt
+            ? `${s.startAt}${s.endAt ? ` ~ ${s.endAt}` : ''}`
+            : '시간 미지정'
+          return `- ${s.title} (${when})`
+        })
+        .join('\n')
+      section += `\n\n### 임박한 일정 (${schedules.length}개)\n${lines}`
+    }
+
+    section +=
+      '\n\n위 데이터는 DB에서 직접 조회한 사실입니다. 이 정보를 바탕으로 사용자 질문에 답하고, 위 목록에 없는 일정은 추측하지 마세요.'
+    return section
+  }
+
   private async streamMemberListResponse(
     channelId: string,
     conversationId: string,
@@ -140,14 +270,29 @@ export class AiService {
       return
     }
 
-    // 프로젝트 RAG 검색
+    // 프로젝트 RAG 검색 — projectId 가 있으면 우선, 없으면 채널 → 그룹 전체 페이지에서 검색
     const projectId = conversation.projectId
-    const ragChunks =
-      projectId && projectId.length > 0
-        ? await this.ragService
-            .searchProjectEmbeddings(dto.content, projectId, 5)
+    let ragChunks: ProjectSearchResult[] = []
+    if (projectId && projectId.length > 0) {
+      ragChunks = await this.ragService
+        .searchProjectEmbeddings(dto.content, projectId, 5)
+        .catch(() => [])
+    } else if (dto.channelId) {
+      try {
+        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
+          `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
+          [dto.channelId],
+        )
+        const groupId = rows[0]?.group_id
+        if (groupId) {
+          ragChunks = await this.ragService
+            .searchGroupEmbeddings(dto.content, groupId, 5)
             .catch(() => [])
-        : []
+        }
+      } catch (err) {
+        this.logger.warn(`채널 그룹 RAG 검색 실패: ${(err as Error).message}`)
+      }
+    }
 
     const relevantChunks = ragChunks.filter((c) => c.similarity >= RAG_SIMILARITY_THRESHOLD)
 
@@ -193,6 +338,11 @@ export class AiService {
     if (dto.referencedFileIds?.length && referencedPageContents.length === 0) {
       systemPrompt +=
         '\n\n[선택한 파일 내용을 찾을 수 없습니다. 사용자에게 "선택한 파일의 내용을 불러올 수 없습니다. 파일이 존재하는지 확인해주세요."라고 안내하세요.]'
+    }
+
+    // 일정/할일 질문 → 사용자의 tasks/schedules 직접 주입 (RAG와 무관, DB 사실 기반)
+    if (this.isScheduleOrTaskQuery(dto.content)) {
+      systemPrompt += await this.buildUserScheduleSection(user.userId)
     }
 
     // 문서/채널 컨텍스트 없을 때 AI에게 안내 추가
@@ -292,7 +442,11 @@ export class AiService {
         }))
     }
 
-    const systemPrompt = this.buildLegacySystemPrompt(contextChunks)
+    let systemPrompt = this.buildLegacySystemPrompt(contextChunks)
+
+    if (this.isScheduleOrTaskQuery(dto.content)) {
+      systemPrompt += await this.buildUserScheduleSection(user.userId)
+    }
 
     const model = this.genAI.getGenerativeModel({
       model: this.modelName,
@@ -309,12 +463,51 @@ export class AiService {
     message: string,
     context: { groupId?: string; channelId?: string },
   ): Promise<string> {
-    const ragResults = await this.ragService
-      .search({ query: message, groupId: context.groupId, limit: 3 })
-      .catch((): RagSearchResult[] => [])
+    // 채널 → 그룹 ID 보강 (Gateway가 groupId 안 보냈으면 channel 테이블에서 lookup)
+    let groupId = context.groupId
+    if (!groupId && context.channelId) {
+      try {
+        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
+          `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
+          [context.channelId],
+        )
+        groupId = rows[0]?.group_id ?? undefined
+      } catch (err) {
+        this.logger.warn(`채널 → 그룹 lookup 실패: ${(err as Error).message}`)
+      }
+    }
 
-    const relevant = ragResults.filter((r) => r.similarity >= RAG_SIMILARITY_THRESHOLD)
-    const systemPrompt = this.buildLegacySystemPrompt(relevant)
+    // 1) 그룹 페이지 임베딩 검색 (문서 내용 RAG)
+    const pageChunks = groupId
+      ? await this.ragService.searchGroupEmbeddings(message, groupId, 3).catch(() => [])
+      : []
+    const relevantPages = pageChunks.filter((c) => c.similarity >= RAG_SIMILARITY_THRESHOLD)
+
+    // 2) ai_knowledge 기반 보조 검색 (그룹 지식베이스)
+    const knowledgeResults = await this.ragService
+      .search({ query: message, groupId, limit: 3 })
+      .catch((): RagSearchResult[] => [])
+    const relevantKnowledge = knowledgeResults.filter(
+      (r) => r.similarity >= RAG_SIMILARITY_THRESHOLD,
+    )
+
+    // 두 소스를 buildLegacySystemPrompt 호환 형식으로 통합
+    const merged = [
+      ...relevantPages.map((c) => ({
+        id: String(c.embeddingId),
+        title:
+          typeof c.metadata?.['pageTitle'] === 'string'
+            ? (c.metadata['pageTitle'] as string)
+            : '프로젝트 문서',
+        content: c.content,
+        sourceType: 'page',
+        sourceId: c.pageId,
+        similarity: c.similarity,
+      })),
+      ...relevantKnowledge,
+    ]
+
+    const systemPrompt = this.buildLegacySystemPrompt(merged)
 
     const model = this.genAI.getGenerativeModel({
       model: this.modelName,

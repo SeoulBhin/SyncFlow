@@ -21,6 +21,9 @@ interface SttSession {
   // null 가능 — 스트림이 죽었다 재생성되는 사이 잠시 비어있을 수 있음
   stream: Duplex | null
   speakerMap: Record<string, string>
+  // 이 소켓을 연 사용자의 이름. streaming STT 는 화자 분리를 안 하므로
+  // speaker null fallback 으로 사용된다 (각 클라이언트는 본인 마이크 audio 만 보냄).
+  userName: string | null
   // Google STT 5분 한도 회피용 강제 재생성 타이머
   recycleTimer: NodeJS.Timeout | null
   // 사용자 측 종료(leave/disconnect) 신호 — true면 자동 재생성 차단
@@ -297,16 +300,19 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     // 기존 세션이 있으면 먼저 종료
     this.endSession(client.id)
 
+    const userName =
+      (client.data as { userName?: string } | undefined)?.userName ?? null
     const session: SttSession = {
       meetingId,
       stream: null,
       speakerMap,
+      userName,
       recycleTimer: null,
       closed: false,
     }
     this.sessions.set(client.id, session)
     this.openStream(client.id)
-    this.logger.log(`STT 세션 시작: socket=${client.id}, meeting=${meetingId}`)
+    this.logger.log(`STT 세션 시작: socket=${client.id}, meeting=${meetingId}, user=${userName ?? '알수없음'}`)
   }
 
   // 세션에 새 STT 스트림을 부착. 스트림이 비정상 종료되면 자동 재생성.
@@ -329,9 +335,16 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     }
 
     const meetingId = session.meetingId
+    const sessionUserName = session.userName
     const stream = this.sttService.createStreamingSession(async (result) => {
       try {
-        const saved = await this.meetingsService.saveTranscriptSegment(meetingId, result)
+        // streaming STT 는 화자 분리를 안 해서 speaker 가 항상 null 로 옴.
+        // 각 클라이언트가 본인 마이크 audio 만 보내므로 발화자는 이 소켓의 사용자임.
+        const enrichedResult: TranscriptResult = {
+          ...result,
+          speaker: result.speaker ?? sessionUserName,
+        }
+        const saved = await this.meetingsService.saveTranscriptSegment(meetingId, enrichedResult)
         this.server.to(`meeting-${meetingId}`).emit('meeting:transcript', {
           meetingId,
           id: saved.id,

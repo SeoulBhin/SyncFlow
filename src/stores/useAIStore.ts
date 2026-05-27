@@ -83,6 +83,8 @@ interface AIState {
   setShowFileMention: (show: boolean) => void
   toggleFileSelection: (fileId: string) => void
   clearSelectedFiles: () => void
+  /** 로그아웃 시 이전 사용자 대화·메시지·프로젝트 컨텍스트가 다음 사용자에게 노출되지 않도록 전체 초기화 */
+  reset: () => void
 }
 
 let msgCounter = 0
@@ -441,4 +443,25 @@ export const useAIStore = create<AIState>((set, get) => ({
   },
 
   clearSelectedFiles: () => set({ selectedFiles: [] }),
+
+  reset: () =>
+    set({
+      isOpen: false,
+      messages: [],
+      conversations: [],
+      activeConversationId: '',
+      isLoading: false,
+      isLoadingConversations: false,
+      isLoadingUsage: false,
+      usage: {
+        daily: { used: 0, limit: 30 },
+        monthly: { used: 0, limit: 500 },
+        isUnlimited: false,
+      },
+      activeProject: null,
+      projects: [],
+      fileMentionQuery: '',
+      showFileMention: false,
+      selectedFiles: [],
+    }),
 }))
