@@ -270,14 +270,29 @@ export class AiService {
       return
     }
 
-    // 프로젝트 RAG 검색
+    // 프로젝트 RAG 검색 — projectId 가 있으면 우선, 없으면 채널 → 그룹 전체 페이지에서 검색
     const projectId = conversation.projectId
-    const ragChunks =
-      projectId && projectId.length > 0
-        ? await this.ragService
-            .searchProjectEmbeddings(dto.content, projectId, 5)
+    let ragChunks: ProjectSearchResult[] = []
+    if (projectId && projectId.length > 0) {
+      ragChunks = await this.ragService
+        .searchProjectEmbeddings(dto.content, projectId, 5)
+        .catch(() => [])
+    } else if (dto.channelId) {
+      try {
+        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
+          `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
+          [dto.channelId],
+        )
+        const groupId = rows[0]?.group_id
+        if (groupId) {
+          ragChunks = await this.ragService
+            .searchGroupEmbeddings(dto.content, groupId, 5)
             .catch(() => [])
-        : []
+        }
+      } catch (err) {
+        this.logger.warn(`채널 그룹 RAG 검색 실패: ${(err as Error).message}`)
+      }
+    }
 
     const relevantChunks = ragChunks.filter((c) => c.similarity >= RAG_SIMILARITY_THRESHOLD)
 
@@ -448,12 +463,51 @@ export class AiService {
     message: string,
     context: { groupId?: string; channelId?: string },
   ): Promise<string> {
-    const ragResults = await this.ragService
-      .search({ query: message, groupId: context.groupId, limit: 3 })
-      .catch((): RagSearchResult[] => [])
+    // 채널 → 그룹 ID 보강 (Gateway가 groupId 안 보냈으면 channel 테이블에서 lookup)
+    let groupId = context.groupId
+    if (!groupId && context.channelId) {
+      try {
+        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
+          `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
+          [context.channelId],
+        )
+        groupId = rows[0]?.group_id ?? undefined
+      } catch (err) {
+        this.logger.warn(`채널 → 그룹 lookup 실패: ${(err as Error).message}`)
+      }
+    }
 
-    const relevant = ragResults.filter((r) => r.similarity >= RAG_SIMILARITY_THRESHOLD)
-    const systemPrompt = this.buildLegacySystemPrompt(relevant)
+    // 1) 그룹 페이지 임베딩 검색 (문서 내용 RAG)
+    const pageChunks = groupId
+      ? await this.ragService.searchGroupEmbeddings(message, groupId, 3).catch(() => [])
+      : []
+    const relevantPages = pageChunks.filter((c) => c.similarity >= RAG_SIMILARITY_THRESHOLD)
+
+    // 2) ai_knowledge 기반 보조 검색 (그룹 지식베이스)
+    const knowledgeResults = await this.ragService
+      .search({ query: message, groupId, limit: 3 })
+      .catch((): RagSearchResult[] => [])
+    const relevantKnowledge = knowledgeResults.filter(
+      (r) => r.similarity >= RAG_SIMILARITY_THRESHOLD,
+    )
+
+    // 두 소스를 buildLegacySystemPrompt 호환 형식으로 통합
+    const merged = [
+      ...relevantPages.map((c) => ({
+        id: String(c.embeddingId),
+        title:
+          typeof c.metadata?.['pageTitle'] === 'string'
+            ? (c.metadata['pageTitle'] as string)
+            : '프로젝트 문서',
+        content: c.content,
+        sourceType: 'page',
+        sourceId: c.pageId,
+        similarity: c.similarity,
+      })),
+      ...relevantKnowledge,
+    ]
+
+    const systemPrompt = this.buildLegacySystemPrompt(merged)
 
     const model = this.genAI.getGenerativeModel({
       model: this.modelName,

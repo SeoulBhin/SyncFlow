@@ -126,9 +126,11 @@ export class MessagesService {
     content: string,
     parentId?: string,
   ): Promise<MessageResponse> {
+    // user_id 는 uuid 컬럼이므로 'ai-system' 같은 문자열은 22P02 에러를 일으킨다.
+    // NULL + isSystem=true + authorName 으로 시스템 메시지를 식별한다.
     const msg = this.messageRepo.create({
       channelId,
-      authorId: 'ai-system',
+      authorId: null,
       authorName: 'AI 어시스턴트',
       content,
       parentId: parentId ?? null,
