@@ -210,7 +210,23 @@ export class MeetingsGateway implements OnGatewayConnection, OnGatewayDisconnect
     @MessageBody() data: { meetingId: string; speakerMap?: Record<string, string> },
   ) {
     void client.join(`meeting-${data.meetingId}`)
-    this.startSession(client, data.meetingId, data.speakerMap ?? {})
+    const speakerMap = data.speakerMap ?? {}
+    const existing = this.sessions.get(client.id)
+    if (existing && !existing.closed && existing.meetingId === data.meetingId) {
+      existing.speakerMap = speakerMap
+      if (!existing.stream || existing.stream.destroyed || !existing.stream.writable) {
+        this.logger.warn(
+          `STT join duplicate with inactive stream: socket=${client.id}, meeting=${data.meetingId}`,
+        )
+        this.openStream(client.id, true)
+      } else {
+        this.logger.debug(
+          `STT join duplicate ignored: socket=${client.id}, meeting=${data.meetingId}`,
+        )
+      }
+    } else {
+      this.startSession(client, data.meetingId, speakerMap)
+    }
 
     // STT 소켓 재연결 전 생성 완료된 AI 노트 캐시를 즉시 재전송
     const meetingNotesState = this.notesState.get(data.meetingId)

@@ -259,8 +259,10 @@ export const useMeetingSessionStore = create<MeetingSessionState>((set, get) => 
       })
     } else {
       // 이미 살아있는 socket 이면 meeting:join 만 재발행 (speakerMap 갱신 가능)
-      socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
-      joined = true
+      if (socket.connected) {
+        socket.emit('meeting:join', { meetingId: ctx.meetingId, speakerMap: ctx.speakerMap })
+        joined = true
+      }
     }
 
     if (!joined) {
