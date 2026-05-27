@@ -169,17 +169,27 @@ export interface RegenerateSummaryResponse {
 export type ApiTaskStatus = 'todo' | 'in-progress' | 'done'
 export type ApiTaskPriority = 'low' | 'medium' | 'high' | 'urgent'
 
+export interface ApiTaskAssigneeRef {
+  userId: string
+  userName?: string | null
+  userEmail?: string | null
+}
+
 export interface ApiTask {
   id: string
   title: string
   description?: string | null
   assignee: string | null
+  assigneeId?: string | null
+  assignees?: ApiTaskAssigneeRef[]
   startDate?: string | null
   dueDate: string | null
   status: ApiTaskStatus
   priority?: ApiTaskPriority
   groupId?: string | null
   projectId?: string | null
+  parentTaskId?: string | null
+  tags?: string[] | null
   sourceMeetingId: string | null
   sourceActionItemId: string | null
   createdAt: string

@@ -85,8 +85,8 @@ export function TaskModal({ isOpen, onClose, task, members = [], onSave, onDelet
     assigneeNames: [] as string[],
     dueDate: '',
     startDate: '',
-    projectName: 'SyncFlow v2',
-    groupName: '마케팅전략',
+    projectName: '',
+    groupName: '',
   })
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false)
