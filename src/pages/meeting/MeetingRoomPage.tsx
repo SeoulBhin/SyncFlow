@@ -245,16 +245,24 @@ export function MeetingRoomPage() {
     // 백그라운드 세션 등록 — 다른 페이지로 이동해도 STT/배너가 살아있도록.
     const meetingTitle = useMeetingStore.getState().currentMeeting?.title || `${groupName} 회의`
     enterMeetingSession(id, meetingTitle)
-    useMeetingStore.getState().setSTT(true)
+    // STT 시작은 LiveKit publishing 등 비동기 작업이 main thread 에서 끝난 후 시작.
+    // 즉시 setSTT(true) 호출하면 socket.io 의 polling XHR 이 LiveKit 콜백에 밀려
+    // 12초 timeout 까지 발화 못 하는 race condition 이 발견됨 ([STT] 시도 #1 timeout 패턴).
+    // 800ms yield 로 LiveKit 작업이 큐에서 비워지게 함.
+    window.setTimeout(() => {
+      if (useMeetingSessionStore.getState().activeMeetingId === id) {
+        useMeetingStore.getState().setSTT(true)
+      }
+    }, 800)
     // 호스트면 자동 ON 사실을 명시 broadcast — 호스트가 명시적으로 토글한 경우만
     // broadcast하던 기존 흐름에서는 자동 ON 호스트 상태가 다른 참가자에게 전파되지
-    // 않아 비호스트가 STT OFF인 채로 머무는 문제가 있었다. data channel 도달 보장을
-    // 위해 LiveKit room state 가 'connected' 가 된 다음 한 박자 늦춰 전송한다.
+    // 않아 비호스트가 STT OFF인 채로 머무는 문제가 있었다. setSTT 보다 좀 더 늦게
+    // (1300ms) 보내 STT 가 시작될 시간을 확보.
     const currentMeeting = useMeetingStore.getState().currentMeeting
     if (currentMeeting?.hostId && currentMeeting.hostId === useAuthStore.getState().user?.id) {
       window.setTimeout(() => {
         void broadcastSttState(true)
-      }, 500)
+      }, 1300)
     }
     // 입장 성공 시점부터 타이머 00:00 시작 — 예약 회의 대기 시간이 누적되지 않도록 리셋
     setElapsed(0)
@@ -513,9 +521,9 @@ export function MeetingRoomPage() {
     // store 가 socket·audio·recorder lifecycle 전부 관리. 페이지 unmount 와 무관하게 유지.
     // 회의 입장 직후 자동 시작은 LiveKit 핸드셰이크와 자원 경쟁으로 실패할 수 있어
     // 짧은 backoff 로 3회까지 silent 재시도. 사용자 토스트는 마지막 실패 시에만.
-    // 첫 시도가 timeout(8s) 으로 끝나도 즉시(1s) 재시도해 체감 지연을 최소화.
+    // 첫 시도가 timeout(6s) 으로 끝나도 즉시(0.5s) 재시도해 체감 지연을 최소화.
     console.log('[STT] startRealtimeSTT 시도', { meetingId: id, speakerMap })
-    const delays = [0, 1000, 3000]
+    const delays = [0, 500, 1500]
     let result: { ok: boolean; error?: string } = { ok: false }
     for (let i = 0; i < delays.length; i++) {
       if (delays[i] > 0) {
