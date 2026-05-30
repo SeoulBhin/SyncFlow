@@ -729,13 +729,26 @@ export class MeetingsService implements OnModuleInit {
         if (p.userName) nameToUserId.set(p.userName, p.userId)
       }
 
+      // Gemini가 화자 매핑을 못해 일반 명사를 넣는 경우가 있다. 이런 값은
+      // assignee 텍스트 자체도 폐기해 사용자가 리뷰 모달에서 새로 지정하도록 한다.
+      const INVALID_ASSIGNEES = new Set([
+        '본인', '발화자', '사용자', '담당자', '참가자', 'null', 'None', 'user',
+      ])
+      const cleanAssignee = (raw: string | null): string | null => {
+        if (!raw) return null
+        const trimmed = raw.trim()
+        if (!trimmed || INVALID_ASSIGNEES.has(trimmed)) return null
+        return trimmed
+      }
+
       // Task 일괄 생성
       const tasks = await this.taskRepo.save(
-        items.map((item) =>
-          this.taskRepo.create({
+        items.map((item) => {
+          const assignee = cleanAssignee(item.assignee)
+          return this.taskRepo.create({
             title: item.title,
-            assignee: item.assignee,
-            assigneeId: item.assignee ? nameToUserId.get(item.assignee) ?? null : null,
+            assignee,
+            assigneeId: assignee ? nameToUserId.get(assignee) ?? null : null,
             dueDate: item.dueDate,
             status: 'todo',
             groupId: meeting?.groupId ?? null,
@@ -743,8 +756,8 @@ export class MeetingsService implements OnModuleInit {
             createdBy: meeting?.hostId ?? null,
             sourceMeetingId: meetingId,
             sourceActionItemId: item.id,
-          }),
-        ),
+          })
+        }),
       )
 
       // 각 액션아이템에 taskId 기록 + confirmed 플래그 설정

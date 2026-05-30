@@ -305,6 +305,14 @@ export const useChatStore = create<ChatState>((set, get) => ({
       const effectiveId = user?.id || getUserIdFromToken() || `anon-${(sock.id ?? 'unknown').slice(0, 6)}`
       _effectiveUserId = effectiveId
 
+      // 연결 직후 현재 활성 채널 room에 재가입.
+      // (1) 첫 마운트: setActiveChannel이 connect 전에 emit한 chat:join이 유실됐을 수 있음.
+      // (2) reconnect: socket.io는 reconnect 후 기존 room을 자동 복구하지 않으므로 명시적 rejoin 필요.
+      const activeChannelId = get().activeChannelId
+      if (activeChannelId) {
+        sock.emit('chat:join', { channelId: activeChannelId })
+      }
+
       set((s) => {
         // 이미 로드된 메시지들의 isOwn을 재계산 (소켓 연결 전에 로드된 경우 대비)
         const updated: Record<string, ChatMessage[]> = {}

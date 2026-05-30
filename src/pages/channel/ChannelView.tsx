@@ -249,6 +249,14 @@ export function ChannelView() {
   const dmChannels = channels.filter((c) => c.type === 'dm')
   const activeChannel = channels.find((c) => c.id === activeChannelId)
 
+  // DM은 channel.name 이 생성자 입장의 상대방 이름이라 받는 쪽엔 본인 이름으로 보임.
+  // 본인 입장의 상대방 정보(otherUser.userName)를 항상 우선 사용.
+  const activeChannelDisplayName =
+    activeChannel?.type === 'dm'
+      ? activeChannel.otherUser?.userName?.trim() || activeChannel.name || 'DM'
+      : activeChannel?.name ?? ''
+  const activeChannelPrefix = activeChannel?.type === 'dm' ? '' : '#'
+
   // 현재 활성 채널이 일반 채널(type='channel')이면 그 채널에 소속된 프로젝트 채팅만 표시
   // 일반 채널이 아닌 경우(프로젝트 채팅 등) 전체 프로젝트 채팅 표시
   const activeRegularChannelId = activeChannel?.type === 'channel' ? activeChannelId : null
@@ -627,7 +635,7 @@ export function ChannelView() {
                 </div>
                 <div>
                   <p className="text-base font-semibold text-neutral-700 dark:text-neutral-200">
-                    #{activeChannel?.name ?? '채널'}에 오신 것을 환영해요!
+                    {activeChannelPrefix}{activeChannelDisplayName || '채널'}에 오신 것을 환영해요!
                   </p>
                   <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500">
                     이 채널의 시작입니다. 첫 메시지를 보내보세요!
@@ -1001,7 +1009,7 @@ export function ChannelView() {
               onKeyDown={handleKeyDown}
               placeholder={
                 activeChannel
-                  ? `#${activeChannel.name}에 메시지 보내기`
+                  ? `${activeChannelPrefix}${activeChannelDisplayName}에 메시지 보내기`
                   : '채널을 선택하세요'
               }
               disabled={!activeChannelId}
