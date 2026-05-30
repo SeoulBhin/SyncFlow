@@ -3,8 +3,8 @@ import {
   Pencil, User, Flag, Calendar, Palette, X,
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
-import { MOCK_CHANNEL_MEMBERS } from '@/constants'
 import type { MockTask, TaskPriority } from '@/constants'
+import type { TaskMember } from './TaskModal'
 
 const PRIORITY_OPTIONS: { value: TaskPriority; label: string; color: string }[] = [
   { value: 'urgent', label: '긴급', color: 'bg-red-500' },
@@ -22,9 +22,10 @@ interface KanbanCardOverlayProps {
   onUpdate: (taskId: string, updates: Partial<MockTask>) => void
   onStartEdit: () => void
   onClose: () => void
+  members?: TaskMember[]
 }
 
-export function KanbanCardOverlay({ task, onUpdate, onStartEdit, onClose }: KanbanCardOverlayProps) {
+export function KanbanCardOverlay({ task, onUpdate, onStartEdit, onClose, members = [] }: KanbanCardOverlayProps) {
   const [activePicker, setActivePicker] = useState<'assignee' | 'priority' | 'date' | 'color' | null>(null)
 
   const togglePicker = (picker: typeof activePicker) => {
@@ -87,24 +88,32 @@ export function KanbanCardOverlay({ task, onUpdate, onStartEdit, onClose }: Kanb
         <div className="mt-1 rounded-lg bg-white p-2 shadow-lg dark:bg-neutral-800">
           {activePicker === 'assignee' && (
             <div className="space-y-0.5">
-              {MOCK_CHANNEL_MEMBERS.map((m) => (
-                <button
-                  key={m.id}
-                  onClick={() => {
-                    onUpdate(task.id, { assigneeId: m.id, assigneeName: m.name })
-                    setActivePicker(null)
-                  }}
-                  className={cn(
-                    'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700',
-                    task.assigneeId === m.id ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300' : 'text-neutral-700 dark:text-neutral-300',
-                  )}
-                >
-                  <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-100 text-[9px] font-bold text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
-                    {m.name[0]}
-                  </div>
-                  {m.name}
-                </button>
-              ))}
+              {members.length === 0 ? (
+                <p className="px-2 py-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+                  담당자 없음
+                </p>
+              ) : (
+                members.map((m) => (
+                  <button
+                    key={m.id}
+                    onClick={() => {
+                      onUpdate(task.id, { assigneeId: m.id, assigneeName: m.name })
+                      setActivePicker(null)
+                    }}
+                    className={cn(
+                      'flex w-full items-center gap-2 rounded px-2 py-1 text-xs transition-colors hover:bg-neutral-100 dark:hover:bg-neutral-700',
+                      task.assigneeId === m.id
+                        ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
+                        : 'text-neutral-700 dark:text-neutral-300',
+                    )}
+                  >
+                    <div className="flex h-5 w-5 items-center justify-center rounded-full bg-primary-100 text-[9px] font-bold text-primary-600 dark:bg-primary-900/30 dark:text-primary-400">
+                      {m.name[0]}
+                    </div>
+                    {m.name}
+                  </button>
+                ))
+              )}
             </div>
           )}
 

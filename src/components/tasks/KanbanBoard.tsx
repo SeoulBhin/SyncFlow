@@ -15,6 +15,7 @@ import { cn } from '@/utils/cn'
 import type { MockTask, TaskPriority } from '@/constants'
 import { KanbanCardOverlay } from './KanbanCardOverlay'
 import { EmptyBoardGuide } from './EmptyBoardGuide'
+import type { TaskMember } from './TaskModal'
 
 /* ── 컬럼 타입 정의 ── */
 
@@ -90,6 +91,33 @@ const priorityConfig: Record<TaskPriority, { label: string; color: string }> = {
   low: { label: '낮음', color: 'bg-neutral-100 text-neutral-600 dark:bg-neutral-700 dark:text-neutral-400' },
 }
 
+/* ── 칸반 컬럼 ID → 백엔드 유효 TaskStatus 매핑 ── */
+
+const COLUMN_TO_STATUS: Record<string, 'todo' | 'in-progress' | 'done'> = {
+  'todo': 'todo',
+  'in-progress': 'in-progress',
+  'done': 'done',
+  'backlog': 'todo',
+  'dev': 'in-progress',
+  'review': 'in-progress',
+  'planning': 'todo',
+  'production': 'in-progress',
+  'deploy': 'done',
+}
+
+function mapColumnIdToStatus(
+  colId: string,
+  cols: KanbanColumn[],
+): 'todo' | 'in-progress' | 'done' {
+  if (colId in COLUMN_TO_STATUS) return COLUMN_TO_STATUS[colId]
+  // 알 수 없는 커스텀 컬럼은 위치 기반으로 상태 결정
+  const idx = cols.findIndex((c) => c.id === colId)
+  if (idx < 0) return 'todo'
+  if (idx === cols.length - 1) return 'done'
+  if (idx === 0) return 'todo'
+  return 'in-progress'
+}
+
 /* ── 작업 상태를 컬럼에 매핑하는 유틸리티 ── */
 
 function mapTaskToColumn(task: MockTask, columns: KanbanColumn[]): string {
@@ -135,9 +163,10 @@ interface KanbanBoardProps {
   onStatusChange: (taskId: string, newStatus: string) => void
   onAddTask: () => void
   onQuickUpdate?: (taskId: string, updates: Partial<MockTask>) => void
+  members?: TaskMember[]
 }
 
-export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQuickUpdate }: KanbanBoardProps) {
+export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQuickUpdate, members }: KanbanBoardProps) {
   /* ── 상태 관리 ── */
   const [columns, setColumns] = useState<KanbanColumn[]>(COLUMN_PRESETS.default)
   const [activePreset, setActivePreset] = useState<string>('default')
@@ -275,7 +304,8 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
 
   const handleDrop = (colId: string) => {
     if (draggedId) {
-      onStatusChange(draggedId, colId)
+      const status = mapColumnIdToStatus(colId, columns)
+      onStatusChange(draggedId, status)
     }
     setDraggedId(null)
     setDragOverCol(null)
@@ -596,6 +626,7 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
                             setOverlayCardId(null)
                             setHoveredCardId(null)
                           }}
+                          members={members}
                         />
                       )}
 

@@ -3,8 +3,6 @@ import { X, Save, Trash2, AlertTriangle, CheckSquare, Square, Plus } from 'lucid
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
 import { useToastStore } from '@/stores/useToastStore'
-import { useCustomFieldStore } from '@/stores/useCustomFieldStore'
-import { CustomFieldEditor } from './CustomFieldEditor'
 import type { TaskPriority, TaskStatus, MockTask } from '@/constants'
 
 // 담당자 콤보박스에 띄울 최소 멤버 정보
@@ -48,15 +46,6 @@ const PRIORITY_DOT_COLOR: Record<TaskPriority, string> = {
   low: 'bg-neutral-400',
 }
 
-/* ── 't1' 작업에 대한 기본 서브태스크 목업 ── */
-const MOCK_SUBTASKS_T1: SubTask[] = [
-  { id: 'st1', title: 'Stripe SDK 설치', done: true, assigneeId: 'u2', assigneeName: '박서준', priority: 'normal' },
-  { id: 'st2', title: '결제 폼 UI 구현', done: true, assigneeId: 'u4', assigneeName: '김하늘', priority: 'high' },
-  { id: 'st3', title: '웹훅 핸들러 구현', done: false, assigneeId: 'u2', assigneeName: '박서준', priority: 'high' },
-  { id: 'st4', title: '에러 처리 추가', done: false, assigneeId: 'u5', assigneeName: '정우진', priority: 'normal' },
-  { id: 'st5', title: 'E2E 테스트 작성', done: false, assigneeName: '윤서아', priority: 'low' },
-]
-
 /* ── Props 인터페이스 ── */
 interface TaskModalProps {
   isOpen: boolean
@@ -64,14 +53,14 @@ interface TaskModalProps {
   task?: MockTask | null
   /** 담당자 콤보박스 옵션 — 페이지에서 실제 조직 멤버를 fetch 해서 주입 */
   members?: TaskMember[]
+  /** 편집 시 백엔드에서 로드된 서브태스크 초기값 */
+  initialSubtasks?: SubTask[]
   onSave: (task: Omit<MockTask, 'id'> & { id?: string; subtasks?: SubTask[] }) => void
   onDelete?: (id: string) => void
 }
 
-export function TaskModal({ isOpen, onClose, task, members = [], onSave, onDelete }: TaskModalProps) {
+export function TaskModal({ isOpen, onClose, task, members = [], initialSubtasks, onSave, onDelete }: TaskModalProps) {
   const addToast = useToastStore((s) => s.addToast)
-
-  const { fields: customFields, getTaskFieldValues, setFieldValue } = useCustomFieldStore()
 
   /* ── 폼 상태 ── */
   const [form, setForm] = useState({
@@ -113,8 +102,7 @@ export function TaskModal({ isOpen, onClose, task, members = [], onSave, onDelet
         projectName: task.projectName,
         groupName: task.groupName,
       })
-      // 't1' 작업이면 기본 서브태스크 로드
-      setSubtasks(task.id === 't1' ? [...MOCK_SUBTASKS_T1] : [])
+      setSubtasks(initialSubtasks ? [...initialSubtasks] : [])
     } else {
       setForm({
         title: '',
@@ -134,7 +122,7 @@ export function TaskModal({ isOpen, onClose, task, members = [], onSave, onDelet
     }
     setErrors({})
     setShowDeleteConfirm(false)
-  }, [task, isOpen])
+  }, [task, isOpen, initialSubtasks])
 
   if (!isOpen) return null
 
@@ -429,31 +417,6 @@ export function TaskModal({ isOpen, onClose, task, members = [], onSave, onDelet
               {errors.dueDate && <p className="mt-1 text-xs text-red-500">{errors.dueDate}</p>}
             </div>
           </div>
-
-          {/* ── 커스텀 필드 섹션 ── */}
-          {task && (
-            <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">
-              <p className="mb-3 text-sm font-semibold text-neutral-700 dark:text-neutral-300">커스텀 필드</p>
-              <div className="space-y-3">
-                {customFields.map((cf) => {
-                  const taskValues = getTaskFieldValues(task.id)
-                  const fieldValue = taskValues.find((v) => v.fieldId === cf.id)
-                  return (
-                    <div key={cf.id}>
-                      <label className="mb-1 block text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                        {cf.name}
-                      </label>
-                      <CustomFieldEditor
-                        field={cf}
-                        value={fieldValue?.value ?? null}
-                        onChange={(val) => setFieldValue(task.id, cf.id, val)}
-                      />
-                    </div>
-                  )
-                })}
-              </div>
-            </div>
-          )}
 
           {/* ── 서브태스크 섹션 ── */}
           <div className="rounded-xl border border-neutral-200 p-4 dark:border-neutral-700">

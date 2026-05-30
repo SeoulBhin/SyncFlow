@@ -9,6 +9,7 @@ interface TasksState {
   error: string | null
 
   loadAll: () => Promise<void>
+  fetchDetail: (id: string) => Promise<ApiTask>
   createTask: (data: {
     title: string
     description?: string
@@ -21,6 +22,7 @@ interface TasksState {
     priority?: 'low' | 'medium' | 'high' | 'urgent'
     groupId?: string | null
     projectId?: string | null
+    parentTaskId?: string | null
   }) => Promise<ApiTask>
   updateTask: (
     id: string,
@@ -42,6 +44,10 @@ export const useTasksStore = create<TasksState>((set, get) => ({
   tasks: [],
   isLoading: false,
   error: null,
+
+  fetchDetail: async (id) => {
+    return apiJson<ApiTask>(`/api/tasks/${id}`)
+  },
 
   loadAll: async () => {
     // 사이드바의 "조직" = 백엔드 group_id 와 매핑됨 (activeOrgId).

@@ -258,28 +258,6 @@ export const MOCK_ATTACHMENTS: MockAttachment[] = []
 
 export const MOCK_CODE_SAMPLES: Record<string, string> = {}
 
-/* ── 할 일/일정 관리 확장 목업 데이터 ── */
-
-/* ── 커스텀 필드 타입 ── */
-
-export type CustomFieldType = 'text' | 'number' | 'select' | 'date' | 'person' | 'progress'
-
-export interface CustomFieldDefinition {
-  id: string
-  name: string
-  type: CustomFieldType
-  options?: { label: string; color: string }[]
-}
-
-export interface CustomFieldValue {
-  fieldId: string
-  value: string | number | string[] | null
-}
-
-export const MOCK_CUSTOM_FIELD_DEFINITIONS: CustomFieldDefinition[] = []
-
-export const MOCK_CUSTOM_FIELD_VALUES: Record<string, CustomFieldValue[]> = {}
-
 export interface MockTask {
   id: string
   title: string
@@ -296,7 +274,6 @@ export interface MockTask {
   groupName: string
   fromMeeting?: string
   coverColor?: string
-  customFields?: CustomFieldValue[]
 }
 
 export const MOCK_TASKS: MockTask[] = []

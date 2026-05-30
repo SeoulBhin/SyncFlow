@@ -194,4 +194,5 @@ export interface ApiTask {
   sourceActionItemId: string | null
   createdAt: string
   updatedAt: string
+  subtasks?: ApiTask[]
 }

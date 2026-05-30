@@ -4,7 +4,7 @@ import {
 } from 'lucide-react'
 import { cn } from '@/utils/cn'
 import { Button } from '@/components/common/Button'
-import { TaskModal, type TaskMember } from '@/components/tasks/TaskModal'
+import { TaskModal, type TaskMember, type SubTask } from '@/components/tasks/TaskModal'
 import { KanbanBoard } from '@/components/tasks/KanbanBoard'
 import { CalendarView } from '@/components/tasks/CalendarView'
 import { GanttChart } from '@/components/tasks/GanttChart'
@@ -91,6 +91,9 @@ export function TasksPage() {
   const [view, setView] = useState<ViewTab>('kanban')
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTask, setEditingTask] = useState<MockTask | null>(null)
+  const [editingSubtasks, setEditingSubtasks] = useState<SubTask[]>([])
+  const [originalSubtaskIds, setOriginalSubtaskIds] = useState<string[]>([])
+  const [coverColorOverrides, setCoverColorOverrides] = useState<Record<string, string>>({})
   const [selectedGroup, setSelectedGroup] = useState<string>('all')
   const [members, setMembers] = useState<TaskMember[]>([])
 
@@ -98,6 +101,7 @@ export function TasksPage() {
   const isLoading = useTasksStore((s) => s.isLoading)
   const error = useTasksStore((s) => s.error)
   const loadAll = useTasksStore((s) => s.loadAll)
+  const fetchDetail = useTasksStore((s) => s.fetchDetail)
   const createTask = useTasksStore((s) => s.createTask)
   const updateTaskApi = useTasksStore((s) => s.updateTask)
   const removeTask = useTasksStore((s) => s.removeTask)
@@ -156,7 +160,8 @@ export function TasksPage() {
   }, [members, projects, activeOrgName])
 
   const tasks = useMemo<MockTask[]>(
-    () => apiTasks.map((t) => adaptApiTask(t, adaptContext)),
+    // parentTaskId가 있는 서브태스크는 보드에서 제외하고 루트 태스크만 표시
+    () => apiTasks.filter((t) => !t.parentTaskId).map((t) => adaptApiTask(t, adaptContext)),
     [apiTasks, adaptContext],
   )
 
@@ -166,32 +171,69 @@ export function TasksPage() {
     return Array.from(names).sort()
   }, [tasks])
 
-  // 그룹 필터 적용
-  const filteredTasks = useMemo(() => {
-    if (selectedGroup === 'all') return tasks
-    return tasks.filter((t) => t.groupName === selectedGroup)
-  }, [tasks, selectedGroup])
+  // 그룹 필터 + 커버컬러 로컬 오버라이드 적용
+  const filteredTasks = useMemo<MockTask[]>(() => {
+    const base = selectedGroup === 'all' ? tasks : tasks.filter((t) => t.groupName === selectedGroup)
+    if (Object.keys(coverColorOverrides).length === 0) return base
+    return base.map((t) =>
+      coverColorOverrides[t.id] !== undefined
+        ? { ...t, coverColor: coverColorOverrides[t.id] || undefined }
+        : t,
+    )
+  }, [tasks, selectedGroup, coverColorOverrides])
 
   const openCreate = useCallback(() => {
     setEditingTask(null)
+    setEditingSubtasks([])
+    setOriginalSubtaskIds([])
     setModalOpen(true)
   }, [])
 
-  const openEdit = useCallback((task: MockTask) => {
-    setEditingTask(task)
-    setModalOpen(true)
-  }, [])
+  const openEdit = useCallback(
+    (task: MockTask): void => {
+      setEditingTask(task)
+      setEditingSubtasks([])
+      setOriginalSubtaskIds([])
+
+      void fetchDetail(task.id)
+        .then((detail) => {
+          const membersById = adaptContext.membersById
+          const fetched: SubTask[] = (detail.subtasks ?? []).map((st) => ({
+            id: st.id,
+            title: st.title,
+            done: st.status === 'done',
+            assigneeId: st.assigneeId ?? undefined,
+            assigneeName: st.assigneeId
+              ? (membersById.get(st.assigneeId)?.name ?? st.assignee ?? undefined)
+              : (st.assignee ?? undefined),
+            dueDate: st.dueDate ?? undefined,
+            priority: st.priority ? API_TO_FRONT_PRIORITY[st.priority] : 'normal',
+          }))
+          setEditingSubtasks(fetched)
+          setOriginalSubtaskIds(fetched.map((st) => st.id))
+          setModalOpen(true)
+        })
+        .catch(() => {
+          // 서브태스크 로드 실패해도 모달은 열어줌
+          setModalOpen(true)
+        })
+    },
+    [fetchDetail, adaptContext],
+  )
 
   const handleSave = useCallback(
-    async (data: Omit<MockTask, 'id'> & { id?: string }) => {
-      try {
-        // 단독 담당자 UUID — UUID 형식일 때만 API 에 전달 (기존 MOCK 'u1' 같은 값 차단)
-        const isUuid = (v?: string) =>
-          !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
-        const assigneeId = isUuid(data.assigneeId) ? data.assigneeId : null
-        const assigneeIds = (data.assigneeIds ?? []).filter(isUuid)
-        const priority = FRONT_TO_API_PRIORITY[data.priority] ?? 'medium'
+    async (data: Omit<MockTask, 'id'> & { id?: string; subtasks?: SubTask[] }) => {
+      // UUID 형식 검증 — MOCK 'u1' 같은 값을 차단하고 실제 UUID만 API에 전달
+      const isUuid = (v?: string) =>
+        !!v && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(v)
 
+      const assigneeId = isUuid(data.assigneeId) ? data.assigneeId : null
+      const assigneeIds = (data.assigneeIds ?? []).filter(isUuid)
+      const priority = FRONT_TO_API_PRIORITY[data.priority] ?? 'medium'
+
+      let savedTaskId: string | null = null
+
+      try {
         if (data.id) {
           await updateTaskApi(data.id, {
             title: data.title,
@@ -204,8 +246,9 @@ export function TasksPage() {
             status: data.status as ApiTaskStatus,
             priority,
           })
+          savedTaskId = data.id
         } else {
-          await createTask({
+          const created = await createTask({
             title: data.title,
             description: data.description,
             assignee: data.assigneeName || null,
@@ -215,18 +258,59 @@ export function TasksPage() {
             dueDate: data.dueDate || null,
             status: (data.status as ApiTaskStatus) ?? 'todo',
             priority,
-            // 조직(그룹) 가시성 — 같은 그룹 멤버에게 task 가 보이려면 필수
             groupId: activeOrgId ?? null,
           })
+          savedTaskId = created.id
         }
       } catch (err) {
         addToast(
           'error',
           err instanceof Error ? err.message : '작업 저장 중 오류가 발생했습니다',
         )
+        return
+      }
+
+      // 서브태스크 동기화 (오류는 non-fatal)
+      if (savedTaskId) {
+        const currentSubtasks = data.subtasks ?? []
+        const currentIds = new Set(currentSubtasks.map((st) => st.id))
+
+        // 삭제된 서브태스크 제거
+        for (const origId of originalSubtaskIds) {
+          if (!currentIds.has(origId)) {
+            await removeTask(origId).catch(() => {})
+          }
+        }
+
+        // 기존 서브태스크 업데이트
+        for (const st of currentSubtasks) {
+          if (!st.id.startsWith('st-new-') && originalSubtaskIds.includes(st.id)) {
+            await updateTaskApi(st.id, {
+              title: st.title,
+              status: st.done ? ('done' as ApiTaskStatus) : ('todo' as ApiTaskStatus),
+              priority: FRONT_TO_API_PRIORITY[st.priority ?? 'normal'],
+              assigneeId: isUuid(st.assigneeId) ? st.assigneeId : null,
+            }).catch(() => {})
+          }
+        }
+
+        // 새 서브태스크 생성
+        for (const st of currentSubtasks) {
+          if (st.id.startsWith('st-new-') && st.title.trim()) {
+            await createTask({
+              title: st.title.trim(),
+              status: st.done ? 'done' : 'todo',
+              priority: FRONT_TO_API_PRIORITY[st.priority ?? 'normal'],
+              parentTaskId: savedTaskId,
+              groupId: activeOrgId ?? null,
+            }).catch(() => {})
+          }
+        }
+
+        setOriginalSubtaskIds([])
       }
     },
-    [createTask, updateTaskApi, addToast, activeOrgId],
+    [createTask, updateTaskApi, removeTask, addToast, activeOrgId, originalSubtaskIds],
   )
 
   const handleDelete = useCallback(
@@ -259,17 +343,38 @@ export function TasksPage() {
 
   const handleDateClick = useCallback((_date: string) => {
     setEditingTask(null)
+    setEditingSubtasks([])
+    setOriginalSubtaskIds([])
     setModalOpen(true)
   }, [])
 
   const handleQuickUpdate = useCallback(
     async (taskId: string, updates: Partial<MockTask>) => {
-      // 백엔드 스키마에 매핑 가능한 필드만 추려서 PATCH
-      const patch: Partial<Pick<ApiTask, 'title' | 'assignee' | 'dueDate' | 'status'>> = {}
+      // coverColor는 백엔드 스키마에 없으므로 로컬 상태로만 관리
+      if (updates.coverColor !== undefined) {
+        setCoverColorOverrides((prev) => ({
+          ...prev,
+          [taskId]: updates.coverColor ?? '',
+        }))
+        return
+      }
+
+      const patch: {
+        title?: string
+        assignee?: string | null
+        assigneeId?: string | null
+        dueDate?: string | null
+        status?: ApiTaskStatus
+        priority?: 'low' | 'medium' | 'high' | 'urgent'
+      } = {}
+
       if (updates.title !== undefined) patch.title = updates.title
+      if (updates.assigneeId !== undefined) patch.assigneeId = (updates.assigneeId as string) || null
       if (updates.assigneeName !== undefined) patch.assignee = updates.assigneeName || null
       if (updates.dueDate !== undefined) patch.dueDate = updates.dueDate || null
       if (updates.status !== undefined) patch.status = updates.status as ApiTaskStatus
+      if (updates.priority !== undefined) patch.priority = FRONT_TO_API_PRIORITY[updates.priority]
+
       if (Object.keys(patch).length === 0) return
       try {
         await updateTaskApi(taskId, patch)
@@ -402,6 +507,7 @@ export function TasksPage() {
                 onStatusChange={(id, st) => void handleStatusChange(id, st)}
                 onAddTask={openCreate}
                 onQuickUpdate={(id, updates) => void handleQuickUpdate(id, updates)}
+                members={members}
               />
             )}
 
@@ -434,9 +540,15 @@ export function TasksPage() {
       {/* 할 일 모달 */}
       <TaskModal
         isOpen={modalOpen}
-        onClose={() => { setModalOpen(false); setEditingTask(null) }}
+        onClose={() => {
+          setModalOpen(false)
+          setEditingTask(null)
+          setEditingSubtasks([])
+          setOriginalSubtaskIds([])
+        }}
         task={editingTask}
         members={members}
+        initialSubtasks={editingSubtasks}
         onSave={(data) => void handleSave(data)}
         onDelete={(id) => void handleDelete(id)}
       />
