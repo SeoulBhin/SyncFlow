@@ -29,6 +29,12 @@ export class ChatDto {
   @IsUUID()
   pageId?: string
 
+  // 활성 그룹 ID — page/channel/project 컨텍스트가 없어도 RAG가 그룹 전체
+  // 지식베이스를 검색할 수 있게 클라이언트가 항상 함께 보냄.
+  @IsOptional()
+  @IsUUID()
+  groupId?: string
+
   @IsOptional()
   @IsArray()
   @IsString({ each: true })

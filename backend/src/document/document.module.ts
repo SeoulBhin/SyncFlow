@@ -9,6 +9,7 @@ import { DocumentController } from './document.controller'
 import { Page } from '../pages/entities/page.entity'
 import { PageVersion } from '../pages/entities/page-version.entity'
 import { Attachment } from './entities/attachment.entity'
+import { AiModule } from '../ai/ai.module'
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { Attachment } from './entities/attachment.entity'
         secret: config.get('JWT_SECRET'),
       }),
     }),
+    AiModule,
   ],
   controllers: [DocumentController],
   providers: [DocumentService],

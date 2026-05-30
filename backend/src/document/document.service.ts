@@ -9,6 +9,7 @@ import { Page } from '../pages/entities/page.entity';
 import { PageVersion } from '../pages/entities/page-version.entity';
 import { Attachment } from './entities/attachment.entity';
 import { Storage } from '@google-cloud/storage'; // 이미 package.json에 있음
+import { EmbeddingService } from '../ai/embedding.service';
 
 @Injectable()
 export class DocumentService implements OnModuleInit {
@@ -20,6 +21,7 @@ export class DocumentService implements OnModuleInit {
     private pageVersionRepository: Repository<PageVersion>,
     @InjectRepository(Attachment)
     private attachmentRepository: Repository<Attachment>,
+    private embeddingService: EmbeddingService,
   ) {}
 
   onModuleInit() {
@@ -33,6 +35,7 @@ export class DocumentService implements OnModuleInit {
       this.jwtService,
       this.pageRepository,
       this.pageVersionRepository,
+      this.embeddingService,
     );
     server.listen();
     console.log('Hocuspocus 서버 시작! (포트 3001)');

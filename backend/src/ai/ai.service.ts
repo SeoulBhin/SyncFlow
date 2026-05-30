@@ -270,9 +270,12 @@ export class AiService {
       return
     }
 
-    // 프로젝트 RAG 검색 — projectId 가 있으면 우선, 없으면 채널 → 그룹 전체 페이지에서 검색
+    // RAG 검색 — 우선순위: projectId → channel.group_id → dto.groupId
+    // 어느 컨텍스트도 없으면 RAG 자체를 건너뛰지만, dto.groupId가 있으면 그룹 전체에서 검색해
+    // "캡스톤 팀명?" 같은 그룹 지식 질의에 답할 수 있게 한다.
     const projectId = conversation.projectId
     let ragChunks: ProjectSearchResult[] = []
+    let resolvedGroupId: string | null = null
     if (projectId && projectId.length > 0) {
       ragChunks = await this.ragService
         .searchProjectEmbeddings(dto.content, projectId, 5)
@@ -283,14 +286,38 @@ export class AiService {
           `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
           [dto.channelId],
         )
-        const groupId = rows[0]?.group_id
-        if (groupId) {
-          ragChunks = await this.ragService
-            .searchGroupEmbeddings(dto.content, groupId, 5)
-            .catch(() => [])
-        }
+        resolvedGroupId = rows[0]?.group_id ?? null
       } catch (err) {
-        this.logger.warn(`채널 그룹 RAG 검색 실패: ${(err as Error).message}`)
+        this.logger.warn(`채널 그룹 조회 실패: ${(err as Error).message}`)
+      }
+    }
+    if (!projectId && !ragChunks.length) {
+      // 사용자가 보낸 groupId는 신뢰 불가 — 위조 시 다른 조직 RAG 데이터 노출 위험.
+      // group_members에 (userId, groupId) 행이 있을 때만 허용.
+      // resolvedGroupId(채널에서 추출)는 이미 채널 멤버 검증을 거쳤다고 가정하나,
+      // 안전을 위해 동일 가드를 적용한다.
+      const candidateGroupId = resolvedGroupId ?? dto.groupId ?? null
+      let groupId: string | null = null
+      if (candidateGroupId) {
+        const membership = await this.dataSource.query<Array<{ exists: boolean }>>(
+          `SELECT EXISTS(
+             SELECT 1 FROM group_members
+             WHERE group_id = $1 AND user_id = $2
+           ) AS exists`,
+          [candidateGroupId, user.userId],
+        )
+        if (membership[0]?.exists) {
+          groupId = candidateGroupId
+        } else {
+          this.logger.warn(
+            `RAG groupId 위조 의심 차단: userId=${user.userId} groupId=${candidateGroupId}`,
+          )
+        }
+      }
+      if (groupId) {
+        ragChunks = await this.ragService
+          .searchGroupEmbeddings(dto.content, groupId, 5)
+          .catch(() => [])
       }
     }
 
@@ -346,9 +373,16 @@ export class AiService {
     }
 
     // 문서/채널 컨텍스트 없을 때 AI에게 안내 추가
-    if (!dto.pageId && !dto.channelId && !dto.referencedFileIds?.length) {
+    // RAG 결과가 있으면 그룹 지식으로 답할 수 있으므로 안내문을 추가하지 않는다.
+    // 안내문은 "이/현재" 같은 지시어가 있는 문맥 의존 질문에만 의미가 있다.
+    if (
+      !dto.pageId &&
+      !dto.channelId &&
+      !dto.referencedFileIds?.length &&
+      relevantChunks.length === 0
+    ) {
       systemPrompt +=
-        '\n\n[컨텍스트 없음] 사용자가 "이 문서 요약해줘", "이 채널 정리해줘" 등 특정 문서나 채널 내용을 요청하면 "현재 선택된 문서나 채널이 없습니다. 문서 에디터나 채널 화면에서 AI 패널을 열거나, 파일 탭에서 파일을 선택한 뒤 다시 질문해주세요."라고 안내하세요.'
+        '\n\n[지시어 한정 안내] 사용자가 "이 문서", "이 채널", "현재 페이지" 등 명시적으로 현재 열린 항목을 지칭한 경우에만 "현재 선택된 문서나 채널이 없습니다. 문서 에디터나 채널 화면에서 AI 패널을 열거나, 파일 탭에서 파일을 선택한 뒤 다시 질문해주세요."라고 안내하세요. 일반적인 그룹/팀/프로젝트 관련 질문에는 이 안내를 절대 사용하지 말고, 알고 있는 정보가 없으면 솔직히 "관련 정보를 찾지 못했습니다"라고만 답하세요.'
     }
 
     // 이전 대화 이력 로드 (멀티턴용)

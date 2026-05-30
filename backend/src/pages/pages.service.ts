@@ -1,19 +1,23 @@
 import {
   Injectable,
+  Logger,
   NotFoundException,
   ForbiddenException,
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
-import { Repository } from 'typeorm'
+import { DataSource, Repository } from 'typeorm'
 import { Page } from './entities/page.entity'
 import { PageVersion } from './entities/page-version.entity'
 import { Project } from '../projects/entities/project.entity'
 import { GroupMember } from '../groups/entities/group-member.entity'
 import { CreatePageDto } from './dto/create-page.dto'
 import { UpdatePageDto, UpdatePageTitleDto } from './dto/update-page.dto'
+import { EmbeddingService } from '../ai/embedding.service'
 
 @Injectable()
 export class PagesService {
+  private readonly logger = new Logger(PagesService.name)
+
   constructor(
     @InjectRepository(Page)
     private readonly pageRepo: Repository<Page>,
@@ -23,7 +27,30 @@ export class PagesService {
     private readonly projectRepo: Repository<Project>,
     @InjectRepository(GroupMember)
     private readonly groupMemberRepo: Repository<GroupMember>,
+    private readonly embeddingService: EmbeddingService,
+    private readonly dataSource: DataSource,
   ) {}
+
+  // 페이지 content → RAG 인덱싱. 비동기로 fire-and-forget 처리해 페이지 저장 자체는
+  // Gemini 임베딩 API 실패/지연에 영향을 받지 않게 한다.
+  private indexPageAsync(page: Page): void {
+    const text = this.embeddingService.extractTextFromContent(
+      page.content,
+      page.type ?? 'document',
+      page.language ?? null,
+    )
+    if (!text.trim()) return
+    void this.embeddingService
+      .indexPage(page.id, text, {
+        pageTitle: page.title,
+        pageType: page.type,
+      })
+      .catch((err: unknown) => {
+        this.logger.warn(
+          `자동 인덱싱 실패 (pageId=${page.id}): ${(err as Error).message}`,
+        )
+      })
+  }
 
   /* ── POST /api/pages ── */
   async createPage(userId: string, dto: CreatePageDto) {
@@ -45,6 +72,9 @@ export class PagesService {
     if (dto.content) {
       await this.saveVersion(page.id, dto.content, userId)
     }
+
+    // RAG 자동 인덱싱 (비동기, 실패해도 페이지 생성 응답에 영향 없음)
+    this.indexPageAsync(page)
 
     return page
   }
@@ -81,7 +111,8 @@ export class PagesService {
     const project = await this.findProjectOrThrow(page.projectId)
     await this.requireGroupMember(project.groupId, userId)
 
-    if (dto.content !== undefined) {
+    const contentChanged = dto.content !== undefined
+    if (contentChanged) {
       page.content = dto.content ?? null
       await this.saveVersion(pageId, dto.content ?? {}, userId)
     }
@@ -89,7 +120,10 @@ export class PagesService {
     if (dto.language !== undefined) page.language = dto.language ?? null
     if (dto.sortOrder !== undefined) page.sortOrder = dto.sortOrder
 
-    return this.pageRepo.save(page)
+    const saved = await this.pageRepo.save(page)
+    // content 변경 시에만 RAG 재인덱싱 (title/sortOrder만 바뀌면 불필요한 API 호출 피함)
+    if (contentChanged) this.indexPageAsync(saved)
+    return saved
   }
 
   /* ── PUT /api/pages/:id/title ── */
@@ -107,6 +141,16 @@ export class PagesService {
     const page = await this.findPageOrThrow(pageId)
     const project = await this.findProjectOrThrow(page.projectId)
     await this.requireGroupMember(project.groupId, userId)
+
+    // 좀비 임베딩 방지: 페이지 삭제 전에 embeddings 삭제.
+    // embeddings.page_id 가 FK + ON DELETE CASCADE 가 아닐 수 있으므로 명시적으로 정리.
+    try {
+      await this.dataSource.query(`DELETE FROM embeddings WHERE page_id = $1`, [pageId])
+    } catch (err) {
+      this.logger.warn(
+        `페이지 임베딩 삭제 실패 (pageId=${pageId}): ${(err as Error).message}`,
+      )
+    }
 
     await this.pageRepo.delete(pageId)
     return { message: '페이지가 삭제되었습니다' }

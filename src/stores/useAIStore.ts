@@ -1,5 +1,6 @@
 import { create } from 'zustand'
 import { apiFetch } from '@/lib/api'
+import { useGroupContextStore } from '@/stores/useGroupContextStore'
 
 export interface AIMessage {
   id: string
@@ -145,6 +146,9 @@ export const useAIStore = create<AIState>((set, get) => ({
     const { activeConversationId } = get()
 
     try {
+      // page/channel/project 컨텍스트 없을 때도 그룹 전체 RAG가 동작하도록
+      // 항상 활성 조직 ID를 함께 전송한다.
+      const activeOrgId = useGroupContextStore.getState().activeOrgId
       const res = await apiFetch('/api/ai/chat', {
         method: 'POST',
         body: JSON.stringify({
@@ -154,6 +158,7 @@ export const useAIStore = create<AIState>((set, get) => ({
           referencedFileIds: referencedFileIds?.length ? referencedFileIds : undefined,
           channelId: channelId || undefined,
           pageId: pageId || undefined,
+          groupId: activeOrgId || undefined,
         }),
       })
 

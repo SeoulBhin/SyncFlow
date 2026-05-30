@@ -6,11 +6,21 @@ import { Repository } from 'typeorm'
 import * as Y from 'yjs'
 import { Page } from '../pages/entities/page.entity'
 import { PageVersion } from '../pages/entities/page-version.entity'
+import { EmbeddingService } from '../ai/embedding.service'
+
+// 페이지별 인덱싱 디바운스 타이머. 에디터에서 키 입력마다 onStoreDocument가
+// 호출되므로 매번 Gemini Embedding API를 부르면 쿼터가 폭주한다.
+// 마지막 저장으로부터 INDEX_DEBOUNCE_MS 후에 1회만 실제 인덱싱 실행.
+// 15초: 시연 흐름(작성 → 잠깐 멈춤 → AI에게 묻기) 사이에 인덱싱이 완료될 정도로 짧고,
+// 키 입력마다 호출되는 빈도 대비 API 호출량은 1/3 수준으로 안전한 균형점.
+const INDEX_DEBOUNCE_MS = 15_000
+const indexTimers = new Map<string, NodeJS.Timeout>()
 
 export function createHocuspocusServer(
   jwtService: JwtService,
   pageRepository: Repository<Page>,
   pageVersionRepository: Repository<PageVersion>,
+  embeddingService: EmbeddingService,
 ) {
   return new Server({
     port: 3001,
@@ -78,6 +88,40 @@ export function createHocuspocusServer(
       } catch (err) {
         console.error(`[hocuspocus] DB 저장 실패 (${data.documentName}): ${(err as Error).message}`)
       }
+
+      // RAG 자동 인덱싱 (디바운스). 페이지마다 마지막 저장으로부터 5초 후 1회만 실행.
+      const pageId = data.documentName
+      const existing = indexTimers.get(pageId)
+      if (existing) clearTimeout(existing)
+      indexTimers.set(
+        pageId,
+        setTimeout(() => {
+          indexTimers.delete(pageId)
+          void (async () => {
+            try {
+              const page = await pageRepository.findOne({
+                where: { id: pageId },
+                select: ['id', 'content', 'type', 'language', 'title'],
+              })
+              if (!page) return
+              const text = embeddingService.extractTextFromContent(
+                page.content,
+                page.type ?? 'document',
+                page.language ?? null,
+              )
+              if (!text.trim()) return
+              await embeddingService.indexPage(pageId, text, {
+                pageTitle: page.title,
+                pageType: page.type,
+              })
+            } catch (err) {
+              console.warn(
+                `[hocuspocus] 자동 인덱싱 실패 (${pageId}): ${(err as Error).message}`,
+              )
+            }
+          })()
+        }, INDEX_DEBOUNCE_MS),
+      )
     },
 
     async onDisconnect(data) {
