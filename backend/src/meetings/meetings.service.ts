@@ -4,6 +4,7 @@ import {
   Injectable,
   Logger,
   NotFoundException,
+  OnModuleInit,
 } from '@nestjs/common'
 import { InjectRepository } from '@nestjs/typeorm'
 import { In, Not, Repository } from 'typeorm'
@@ -71,7 +72,7 @@ function normalizeAiResult(raw: unknown): {
 }
 
 @Injectable()
-export class MeetingsService {
+export class MeetingsService implements OnModuleInit {
   private readonly logger = new Logger(MeetingsService.name)
 
   constructor(
@@ -85,6 +86,47 @@ export class MeetingsService {
     private sttService: SttService,
     private summaryService: SummaryService,
   ) {}
+
+  // 부팅 시 1회: 과거 confirmActionItems 버그로 group/project/createdBy가 NULL인
+  // 채로 생성되어 작업보드에 안 보이는 고아 task를 회의 정보로 백필한다.
+  // idempotent — 이미 채워진 행은 건드리지 않음.
+  async onModuleInit(): Promise<void> {
+    try {
+      const result = await this.taskRepo.query(
+        `UPDATE tasks AS t
+         SET group_id    = COALESCE(t.group_id,    m.group_id),
+             project_id  = COALESCE(t.project_id,  m.project_id),
+             created_by  = COALESCE(t.created_by,  m.host_id)
+         FROM meetings AS m
+         WHERE t.source_meeting_id = m.id
+           AND t.source_meeting_id IS NOT NULL
+           AND (t.group_id IS NULL OR t.project_id IS NULL OR t.created_by IS NULL)
+           AND (m.group_id IS NOT NULL OR m.project_id IS NOT NULL OR m.host_id IS NOT NULL)`,
+      )
+      const affected = Array.isArray(result) && result[1] ? Number(result[1]) : 0
+      if (affected > 0) {
+        this.logger.log(`고아 회의 task 백필: ${affected}개 행에 group/project/createdBy 채움`)
+      }
+
+      // assignee 이름 → assigneeId 백필 (회의 참가자 매칭)
+      const assigneeFix = await this.taskRepo.query(
+        `UPDATE tasks AS t
+         SET assignee_id = mp.user_id
+         FROM meeting_participants AS mp
+         WHERE t.source_meeting_id = mp.meeting_id
+           AND t.assignee IS NOT NULL
+           AND t.assignee = mp.user_name
+           AND t.assignee_id IS NULL`,
+      )
+      const assigneeAffected =
+        Array.isArray(assigneeFix) && assigneeFix[1] ? Number(assigneeFix[1]) : 0
+      if (assigneeAffected > 0) {
+        this.logger.log(`고아 회의 task 담당자 백필: ${assigneeAffected}개 행에 assigneeId 채움`)
+      }
+    } catch (err) {
+      this.logger.warn(`회의 task 백필 실패 (무시하고 진행): ${(err as Error).message}`)
+    }
+  }
 
   /**
    * 회의 방 생성 — 즉시 시작하지 않음(status='scheduled').
@@ -674,14 +716,31 @@ export class MeetingsService {
     })
 
     if (items.length > 0) {
+      // 회의 컨텍스트(groupId/projectId/hostId) 조회 — task 권한 필터가
+      // groupId/createdBy/assigneeId 중 하나를 요구하므로 누락 시 작업보드에서 안 보임.
+      const meeting = await this.meetingRepo.findOne({ where: { id: meetingId } })
+      // 발화자 이름 → userId 매핑 (assignee 가 회의 참가자면 assigneeId 채움)
+      const participants = await this.participantRepo.find({
+        where: { meetingId },
+        select: ['userId', 'userName'],
+      })
+      const nameToUserId = new Map<string, string>()
+      for (const p of participants) {
+        if (p.userName) nameToUserId.set(p.userName, p.userId)
+      }
+
       // Task 일괄 생성
       const tasks = await this.taskRepo.save(
         items.map((item) =>
           this.taskRepo.create({
             title: item.title,
             assignee: item.assignee,
+            assigneeId: item.assignee ? nameToUserId.get(item.assignee) ?? null : null,
             dueDate: item.dueDate,
             status: 'todo',
+            groupId: meeting?.groupId ?? null,
+            projectId: meeting?.projectId ?? null,
+            createdBy: meeting?.hostId ?? null,
             sourceMeetingId: meetingId,
             sourceActionItemId: item.id,
           }),
