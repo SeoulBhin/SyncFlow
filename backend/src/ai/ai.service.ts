@@ -91,6 +91,7 @@ export class AiService {
 
   private async fetchUserUpcomingTasks(
     userId: string,
+    groupId?: string | null,
     limit = 15,
   ): Promise<
     Array<{
@@ -103,6 +104,15 @@ export class AiService {
     }>
   > {
     try {
+      const params: unknown[] = [userId]
+      let groupClause = ''
+      if (groupId) {
+        params.push(groupId)
+        groupClause = `AND t.group_id = $${params.length}`
+      }
+      params.push(limit)
+      const limitIdx = params.length
+
       const rows = await this.dataSource.query<
         Array<{
           title: string
@@ -119,9 +129,10 @@ export class AiService {
          LEFT JOIN projects p ON p.id = t.project_id
          WHERE (t.assignee_id = $1 OR t.created_by = $1)
            AND t.status <> 'done'
+           ${groupClause}
          ORDER BY t.due_date ASC NULLS LAST, t.priority DESC
-         LIMIT $2`,
-        [userId, limit],
+         LIMIT $${limitIdx}`,
+        params,
       )
       return rows.map((r) => ({
         title: r.title,
@@ -139,11 +150,21 @@ export class AiService {
 
   private async fetchUserUpcomingSchedules(
     userId: string,
+    groupId?: string | null,
     limit = 15,
   ): Promise<
     Array<{ title: string; startAt: string | null; endAt: string | null }>
   > {
     try {
+      const params: unknown[] = [userId]
+      let groupClause = ''
+      if (groupId) {
+        params.push(groupId)
+        groupClause = `AND s.group_id = $${params.length}`
+      }
+      params.push(limit)
+      const limitIdx = params.length
+
       const rows = await this.dataSource.query<
         Array<{ title: string; start_at: string | null; end_at: string | null }>
       >(
@@ -154,9 +175,10 @@ export class AiService {
            OR (s.attendees IS NOT NULL AND s.attendees::text LIKE '%' || $1 || '%')
          )
          AND (s.end_at IS NULL OR s.end_at >= NOW())
+         ${groupClause}
          ORDER BY s.start_at ASC NULLS LAST
-         LIMIT $2`,
-        [userId, limit],
+         LIMIT $${limitIdx}`,
+        params,
       )
       return rows.map((r) => ({
         title: r.title,
@@ -169,18 +191,177 @@ export class AiService {
     }
   }
 
-  private async buildUserScheduleSection(userId: string): Promise<string> {
-    const [tasks, schedules] = await Promise.all([
-      this.fetchUserUpcomingTasks(userId),
-      this.fetchUserUpcomingSchedules(userId),
+  private async fetchUserRecentMeetings(
+    userId: string,
+    groupId?: string | null,
+    limit = 10,
+  ): Promise<
+    Array<{
+      title: string
+      startedAt: string | null
+      endedAt: string | null
+      summary: string | null
+      keywords: string | null
+    }>
+  > {
+    try {
+      // 접근 가시성 절(visibility clause) 결정:
+      // - groupId 가 있고 사용자가 그 그룹의 멤버라면 → 그 그룹 회의 중 (내가 host/참여자) 이거나
+      //   visibility='public' 인 회의까지 포함 (회의 권한 모델: public = 같은 조직 멤버 누구나).
+      // - groupId 가 없거나 멤버가 아니면 → (내가 host/참여자) 인 회의로만 user-scoped.
+      //   비멤버가 groupId 를 위조해도 남의 비공개 회의는 절대 새지 않는다.
+      let isGroupMember = false
+      if (groupId) {
+        const membership = await this.dataSource.query<Array<{ exists: boolean }>>(
+          `SELECT EXISTS(
+             SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2
+           ) AS exists`,
+          [groupId, userId],
+        )
+        isGroupMember = membership[0]?.exists ?? false
+      }
+
+      const params: unknown[] = [userId]
+      let groupClause = ''
+      let visibilityClause = `(
+        m.host_id = $1
+        OR EXISTS (
+          SELECT 1 FROM meeting_participants mp
+          WHERE mp.meeting_id = m.id AND mp.user_id = $1
+        )
+      )`
+      if (groupId) {
+        params.push(groupId)
+        groupClause = `AND m.group_id = $${params.length}`
+        if (isGroupMember) {
+          visibilityClause = `(
+            m.visibility = 'public'
+            OR m.host_id = $1
+            OR EXISTS (
+              SELECT 1 FROM meeting_participants mp
+              WHERE mp.meeting_id = m.id AND mp.user_id = $1
+            )
+          )`
+        }
+      }
+      params.push(limit)
+      const limitIdx = params.length
+
+      const rows = await this.dataSource.query<
+        Array<{
+          title: string
+          started_at: string | null
+          ended_at: string | null
+          summary: string | null
+          keywords: string | null
+        }>
+      >(
+        `SELECT m.title, m.started_at, m.ended_at, s.summary, s.keywords
+         FROM meetings m
+         LEFT JOIN meeting_summaries s ON s.meeting_id = m.id
+         WHERE ${visibilityClause}
+         ${groupClause}
+         AND m.status = 'ended'
+         ORDER BY m.ended_at DESC NULLS LAST, m.started_at DESC NULLS LAST
+         LIMIT $${limitIdx}`,
+        params,
+      )
+      return rows.map((r) => {
+        // keywords 는 JSON.stringify(string[]) 형태로 저장됨 — 사람이 읽을 수 있게 풀어준다
+        let keywords: string | null = null
+        if (r.keywords) {
+          try {
+            const arr = JSON.parse(r.keywords) as unknown
+            if (Array.isArray(arr) && arr.length > 0) keywords = arr.join(', ')
+          } catch {
+            keywords = r.keywords
+          }
+        }
+        return {
+          title: r.title,
+          startedAt: r.started_at,
+          endedAt: r.ended_at,
+          summary: r.summary,
+          keywords,
+        }
+      })
+    } catch (err) {
+      this.logger.warn(`사용자 회의 조회 실패: ${(err as Error).message}`)
+      return []
+    }
+  }
+
+  /**
+   * 일정/할일/회의 질문에 주입할 컨텍스트 그룹 ID 해석.
+   * projectId → 프로젝트의 group_id, channelId → 채널의 group_id, 마지막으로 dto.groupId 순.
+   * 회의 필터링 용도(narrowing only)이므로 membership 검증은 fetch 단에 위임하지 않고 생략한다.
+   */
+  private async resolveScopeGroupId(ctx: {
+    projectId?: string | null
+    channelId?: string | null
+    groupId?: string | null
+  }): Promise<string | null> {
+    try {
+      if (ctx.projectId) {
+        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
+          `SELECT group_id FROM projects WHERE id = $1 LIMIT 1`,
+          [ctx.projectId],
+        )
+        if (rows[0]?.group_id) return rows[0].group_id
+      }
+      if (ctx.channelId) {
+        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
+          `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
+          [ctx.channelId],
+        )
+        if (rows[0]?.group_id) return rows[0].group_id
+      }
+    } catch (err) {
+      this.logger.warn(`회의 스코프 그룹 해석 실패: ${(err as Error).message}`)
+    }
+    return ctx.groupId ?? null
+  }
+
+  /**
+   * 컨텍스트에서 그룹을 해석한 뒤 group_members 멤버십까지 검증한 그룹 ID 반환.
+   * ai_knowledge(회의록 요약 등) 검색은 위조된 groupId로 타 조직 지식이 새면 안 되므로
+   * 반드시 이 검증된 그룹으로만 수행한다. 멤버가 아니면 null.
+   */
+  private async resolveValidatedGroupId(
+    userId: string,
+    ctx: { projectId?: string | null; channelId?: string | null; groupId?: string | null },
+  ): Promise<string | null> {
+    const candidate = await this.resolveScopeGroupId(ctx)
+    if (!candidate) return null
+    try {
+      const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
+        `SELECT EXISTS(
+           SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2
+         ) AS exists`,
+        [candidate, userId],
+      )
+      return rows[0]?.exists ? candidate : null
+    } catch {
+      return null
+    }
+  }
+
+  private async buildUserScheduleSection(
+    userId: string,
+    scopeGroupId?: string | null,
+  ): Promise<string> {
+    const [tasks, schedules, meetings] = await Promise.all([
+      this.fetchUserUpcomingTasks(userId, scopeGroupId),
+      this.fetchUserUpcomingSchedules(userId, scopeGroupId),
+      this.fetchUserRecentMeetings(userId, scopeGroupId),
     ])
 
-    if (tasks.length === 0 && schedules.length === 0) {
-      return '\n\n## 사용자 일정/할일\n현재 등록된 미완료 작업과 임박한 일정이 없습니다. 사용자에게 이 사실을 명확히 알리세요.'
+    if (tasks.length === 0 && schedules.length === 0 && meetings.length === 0) {
+      return '\n\n## 사용자 일정/할일/회의\n현재 등록된 미완료 작업, 임박한 일정, 종료된 회의 기록이 없습니다. 사용자에게 이 사실을 명확히 알리세요.'
     }
 
     const today = new Date().toISOString().slice(0, 10)
-    let section = `\n\n## 사용자 일정/할일 (오늘=${today})`
+    let section = `\n\n## 사용자 일정/할일/회의 (오늘=${today})`
 
     if (tasks.length > 0) {
       const lines = tasks
@@ -206,8 +387,24 @@ export class AiService {
       section += `\n\n### 임박한 일정 (${schedules.length}개)\n${lines}`
     }
 
+    if (meetings.length > 0) {
+      const lines = meetings
+        .map((m) => {
+          const when = (m.endedAt ?? m.startedAt)?.slice(0, 10) ?? '날짜 미상'
+          const kw = m.keywords ? ` [키워드: ${m.keywords}]` : ''
+          const rawSummary = m.summary?.trim()
+          const summaryLine = rawSummary
+            ? `\n  요약: ${rawSummary.length > 600 ? rawSummary.slice(0, 600) + ' …' : rawSummary}`
+            : '\n  (요약 없음)'
+          return `- ${when} **${m.title}**${kw}${summaryLine}`
+        })
+        .join('\n')
+      const meetingLabel = scopeGroupId ? '이 조직의 회의' : '참여한 회의'
+      section += `\n\n### ${meetingLabel} (${meetings.length}개, 최신순)\n${lines}`
+    }
+
     section +=
-      '\n\n위 데이터는 DB에서 직접 조회한 사실입니다. 이 정보를 바탕으로 사용자 질문에 답하고, 위 목록에 없는 일정은 추측하지 마세요.'
+      '\n\n위 데이터는 DB에서 직접 조회한 사실입니다. 이 정보를 바탕으로 사용자 질문에 답하고, 위 목록에 없는 일정/회의는 추측하지 마세요.'
     return section
   }
 
@@ -332,6 +529,32 @@ export class AiService {
       referencedPageContents,
     )
 
+    // 워크스페이스 지식베이스(회의록 요약 등) 시맨틱 검색 — 회의가 많아 DB 직접 주입(최근 10개)에
+    // 안 잡히는 과거 회의를 의미 기반으로 찾아준다. 타 조직 지식 유출 방지를 위해
+    // 반드시 membership 검증된 그룹에서만 검색한다.
+    const knowledgeGroupId = await this.resolveValidatedGroupId(user.userId, {
+      projectId,
+      channelId: dto.channelId,
+      groupId: dto.groupId,
+    })
+    if (knowledgeGroupId) {
+      const knowledge = await this.ragService
+        .search({ query: dto.content, groupId: knowledgeGroupId, limit: 3 })
+        .catch((): RagSearchResult[] => [])
+      const relevantKnowledge = knowledge.filter(
+        (k) => k.similarity >= RAG_SIMILARITY_THRESHOLD,
+      )
+      if (relevantKnowledge.length > 0) {
+        const lines = relevantKnowledge
+          .map(
+            (r, i) =>
+              `[지식 ${i + 1}] ${r.title ? `**${r.title}**` : `(${r.sourceType})`}\n${r.content}`,
+          )
+          .join('\n\n')
+        systemPrompt += `\n\n## 워크스페이스 지식 (회의록 등)\n${lines}\n\n위 회의록/지식을 우선적으로 참고하여 답변하세요.`
+      }
+    }
+
     // 현재 문서 컨텍스트 주입 (pageId가 있을 때)
     if (dto.pageId) {
       const pageCtx = await this.fetchPageContentForAI(dto.pageId)
@@ -367,9 +590,15 @@ export class AiService {
         '\n\n[선택한 파일 내용을 찾을 수 없습니다. 사용자에게 "선택한 파일의 내용을 불러올 수 없습니다. 파일이 존재하는지 확인해주세요."라고 안내하세요.]'
     }
 
-    // 일정/할일 질문 → 사용자의 tasks/schedules 직접 주입 (RAG와 무관, DB 사실 기반)
+    // 일정/할일/회의 질문 → 사용자의 tasks/schedules/회의 직접 주입 (RAG와 무관, DB 사실 기반).
+    // 회의는 현재 컨텍스트(프로젝트/채널/그룹)에서 해석한 그룹으로 좁혀, "선택한 조직의 회의"만 답하게 한다.
     if (this.isScheduleOrTaskQuery(dto.content)) {
-      systemPrompt += await this.buildUserScheduleSection(user.userId)
+      const scopeGroupId = await this.resolveScopeGroupId({
+        projectId,
+        channelId: dto.channelId,
+        groupId: dto.groupId,
+      })
+      systemPrompt += await this.buildUserScheduleSection(user.userId, scopeGroupId)
     }
 
     // 문서/채널 컨텍스트 없을 때 AI에게 안내 추가
@@ -479,7 +708,8 @@ export class AiService {
     let systemPrompt = this.buildLegacySystemPrompt(contextChunks)
 
     if (this.isScheduleOrTaskQuery(dto.content)) {
-      systemPrompt += await this.buildUserScheduleSection(user.userId)
+      const scopeGroupId = await this.resolveScopeGroupId({ projectId: dto.projectId })
+      systemPrompt += await this.buildUserScheduleSection(user.userId, scopeGroupId)
     }
 
     const model = this.genAI.getGenerativeModel({

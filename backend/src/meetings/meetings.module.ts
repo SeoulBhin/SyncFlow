@@ -14,6 +14,7 @@ import { Task } from '../tasks/entities/task.entity'
 import { GroupMember } from '../groups/entities/group-member.entity'
 import { AuthModule } from '../auth/auth.module'
 import { GuestModule } from '../guest/guest.module'
+import { AiModule } from '../ai/ai.module'
 
 @Module({
   imports: [
@@ -30,6 +31,8 @@ import { GuestModule } from '../guest/guest.module'
     AuthModule,
     // 게스트 초대 링크 생성 (POST /:id/guest-invites)
     GuestModule,
+    // 회의 요약 → ai_knowledge 인덱싱 (RagService 주입)
+    AiModule,
   ],
   controllers: [MeetingsController],
   providers: [MeetingsService, SttService, SummaryService, MeetingsGateway],

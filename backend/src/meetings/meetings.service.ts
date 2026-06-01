@@ -18,6 +18,7 @@ import { Task } from '../tasks/entities/task.entity'
 import { GroupMember } from '../groups/entities/group-member.entity'
 import { SttService } from './stt.service'
 import { SummaryService } from './summary.service'
+import { RagService } from '../ai/rag.service'
 
 const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -85,7 +86,43 @@ export class MeetingsService implements OnModuleInit {
     @InjectRepository(GroupMember) private groupMemberRepo: Repository<GroupMember>,
     private sttService: SttService,
     private summaryService: SummaryService,
+    private ragService: RagService,
   ) {}
+
+  /**
+   * 회의 요약/액션아이템을 ai_knowledge 에 인덱싱(upsert) — AI 어시스턴트가 의미 기반으로
+   * 과거 회의를 검색할 수 있게 한다. reindexSource 로 동일 meetingId 기존 청크를 지우고 재생성.
+   * 실패해도 회의 종료/요약 흐름을 깨뜨리지 않도록 호출부에서 catch 한다.
+   */
+  private async indexMeetingKnowledge(
+    meeting: Meeting,
+    summaryText: string,
+    keywords: string[],
+    actionItems: Array<{ title: string; assignee: string | null; dueDate: string | null }>,
+  ): Promise<void> {
+    const parts: string[] = [`[회의록] ${meeting.title}`, '', `요약: ${summaryText}`]
+    if (keywords.length > 0) parts.push(`키워드: ${keywords.join(', ')}`)
+    if (actionItems.length > 0) {
+      const items = actionItems
+        .map((a) => {
+          const meta = [a.assignee ? `담당: ${a.assignee}` : null, a.dueDate ? `마감: ${a.dueDate}` : null]
+            .filter(Boolean)
+            .join(', ')
+          return `- ${a.title}${meta ? ` (${meta})` : ''}`
+        })
+        .join('\n')
+      parts.push('', '액션 아이템:', items)
+    }
+
+    await this.ragService.reindexSource(meeting.id, {
+      groupId: meeting.groupId ?? undefined,
+      sourceType: 'meeting',
+      sourceId: meeting.id,
+      title: meeting.title,
+      content: parts.join('\n'),
+      metadata: { meetingId: meeting.id, projectId: meeting.projectId ?? null },
+    })
+  }
 
   // 부팅 시 1회: 과거 confirmActionItems 버그로 group/project/createdBy가 NULL인
   // 채로 생성되어 작업보드에 안 보이는 고아 task를 회의 정보로 백필한다.
@@ -478,6 +515,13 @@ export class MeetingsService implements OnModuleInit {
       }
     }
 
+    // 6. RAG 인덱싱 — 요약이 정상 저장된 경우에만. 실패해도 endMeeting 응답엔 영향 없음.
+    if (summary) {
+      this.indexMeetingKnowledge(meeting, aiResult.summary, aiResult.keywords, aiResult.actionItems).catch(
+        (err) => this.logger.warn(`회의 RAG 인덱싱 실패: ${(err as Error).message}`),
+      )
+    }
+
     return { meeting, summary, actionItems }
   }
 
@@ -540,6 +584,11 @@ export class MeetingsService implements OnModuleInit {
         this.logger.error(`[GEMINI REGEN] 액션아이템 저장 실패 — 빈 배열로 응답: ${(err as Error).message}`)
       }
     }
+
+    // RAG 재인덱싱 — 재생성된 요약으로 ai_knowledge upsert. 실패해도 재생성 응답엔 영향 없음.
+    this.indexMeetingKnowledge(meeting, aiResult.summary, aiResult.keywords, aiResult.actionItems).catch(
+      (err) => this.logger.warn(`회의 RAG 재인덱싱 실패: ${(err as Error).message}`),
+    )
 
     this.logger.log(`[GEMINI REGEN] meetingId="${meetingId}" — 완료, actionItems=${actionItems.length}개`)
     return { meeting, summary: savedSummary, actionItems }
