@@ -120,7 +120,21 @@ function mapColumnIdToStatus(
 
 /* ── 작업 상태를 컬럼에 매핑하는 유틸리티 ── */
 
-function mapTaskToColumn(task: MockTask, columns: KanbanColumn[]): string {
+// overrides: 사용자가 명시적으로 배치한 커스텀 컬럼 매핑 (taskId -> columnId).
+// 커스텀 컬럼은 백엔드 status로 직접 식별할 수 없으므로 로컬 상태로 관리한다.
+function mapTaskToColumn(
+  task: MockTask,
+  columns: KanbanColumn[],
+  overrides: Record<string, string>,
+): string {
+  // 명시적 컬럼 배치가 있으면 우선 적용
+  const override = overrides[task.id]
+  if (override !== undefined) {
+    const targetCol = columns.find((c) => c.id === override)
+    // 대상 컬럼이 삭제된 경우 status 기반 매핑으로 폴백
+    if (targetCol) return targetCol.id
+  }
+
   const colIds = columns.map((c) => c.id)
 
   // 정확히 일치하는 컬럼이 있으면 사용
@@ -192,6 +206,10 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
   // 삭제 확인 상태
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
 
+  // 커스텀 컬럼에 명시적으로 배치된 태스크 추적 (taskId -> columnId).
+  // 백엔드 status만으로는 커스텀 컬럼과의 연결을 유지할 수 없으므로 로컬 상태로 관리한다.
+  const [taskColumnOverrides, setTaskColumnOverrides] = useState<Record<string, string>>({})
+
   // 카드 hover 오버레이 상태
   const [hoveredCardId, setHoveredCardId] = useState<string | null>(null)
   const [overlayCardId, setOverlayCardId] = useState<string | null>(null)
@@ -239,6 +257,8 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
     if (preset) {
       setColumns([...preset])
       setActivePreset(presetKey)
+      // 프리셋이 바뀌면 컬럼 구조가 완전히 교체되므로 기존 오버라이드를 모두 초기화한다
+      setTaskColumnOverrides({})
     }
     setPresetOpen(false)
   }, [])
@@ -277,6 +297,14 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
     (colId: string) => {
       if (columns.length <= 2) return
       setColumns((prev) => prev.filter((c) => c.id !== colId))
+      // 삭제된 컬럼을 가리키는 오버라이드 항목을 정리한다
+      setTaskColumnOverrides((prev) => {
+        const staleKeys = Object.keys(prev).filter((taskId) => prev[taskId] === colId)
+        if (staleKeys.length === 0) return prev
+        const next = { ...prev }
+        for (const taskId of staleKeys) delete next[taskId]
+        return next
+      })
       setActivePreset('custom')
       setMenuColumnId(null)
       setDeleteConfirmId(null)
@@ -304,8 +332,25 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
 
   const handleDrop = (colId: string) => {
     if (draggedId) {
-      const status = mapColumnIdToStatus(colId, columns)
-      onStatusChange(draggedId, status)
+      if (colId in COLUMN_TO_STATUS) {
+        // 표준 컬럼으로 이동: 기존 커스텀 오버라이드가 있으면 제거한다
+        setTaskColumnOverrides((prev) => {
+          if (!(draggedId in prev)) return prev
+          const next = { ...prev }
+          delete next[draggedId]
+          return next
+        })
+      } else {
+        // 커스텀 컬럼으로 이동: 어느 컬럼에 배치됐는지 명시적으로 기록한다.
+        // 백엔드 status는 위치 기반으로 매핑되지만, UI 배치는 이 오버라이드가 결정한다.
+        setTaskColumnOverrides((prev) => ({ ...prev, [draggedId]: colId }))
+      }
+
+      const targetCol = columns.find((c) => c.id === colId)
+      if (targetCol) {
+        const status = mapColumnIdToStatus(colId, columns)
+        onStatusChange(draggedId, status)
+      }
     }
     setDraggedId(null)
     setDragOverCol(null)
@@ -393,8 +438,10 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
       <div className={cn('grid grid-cols-1 gap-4', gridColsClass)}>
         {columns.map((col) => {
           const Icon = col.icon
-          // 작업을 현재 컬럼에 매핑하여 필터
-          const columnTasks = tasks.filter((t) => mapTaskToColumn(t, columns) === col.id)
+          // 작업을 현재 컬럼에 매핑하여 필터 (커스텀 컬럼 오버라이드 반영)
+          const columnTasks = tasks.filter(
+            (t) => mapTaskToColumn(t, columns, taskColumnOverrides) === col.id,
+          )
 
           return (
             <div
