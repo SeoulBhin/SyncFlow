@@ -627,7 +627,7 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
               <div className="space-y-2">
                 {columnTasks.map((task) => {
                   const p = priorityConfig[task.priority]
-                  const isLastCol = col.id === columns[columns.length - 1].id
+                  const isDoneCol = col.id === 'done'
                   const assignees = task.assigneeNames ?? [task.assigneeName]
 
                   return (
@@ -721,7 +721,7 @@ export function KanbanBoard({ tasks, onTaskClick, onStatusChange, onAddTask, onQ
                             <p
                               className={cn(
                                 'text-sm font-medium',
-                                isLastCol
+                                isDoneCol
                                   ? 'text-neutral-400 line-through dark:text-neutral-500'
                                   : 'text-neutral-800 dark:text-neutral-100',
                               )}

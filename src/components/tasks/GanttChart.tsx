@@ -23,7 +23,7 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   const { startDate, totalDays, dates } = useMemo(() => {
     if (tasks.length === 0) return { startDate: '', totalDays: 14, dates: [] }
 
-    const allDates = tasks.flatMap((t) => [t.startDate, t.dueDate]).filter(Boolean)
+    const allDates = tasks.flatMap((t) => [t.startDate ?? t.dueDate, t.dueDate]).filter(Boolean)
     const min = allDates.reduce((a, b) => (a < b ? a : b))
     const max = allDates.reduce((a, b) => (a > b ? a : b))
 
@@ -55,7 +55,13 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   const todayStr = new Date().toISOString().slice(0, 10)
 
   const sortedTasks = useMemo(() => {
-    return [...tasks].sort((a, b) => a.startDate.localeCompare(b.startDate))
+    return [...tasks]
+      .filter((t) => t.startDate || t.dueDate)
+      .sort((a, b) => {
+        const aDate = a.startDate ?? a.dueDate
+        const bDate = b.startDate ?? b.dueDate
+        return aDate.localeCompare(bDate)
+      })
   }, [tasks])
 
   if (tasks.length === 0) {
@@ -94,10 +100,11 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
 
         {/* 태스크 행 */}
         {sortedTasks.map((task) => {
-          const offsetDays = daysBetween(startDate, task.startDate)
-          const durationDays = Math.max(daysBetween(task.startDate, task.dueDate), 1)
-          const leftPercent = (offsetDays / (totalDays || 1)) * 100
-          const widthPercent = (durationDays / (totalDays || 1)) * 100
+          const effectiveStart = task.startDate ?? task.dueDate
+          const offsetDays = daysBetween(startDate, effectiveStart)
+          const durationDays = Math.max(daysBetween(effectiveStart, task.dueDate), 1)
+          const leftPercent = (offsetDays / (dates.length || 1)) * 100
+          const widthPercent = (durationDays / (dates.length || 1)) * 100
 
           return (
             <div
