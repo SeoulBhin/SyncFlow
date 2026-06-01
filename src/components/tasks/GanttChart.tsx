@@ -20,8 +20,8 @@ function daysBetween(a: string, b: string) {
 
 export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
   // 전체 범위 계산
-  const { startDate, totalDays, dates } = useMemo(() => {
-    if (tasks.length === 0) return { startDate: '', totalDays: 14, dates: [] }
+  const { startDate, dates } = useMemo(() => {
+    if (tasks.length === 0) return { startDate: '', dates: [] }
 
     const allDates = tasks.flatMap((t) => [t.startDate ?? t.dueDate, t.dueDate]).filter(Boolean)
     const min = allDates.reduce((a, b) => (a < b ? a : b))
@@ -49,7 +49,7 @@ export function GanttChart({ tasks, onTaskClick }: GanttChartProps) {
       })
     }
 
-    return { startDate: startStr, totalDays: total, dates: dateList }
+    return { startDate: startStr, dates: dateList }
   }, [tasks])
 
   const todayStr = new Date().toISOString().slice(0, 10)
