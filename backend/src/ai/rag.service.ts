@@ -86,9 +86,17 @@ export class RagService {
 
   // ── ai_knowledge 테이블 검색 (그룹 컨텍스트 기반) ────────────────────────
 
-  async search(dto: SearchKnowledgeDto): Promise<RagSearchResult[]> {
+  /** 쿼리 임베딩 1회 생성 헬퍼 — 호출자가 여러 검색에 동일 임베딩을 재사용해 Gemini 호출을 줄인다. */
+  async embedQuery(text: string): Promise<number[]> {
+    return this.embeddingService.embed(text)
+  }
+
+  async search(
+    dto: SearchKnowledgeDto,
+    precomputedEmbedding?: number[],
+  ): Promise<RagSearchResult[]> {
     const limit = dto.limit ?? 5
-    const queryEmbedding = await this.embeddingService.embed(dto.query)
+    const queryEmbedding = precomputedEmbedding ?? (await this.embeddingService.embed(dto.query))
     const vectorStr = `[${queryEmbedding.join(',')}]`
 
     try {
@@ -169,8 +177,9 @@ export class RagService {
     query: string,
     projectId: string,
     limit: number = 5,
+    precomputedEmbedding?: number[],
   ): Promise<ProjectSearchResult[]> {
-    const queryEmbedding = await this.embeddingService.embed(query)
+    const queryEmbedding = precomputedEmbedding ?? (await this.embeddingService.embed(query))
     const vectorStr = `[${queryEmbedding.join(',')}]`
 
     try {
@@ -215,8 +224,9 @@ export class RagService {
     query: string,
     groupId: string,
     limit: number = 5,
+    precomputedEmbedding?: number[],
   ): Promise<ProjectSearchResult[]> {
-    const queryEmbedding = await this.embeddingService.embed(query)
+    const queryEmbedding = precomputedEmbedding ?? (await this.embeddingService.embed(query))
     const vectorStr = `[${queryEmbedding.join(',')}]`
 
     try {

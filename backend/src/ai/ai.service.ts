@@ -323,24 +323,19 @@ export class AiService {
   }
 
   /**
-   * 컨텍스트에서 그룹을 해석한 뒤 group_members 멤버십까지 검증한 그룹 ID 반환.
-   * ai_knowledge(회의록 요약 등) 검색은 위조된 groupId로 타 조직 지식이 새면 안 되므로
-   * 반드시 이 검증된 그룹으로만 수행한다. 멤버가 아니면 null.
+   * group_members 멤버십 검증 — 멤버면 groupId 그대로, 아니면 null.
+   * ai_knowledge(회의록 요약 등)·그룹 페이지 검색은 위조된 groupId로 타 조직 지식이 새면 안 되므로
+   * 반드시 이 검증을 통과한 그룹으로만 수행한다.
    */
-  private async resolveValidatedGroupId(
-    userId: string,
-    ctx: { projectId?: string | null; channelId?: string | null; groupId?: string | null },
-  ): Promise<string | null> {
-    const candidate = await this.resolveScopeGroupId(ctx)
-    if (!candidate) return null
+  private async verifyGroupMembership(userId: string, groupId: string): Promise<string | null> {
     try {
       const rows = await this.dataSource.query<Array<{ exists: boolean }>>(
         `SELECT EXISTS(
            SELECT 1 FROM group_members WHERE group_id = $1 AND user_id = $2
          ) AS exists`,
-        [candidate, userId],
+        [groupId, userId],
       )
-      return rows[0]?.exists ? candidate : null
+      return rows[0]?.exists ? groupId : null
     } catch {
       return null
     }
@@ -468,55 +463,61 @@ export class AiService {
     }
 
     // RAG 검색 — 우선순위: projectId → channel.group_id → dto.groupId
-    // 어느 컨텍스트도 없으면 RAG 자체를 건너뛰지만, dto.groupId가 있으면 그룹 전체에서 검색해
-    // "캡스톤 팀명?" 같은 그룹 지식 질의에 답할 수 있게 한다.
+    // 컨텍스트 그룹을 1회만 해석하고(회의·ai_knowledge·일정 섹션 공용), 쿼리 임베딩도 1회만 생성해
+    // 페이지 검색과 회의록(ai_knowledge) 검색이 같은 임베딩을 재사용하며 병렬로 돈다.
     const projectId = conversation.projectId
+    const candidateGroupId = await this.resolveScopeGroupId({
+      projectId,
+      channelId: dto.channelId,
+      groupId: dto.groupId,
+    })
+    // ai_knowledge/그룹 페이지 검색은 위조 groupId로 타 조직 지식이 새면 안 되므로 멤버십 검증.
+    const validatedGroupId = candidateGroupId
+      ? await this.verifyGroupMembership(user.userId, candidateGroupId)
+      : null
+
+    // 벡터 검색이 필요한 컨텍스트(프로젝트 or 검증된 그룹)가 없으면 임베딩 자체를 건너뛴다.
+    const needVector = !!(projectId && projectId.length > 0) || !!validatedGroupId
+    const queryEmbedding = needVector
+      ? await this.ragService.embedQuery(dto.content).catch(() => null)
+      : null
+    const embedArg = queryEmbedding ?? undefined
+
     let ragChunks: ProjectSearchResult[] = []
-    let resolvedGroupId: string | null = null
+    let knowledge: RagSearchResult[] = []
+    const searches: Promise<void>[] = []
     if (projectId && projectId.length > 0) {
-      ragChunks = await this.ragService
-        .searchProjectEmbeddings(dto.content, projectId, 5)
-        .catch(() => [])
-    } else if (dto.channelId) {
-      try {
-        const rows = await this.dataSource.query<Array<{ group_id: string | null }>>(
-          `SELECT group_id FROM channels WHERE id = $1 LIMIT 1`,
-          [dto.channelId],
-        )
-        resolvedGroupId = rows[0]?.group_id ?? null
-      } catch (err) {
-        this.logger.warn(`채널 그룹 조회 실패: ${(err as Error).message}`)
-      }
+      searches.push(
+        this.ragService
+          .searchProjectEmbeddings(dto.content, projectId, 5, embedArg)
+          .then((r) => {
+            ragChunks = r
+          })
+          .catch(() => {}),
+      )
+    } else if (validatedGroupId) {
+      searches.push(
+        this.ragService
+          .searchGroupEmbeddings(dto.content, validatedGroupId, 5, embedArg)
+          .then((r) => {
+            ragChunks = r
+          })
+          .catch(() => {}),
+      )
     }
-    if (!projectId && !ragChunks.length) {
-      // 사용자가 보낸 groupId는 신뢰 불가 — 위조 시 다른 조직 RAG 데이터 노출 위험.
-      // group_members에 (userId, groupId) 행이 있을 때만 허용.
-      // resolvedGroupId(채널에서 추출)는 이미 채널 멤버 검증을 거쳤다고 가정하나,
-      // 안전을 위해 동일 가드를 적용한다.
-      const candidateGroupId = resolvedGroupId ?? dto.groupId ?? null
-      let groupId: string | null = null
-      if (candidateGroupId) {
-        const membership = await this.dataSource.query<Array<{ exists: boolean }>>(
-          `SELECT EXISTS(
-             SELECT 1 FROM group_members
-             WHERE group_id = $1 AND user_id = $2
-           ) AS exists`,
-          [candidateGroupId, user.userId],
-        )
-        if (membership[0]?.exists) {
-          groupId = candidateGroupId
-        } else {
-          this.logger.warn(
-            `RAG groupId 위조 의심 차단: userId=${user.userId} groupId=${candidateGroupId}`,
-          )
-        }
-      }
-      if (groupId) {
-        ragChunks = await this.ragService
-          .searchGroupEmbeddings(dto.content, groupId, 5)
-          .catch(() => [])
-      }
+    // 워크스페이스 지식베이스(회의록 요약 등) 시맨틱 검색 — 회의가 많아 DB 직접 주입(최근 10개)에
+    // 안 잡히는 과거 회의를 의미 기반으로 찾아준다.
+    if (validatedGroupId) {
+      searches.push(
+        this.ragService
+          .search({ query: dto.content, groupId: validatedGroupId, limit: 3 }, embedArg)
+          .then((r) => {
+            knowledge = r
+          })
+          .catch(() => {}),
+      )
     }
+    await Promise.all(searches)
 
     const relevantChunks = ragChunks.filter((c) => c.similarity >= RAG_SIMILARITY_THRESHOLD)
 
@@ -529,30 +530,15 @@ export class AiService {
       referencedPageContents,
     )
 
-    // 워크스페이스 지식베이스(회의록 요약 등) 시맨틱 검색 — 회의가 많아 DB 직접 주입(최근 10개)에
-    // 안 잡히는 과거 회의를 의미 기반으로 찾아준다. 타 조직 지식 유출 방지를 위해
-    // 반드시 membership 검증된 그룹에서만 검색한다.
-    const knowledgeGroupId = await this.resolveValidatedGroupId(user.userId, {
-      projectId,
-      channelId: dto.channelId,
-      groupId: dto.groupId,
-    })
-    if (knowledgeGroupId) {
-      const knowledge = await this.ragService
-        .search({ query: dto.content, groupId: knowledgeGroupId, limit: 3 })
-        .catch((): RagSearchResult[] => [])
-      const relevantKnowledge = knowledge.filter(
-        (k) => k.similarity >= RAG_SIMILARITY_THRESHOLD,
-      )
-      if (relevantKnowledge.length > 0) {
-        const lines = relevantKnowledge
-          .map(
-            (r, i) =>
-              `[지식 ${i + 1}] ${r.title ? `**${r.title}**` : `(${r.sourceType})`}\n${r.content}`,
-          )
-          .join('\n\n')
-        systemPrompt += `\n\n## 워크스페이스 지식 (회의록 등)\n${lines}\n\n위 회의록/지식을 우선적으로 참고하여 답변하세요.`
-      }
+    const relevantKnowledge = knowledge.filter((k) => k.similarity >= RAG_SIMILARITY_THRESHOLD)
+    if (relevantKnowledge.length > 0) {
+      const lines = relevantKnowledge
+        .map(
+          (r, i) =>
+            `[지식 ${i + 1}] ${r.title ? `**${r.title}**` : `(${r.sourceType})`}\n${r.content}`,
+        )
+        .join('\n\n')
+      systemPrompt += `\n\n## 워크스페이스 지식 (회의록 등)\n${lines}\n\n위 회의록/지식을 우선적으로 참고하여 답변하세요.`
     }
 
     // 현재 문서 컨텍스트 주입 (pageId가 있을 때)
@@ -591,14 +577,9 @@ export class AiService {
     }
 
     // 일정/할일/회의 질문 → 사용자의 tasks/schedules/회의 직접 주입 (RAG와 무관, DB 사실 기반).
-    // 회의는 현재 컨텍스트(프로젝트/채널/그룹)에서 해석한 그룹으로 좁혀, "선택한 조직의 회의"만 답하게 한다.
+    // 위에서 1회 해석한 candidateGroupId 를 재사용해 "선택한 조직"으로 좁힌다.
     if (this.isScheduleOrTaskQuery(dto.content)) {
-      const scopeGroupId = await this.resolveScopeGroupId({
-        projectId,
-        channelId: dto.channelId,
-        groupId: dto.groupId,
-      })
-      systemPrompt += await this.buildUserScheduleSection(user.userId, scopeGroupId)
+      systemPrompt += await this.buildUserScheduleSection(user.userId, candidateGroupId)
     }
 
     // 문서/채널 컨텍스트 없을 때 AI에게 안내 추가
