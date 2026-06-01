@@ -59,7 +59,18 @@ export class AiController {
     res.setHeader('X-Accel-Buffering', 'no')
     res.flushHeaders()
 
-    await this.aiService.streamToResponse(dto, user, res)
+    // flushHeaders 이후 streamToResponse 안에서 예외가 throw 되면 HTTP 에러 응답을 보낼 수 없어
+    // 클라이언트가 무한로딩에 빠진다. 어떤 예외든 SSE 에러 프레임으로 닫아 매달림을 방지한다.
+    try {
+      await this.aiService.streamToResponse(dto, user, res)
+    } catch {
+      if (!res.writableEnded) {
+        res.write(
+          `data: ${JSON.stringify({ error: 'AI 응답 생성에 실패했습니다', done: true })}\n\n`,
+        )
+        res.end()
+      }
+    }
   }
 
   // ── 인라인 쿼리 (Cmd+K, @AI 멘션) ────────────────────────────────────────

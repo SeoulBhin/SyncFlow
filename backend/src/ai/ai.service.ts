@@ -341,6 +341,15 @@ export class AiService {
     }
   }
 
+  /** timestamptz/date 컬럼은 node-postgres 가 Date 로 반환할 수 있어 .slice 직접 호출 시 터진다.
+   *  Date·문자열 모두 안전하게 YYYY-MM-DD 로 변환. 변환 불가 시 null. */
+  private toDateStr(v: unknown): string | null {
+    if (!v) return null
+    if (v instanceof Date) return Number.isNaN(v.getTime()) ? null : v.toISOString().slice(0, 10)
+    if (typeof v === 'string') return v.slice(0, 10)
+    return null
+  }
+
   private async buildUserScheduleSection(
     userId: string,
     scopeGroupId?: string | null,
@@ -373,9 +382,9 @@ export class AiService {
     if (schedules.length > 0) {
       const lines = schedules
         .map((s) => {
-          const when = s.startAt
-            ? `${s.startAt}${s.endAt ? ` ~ ${s.endAt}` : ''}`
-            : '시간 미지정'
+          const start = this.toDateStr(s.startAt)
+          const end = this.toDateStr(s.endAt)
+          const when = start ? `${start}${end ? ` ~ ${end}` : ''}` : '시간 미지정'
           return `- ${s.title} (${when})`
         })
         .join('\n')
@@ -385,7 +394,7 @@ export class AiService {
     if (meetings.length > 0) {
       const lines = meetings
         .map((m) => {
-          const when = (m.endedAt ?? m.startedAt)?.slice(0, 10) ?? '날짜 미상'
+          const when = this.toDateStr(m.endedAt ?? m.startedAt) ?? '날짜 미상'
           const kw = m.keywords ? ` [키워드: ${m.keywords}]` : ''
           const rawSummary = m.summary?.trim()
           const summaryLine = rawSummary
@@ -578,8 +587,13 @@ export class AiService {
 
     // 일정/할일/회의 질문 → 사용자의 tasks/schedules/회의 직접 주입 (RAG와 무관, DB 사실 기반).
     // 위에서 1회 해석한 candidateGroupId 를 재사용해 "선택한 조직"으로 좁힌다.
+    // SSE 헤더가 이미 flush 된 상태라 여기서 throw 하면 클라이언트가 무한로딩되므로 반드시 격리한다.
     if (this.isScheduleOrTaskQuery(dto.content)) {
-      systemPrompt += await this.buildUserScheduleSection(user.userId, candidateGroupId)
+      try {
+        systemPrompt += await this.buildUserScheduleSection(user.userId, candidateGroupId)
+      } catch (err) {
+        this.logger.warn(`일정/회의 섹션 생성 실패 — 건너뜀: ${(err as Error).message}`)
+      }
     }
 
     // 문서/채널 컨텍스트 없을 때 AI에게 안내 추가
